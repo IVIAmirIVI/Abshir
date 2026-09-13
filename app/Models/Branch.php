@@ -31,6 +31,11 @@ class Branch extends Model
         return $this->hasMany(Area::class);
     }
 
+    public function homeCaptains(): HasMany
+    {
+        return $this->hasMany(Captain::class, 'home_branch_id');
+    }
+
     public function scopeAccessibleTo(Builder $query, User $user): Builder
     {
         if (! $user->is_active) {

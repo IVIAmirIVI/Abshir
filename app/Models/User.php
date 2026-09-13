@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -53,6 +54,16 @@ class User extends Authenticatable
     public function createdCustomers(): HasMany
     {
         return $this->hasMany(Customer::class, 'created_by_user_id');
+    }
+
+    public function captain(): HasOne
+    {
+        return $this->hasOne(Captain::class);
+    }
+
+    public function canAccessCaptain(Captain $captain): bool
+    {
+        return Captain::query()->accessibleTo($this)->whereKey($captain->id)->exists();
     }
 
     public function canAccessArea(Area $area): bool

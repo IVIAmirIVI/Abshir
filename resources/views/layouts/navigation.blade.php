@@ -28,6 +28,12 @@
                     @can('areas.view')
                         <x-nav-link :href="route('areas.index')" :active="request()->routeIs('areas.*')">Areas</x-nav-link>
                     @endcan
+                    @can('captains.view')
+                        <x-nav-link :href="route('captains.index')" :active="request()->routeIs('captains.*')">Captains</x-nav-link>
+                    @endcan
+                    @can('captain_groups.view')
+                        <x-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -98,6 +104,12 @@
             @endcan
             @can('areas.view')
                 <x-responsive-nav-link :href="route('areas.index')" :active="request()->routeIs('areas.*')">Areas</x-responsive-nav-link>
+            @endcan
+            @can('captains.view')
+                <x-responsive-nav-link :href="route('captains.index')" :active="request()->routeIs('captains.*')">Captains</x-responsive-nav-link>
+            @endcan
+            @can('captain_groups.view')
+                <x-responsive-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-responsive-nav-link>
             @endcan
         </div>
         <!-- Responsive Settings Options -->

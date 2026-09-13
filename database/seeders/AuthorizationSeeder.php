@@ -19,6 +19,9 @@ class AuthorizationSeeder extends Seeder
                 'branches' => ['view', 'create', 'update', 'activate', 'deactivate'],
                 'customers' => ['view', 'create', 'update', 'activate', 'deactivate'],
                 'areas' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'captains' => ['view', 'create', 'update', 'status.update'],
+                'captain_branches' => ['view', 'assign', 'transfer'],
+                'captain_groups' => ['view', 'create', 'update', 'activate', 'deactivate', 'assign'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -46,6 +49,9 @@ class AuthorizationSeeder extends Seeder
                         'customers.activate',
                         'customers.deactivate',
                         'areas.view',
+                        'captains.view',
+                        'captain_branches.view',
+                        'captain_groups.view',
                     ])->pluck('id'));
                 }
             }

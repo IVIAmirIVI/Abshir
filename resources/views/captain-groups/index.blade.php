@@ -1,0 +1,9 @@
+<x-app-layout>
+    <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800">Captain Groups</h2></x-slot>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        @if(session('status'))<p role="status" class="rounded-lg bg-green-50 p-4 text-green-800">{{ session('status') }}</p>@endif
+        <div class="flex flex-wrap justify-between gap-4"><p class="text-gray-600">Operational and reporting groups; vehicle information remains separate.</p>@can('captain_groups.create')<a class="rounded-md bg-gray-800 px-4 py-2 text-white" href="{{ route('captain-groups.create') }}">Create group</a>@endcan</div>
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">@forelse($groups as $group)<article class="rounded-lg bg-white p-5 shadow space-y-3"><div class="flex justify-between gap-3"><h3 class="font-semibold break-words">{{ $group->name }}</h3><span class="text-sm {{ $group->is_active ? 'text-green-700' : 'text-red-700' }}">{{ $group->is_active ? 'Active' : 'Inactive' }}</span></div><p class="text-sm break-all">{{ $group->code ?: 'No code' }}</p><p class="text-sm text-gray-600 break-words">{{ $group->description ?: 'No description.' }}</p><p class="text-sm">{{ $group->memberships_count }} historical memberships</p><div class="flex flex-wrap gap-3">@can('captain_groups.update')<a class="underline text-sm" href="{{ route('captain-groups.edit', $group) }}">Edit</a>@endcan @can($group->is_active ? 'captain_groups.deactivate' : 'captain_groups.activate')<form method="POST" action="{{ route('captain-groups.status', $group) }}">@csrf @method('PATCH')<input type="hidden" name="is_active" value="{{ $group->is_active ? 0 : 1 }}"><button class="underline text-sm">{{ $group->is_active ? 'Deactivate' : 'Activate' }}</button></form>@endcan</div></article>@empty<p>No Captain groups found.</p>@endforelse</div>
+        {{ $groups->links() }}
+    </div>
+</x-app-layout>
