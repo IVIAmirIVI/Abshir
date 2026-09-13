@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -16,6 +17,10 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call(AuthorizationSeeder::class);
+        if (! app()->environment('local')) {
+            return;
+        }
         $email = env('LOCAL_ADMIN_EMAIL');
         $password = env('LOCAL_ADMIN_PASSWORD');
 
@@ -23,7 +28,7 @@ class DatabaseSeeder extends Seeder
             return;
         }
 
-        User::query()->updateOrCreate(
+        $user = User::query()->firstOrCreate(
             ['email' => $email],
             [
                 'name' => env('LOCAL_ADMIN_NAME', 'Local Administrator'),
@@ -31,5 +36,6 @@ class DatabaseSeeder extends Seeder
                 'email_verified_at' => now(),
             ],
         );
+        $user->roles()->syncWithoutDetaching([Role::where('code', Role::SUPER_ADMIN)->sole()->id]);
     }
 }

@@ -6,7 +6,9 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -14,6 +16,39 @@ use Illuminate\Notifications\Notifiable;
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
+    protected $attributes = ['is_active' => true];
+
+    public function roles(): BelongsToMany
+    {
+        return $this->belongsToMany(Role::class, 'user_roles');
+    }
+
+    public function branches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'user_branches');
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->roles()->where('code', Role::SUPER_ADMIN)->exists();
+    }
+
+    public function hasPermission(string $code): bool
+    {
+        return $this->is_active && ($this->isSuperAdmin() || $this->roles()
+            ->whereHas('permissions', fn ($query) => $query->where('code', $code))->exists());
+    }
+
+    public function availableBranches(): Builder
+    {
+        return Branch::query()->accessibleTo($this);
+    }
+
+    public function canAccessBranch(Branch $branch): bool
+    {
+        return $this->availableBranches()->whereKey($branch->id)->exists();
+    }
+
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
@@ -25,6 +60,7 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'is_active' => 'boolean',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
