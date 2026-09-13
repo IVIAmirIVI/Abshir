@@ -22,6 +22,12 @@
                             @endif
                         @endcan
                     @endforeach
+                    @can('customers.view')
+                        <x-nav-link :href="route('customers.index')" :active="request()->routeIs('customers.*')">Customers</x-nav-link>
+                    @endcan
+                    @can('areas.view')
+                        <x-nav-link :href="route('areas.index')" :active="request()->routeIs('areas.*')">Areas</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -87,6 +93,12 @@
                     @endif
                 @endcan
             @endforeach
+            @can('customers.view')
+                <x-responsive-nav-link :href="route('customers.index')" :active="request()->routeIs('customers.*')">Customers</x-responsive-nav-link>
+            @endcan
+            @can('areas.view')
+                <x-responsive-nav-link :href="route('areas.index')" :active="request()->routeIs('areas.*')">Areas</x-responsive-nav-link>
+            @endcan
         </div>
         <!-- Responsive Settings Options -->
         <div class="pt-4 pb-1 border-t border-gray-200">

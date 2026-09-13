@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -47,6 +48,21 @@ class User extends Authenticatable
     public function canAccessBranch(Branch $branch): bool
     {
         return $this->availableBranches()->whereKey($branch->id)->exists();
+    }
+
+    public function createdCustomers(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'created_by_user_id');
+    }
+
+    public function canAccessArea(Area $area): bool
+    {
+        return Area::query()->accessibleTo($this)->whereKey($area->id)->exists();
+    }
+
+    public function canAccessCustomer(Customer $customer): bool
+    {
+        return Customer::query()->accessibleTo($this)->whereKey($customer->id)->exists();
     }
 
     /** @use HasFactory<UserFactory> */

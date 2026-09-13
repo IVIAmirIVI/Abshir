@@ -17,6 +17,8 @@ class AuthorizationSeeder extends Seeder
                 'roles' => ['view', 'create', 'update', 'assign'],
                 'permissions' => ['view'],
                 'branches' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'customers' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'areas' => ['view', 'create', 'update', 'activate', 'deactivate'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -36,7 +38,15 @@ class AuthorizationSeeder extends Seeder
                     $role->save();
                 }
                 if ($code === 'ORDER_EMPLOYEE') {
-                    $role->permissions()->syncWithoutDetaching(Permission::where('code', 'branches.view')->pluck('id'));
+                    $role->permissions()->syncWithoutDetaching(Permission::whereIn('code', [
+                        'branches.view',
+                        'customers.view',
+                        'customers.create',
+                        'customers.update',
+                        'customers.activate',
+                        'customers.deactivate',
+                        'areas.view',
+                    ])->pluck('id'));
                 }
             }
         });

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['name', 'code', 'address', 'phone'])]
 class Branch extends Model
@@ -23,6 +24,11 @@ class Branch extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'user_branches');
+    }
+
+    public function areas(): HasMany
+    {
+        return $this->hasMany(Area::class);
     }
 
     public function scopeAccessibleTo(Builder $query, User $user): Builder
