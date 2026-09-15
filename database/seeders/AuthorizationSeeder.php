@@ -22,6 +22,15 @@ class AuthorizationSeeder extends Seeder
                 'captains' => ['view', 'create', 'update', 'status.update'],
                 'captain_branches' => ['view', 'assign', 'transfer'],
                 'captain_groups' => ['view', 'create', 'update', 'activate', 'deactivate', 'assign'],
+                'currencies' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'categories' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'units' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'products' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'product_groups' => ['view', 'create', 'update', 'activate', 'deactivate', 'assign'],
+                'shop_types' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'shops' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'shop_products' => ['view', 'create', 'update'],
+                'shop_partnerships' => ['view', 'create', 'update'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -52,6 +61,13 @@ class AuthorizationSeeder extends Seeder
                         'captains.view',
                         'captain_branches.view',
                         'captain_groups.view',
+                        'categories.view',
+                        'units.view',
+                        'products.view',
+                        'product_groups.view',
+                        'shop_types.view',
+                        'shops.view',
+                        'shop_products.view',
                     ])->pluck('id'));
                 }
             }

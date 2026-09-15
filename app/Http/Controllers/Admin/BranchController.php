@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\BranchRequest;
 use App\Models\Branch;
+use App\Models\Currency;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -23,7 +24,7 @@ class BranchController extends Controller
     {
         Gate::authorize('branches.create');
 
-        return view('admin.branches.form', ['branch' => new Branch]);
+        return view('admin.branches.form', ['branch' => new Branch, 'currencies' => Currency::query()->where('is_active', true)->orderBy('code')->get()]);
     }
 
     public function edit(Request $request, Branch $branch): View
@@ -31,7 +32,10 @@ class BranchController extends Controller
         Gate::authorize('branches.update');
         abort_unless($request->user()->canAccessBranch($branch), 403);
 
-        return view('admin.branches.form', compact('branch'));
+        return view('admin.branches.form', [
+            'branch' => $branch,
+            'currencies' => Currency::query()->where('is_active', true)->orWhereKey($branch->default_currency_id)->orderBy('code')->get(),
+        ]);
     }
 
     public function store(BranchRequest $request): RedirectResponse

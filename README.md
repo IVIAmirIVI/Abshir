@@ -1,6 +1,6 @@
 # Abshir
 
-Abshir is an internal operations system. It currently includes the project foundation, role and branch authorization, and the Phase 2 customer, phone, address, and area foundation.
+Abshir is an internal operations system. It currently includes the project foundation, role and branch authorization, customers and areas, Captains, and the catalog and Shop foundation.
 
 ## Stack
 
@@ -25,6 +25,7 @@ Set the `DB_*` values in `.env` for a local PostgreSQL database named `abshir`. 
 
 ```powershell
 php artisan migrate
+php artisan storage:link
 npm run build
 php artisan serve
 ```
@@ -75,7 +76,21 @@ Captain Groups are reusable operational and reporting classifications, including
 
 ### Deferred pricing rule
 
-For a future unknown-shop estimate, take each Shop's latest observed price for the same Product and Unit within the configured recent window (default three days), then suggest the lowest among those latest-per-Shop prices. Break equal-price ties using the more recent observation. The future UI must show the source Shop and observation timestamp, and Order Item snapshots must retain the estimate, source, Shop, observation timestamp, and window used. Phase 3 implements none of this pricing or Order behavior.
+For a future unknown-shop estimate, take each Shop's latest observed price for the same Product and Unit within the configured recent window (default three days), then suggest the lowest among those latest-per-Shop prices. Break equal-price ties using the more recent observation. The future UI must show the source Shop and observation timestamp, and Order Item snapshots must retain the estimate, source, Shop, observation timestamp, and window used. Phase 4 implements none of this pricing or Order behavior.
+
+### Phase 4 catalog and Shop decisions
+
+Categories provide hierarchical catalog classification and navigation, with unrestricted depth and cycle prevention. Product Groups are separate, flexible commercial and reporting sets; membership rows retain their joined and left times so future commission or promotion rules can evaluate historical membership without embedding those rules in the Group.
+
+Every reusable Product has a managed default Unit. A Shop Product may use another managed Unit because a Product can be listed per piece, box, or another unit. Product images store public-disk paths rather than database binaries, and the image service maintains one primary image while safely removing stored files.
+
+Currencies are managed records with ISO-style codes and exact decimal-place metadata. Branches may select a default Currency through the forward Phase 4 migration. Shop Product prices use an optional Currency foreign key and PostgreSQL-compatible `numeric(18,4)` storage. A Shop Product is only the Shop's current listed catalog information; it is not price history and updates do not create price observations.
+
+A Shop has an optional Area, and its Branch relevance derives from that Area. This avoids a duplicate direct Branch link while keeping branch-scoped access enforceable. Area-less Shops are reserved for Super Admin management. Mobile visibility and online-order fields are readiness flags. Actual mobile eligibility also requires an active partnership whose corresponding flag is enabled.
+
+Shop Partnerships are implemented as historical relationship periods with active, suspended, or ended status and mobile/online readiness metadata. They contain no commission, balance, settlement, or financial logic. Ending a partnership retains its historical row.
+
+One-time Order items and unknown/one-time Shops remain deferred to the Order phase. Future Order records must support either a registered Product/Shop reference or a preserved one-time snapshot without forcing permanent catalog or Shop creation. Future price observations will reference Product, Shop, Unit, Currency, exact price, observation time, source, and optional actor/reference. No price-history schema or estimation service exists in Phase 4.
 
 ## Security baseline
 

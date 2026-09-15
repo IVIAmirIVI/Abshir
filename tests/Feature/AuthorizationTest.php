@@ -236,7 +236,7 @@ class AuthorizationTest extends TestCase
         $role->permissions()->detach();
         $this->seed(AuthorizationSeeder::class);
         $this->assertDatabaseCount('roles', 3);
-        $this->assertDatabaseCount('permissions', 41);
+        $this->assertDatabaseCount('permissions', 83);
         $this->assertEqualsCanonicalizing([
             'areas.view',
             'branches.view',
@@ -248,6 +248,13 @@ class AuthorizationTest extends TestCase
             'captain_branches.view',
             'captain_groups.view',
             'captains.view',
+            'categories.view',
+            'product_groups.view',
+            'products.view',
+            'shop_products.view',
+            'shop_types.view',
+            'shops.view',
+            'units.view',
         ], $role->fresh()->permissions->pluck('code')->all());
         $this->assertCount(0, Role::where('code', 'CAPTAIN')->sole()->permissions);
     }

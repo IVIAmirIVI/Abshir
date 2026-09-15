@@ -1,0 +1,9 @@
+<x-app-layout>
+    <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800">{{ $shopType->exists ? 'Edit Shop Type' : 'Create Shop Type' }}</h2></x-slot>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><form class="max-w-3xl rounded-lg bg-white p-5 shadow space-y-6 sm:p-8" method="POST" action="{{ $shopType->exists ? route('shop-types.update', $shopType) : route('shop-types.store') }}">@csrf @if($shopType->exists)@method('PUT')@endif
+        @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-4 text-red-800"><ul class="list-disc pl-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+        <div class="grid gap-5 sm:grid-cols-2"><div><x-input-label for="name" value="Name" /><x-text-input id="name" name="name" class="mt-1 block w-full" value="{{ old('name', $shopType->name) }}" required /></div><div><x-input-label for="code" value="Unique code" /><x-text-input id="code" name="code" class="mt-1 block w-full" value="{{ old('code', $shopType->code) }}" /></div></div>
+        <div><x-input-label for="description" value="Description" /><textarea id="description" name="description" rows="4" class="mt-1 block w-full rounded-md border-gray-300">{{ old('description', $shopType->description) }}</textarea></div>
+        <div class="flex gap-4"><x-primary-button>Save Shop Type</x-primary-button><a class="self-center underline text-sm" href="{{ route('shop-types.index') }}">Cancel</a></div>
+    </form></div>
+</x-app-layout>

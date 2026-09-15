@@ -34,6 +34,12 @@
                     @can('captain_groups.view')
                         <x-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-nav-link>
                     @endcan
+                    @can('products.view')
+                        <x-nav-link :href="route('products.index')" :active="request()->routeIs('products.*') || request()->routeIs('categories.*') || request()->routeIs('units.*') || request()->routeIs('product-groups.*') || request()->routeIs('currencies.*')">Catalog</x-nav-link>
+                    @endcan
+                    @can('shops.view')
+                        <x-nav-link :href="route('shops.index')" :active="request()->routeIs('shops.*') || request()->routeIs('shop-types.*')">Shops</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -110,6 +116,12 @@
             @endcan
             @can('captain_groups.view')
                 <x-responsive-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-responsive-nav-link>
+            @endcan
+            @can('products.view')
+                <x-responsive-nav-link :href="route('products.index')" :active="request()->routeIs('products.*') || request()->routeIs('categories.*') || request()->routeIs('units.*') || request()->routeIs('product-groups.*') || request()->routeIs('currencies.*')">Catalog</x-responsive-nav-link>
+            @endcan
+            @can('shops.view')
+                <x-responsive-nav-link :href="route('shops.index')" :active="request()->routeIs('shops.*') || request()->routeIs('shop-types.*')">Shops</x-responsive-nav-link>
             @endcan
         </div>
         <!-- Responsive Settings Options -->

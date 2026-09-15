@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'code', 'address', 'phone'])]
+#[Fillable(['name', 'code', 'address', 'phone', 'default_currency_id'])]
 class Branch extends Model
 {
     protected $attributes = ['is_active' => true];
@@ -34,6 +35,11 @@ class Branch extends Model
     public function homeCaptains(): HasMany
     {
         return $this->hasMany(Captain::class, 'home_branch_id');
+    }
+
+    public function defaultCurrency(): BelongsTo
+    {
+        return $this->belongsTo(Currency::class, 'default_currency_id');
     }
 
     public function scopeAccessibleTo(Builder $query, User $user): Builder

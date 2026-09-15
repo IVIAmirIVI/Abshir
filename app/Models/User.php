@@ -66,6 +66,11 @@ class User extends Authenticatable
         return Captain::query()->accessibleTo($this)->whereKey($captain->id)->exists();
     }
 
+    public function canAccessShop(Shop $shop): bool
+    {
+        return Shop::query()->accessibleTo($this)->whereKey($shop->id)->exists();
+    }
+
     public function canAccessArea(Area $area): bool
     {
         return Area::query()->accessibleTo($this)->whereKey($area->id)->exists();

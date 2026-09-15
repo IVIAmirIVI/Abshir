@@ -43,6 +43,11 @@ class Area extends Model
         return $this->hasMany(CustomerAddress::class);
     }
 
+    public function shops(): HasMany
+    {
+        return $this->hasMany(Shop::class);
+    }
+
     public function scopeAccessibleTo(Builder $query, User $user): Builder
     {
         if ($user->isSuperAdmin()) {
