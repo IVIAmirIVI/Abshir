@@ -43,6 +43,9 @@
                     @can('product_prices.view')
                         <x-nav-link :href="route('product-prices.index')" :active="request()->routeIs('product-prices.*') || request()->routeIs('products.price-*') || request()->routeIs('shops.price-history')">Pricing</x-nav-link>
                     @endcan
+                    @can('orders.view')
+                        <x-nav-link :href="route('orders.index')" :active="request()->routeIs('orders.*')">Orders</x-nav-link>
+                    @endcan
                     @can('system_settings.view')
                         <x-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-nav-link>
                     @endcan
@@ -131,6 +134,9 @@
             @endcan
             @can('product_prices.view')
                 <x-responsive-nav-link :href="route('product-prices.index')" :active="request()->routeIs('product-prices.*') || request()->routeIs('products.price-*') || request()->routeIs('shops.price-history')">Pricing</x-responsive-nav-link>
+            @endcan
+            @can('orders.view')
+                <x-responsive-nav-link :href="route('orders.index')" :active="request()->routeIs('orders.*')">Orders</x-responsive-nav-link>
             @endcan
             @can('system_settings.view')
                 <x-responsive-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-responsive-nav-link>

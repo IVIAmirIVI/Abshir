@@ -64,13 +64,13 @@ class Phase4AuthorizationTest extends TestCase
         $this->assertSame('Foreign', $shop->fresh()->name);
     }
 
-    public function test_seeder_is_idempotent_and_no_future_domain_schema_exists(): void
+    public function test_seeder_is_idempotent_and_no_phase_seven_domain_schema_exists(): void
     {
         $this->seed(AuthorizationSeeder::class);
         $this->seed(AuthorizationSeeder::class);
-        $this->assertDatabaseCount('permissions', 87);
+        $this->assertDatabaseCount('permissions', 95);
         $this->assertCount(0, Role::where('code', 'CAPTAIN')->sole()->permissions);
-        foreach (['price_observations', 'orders', 'order_items', 'invoices', 'ledgers', 'incentives', 'inventories'] as $table) {
+        foreach (['invoices', 'payments', 'ledgers', 'commissions', 'incentives', 'inventories'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

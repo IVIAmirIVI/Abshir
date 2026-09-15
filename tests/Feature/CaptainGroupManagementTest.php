@@ -125,7 +125,7 @@ class CaptainGroupManagementTest extends TestCase
             $this->assertFalse($employee->can($ability));
         }
         $this->actingAs($employee)->get(route('captain-groups.create'))->assertForbidden();
-        $this->assertDatabaseCount('permissions', 87);
+        $this->assertDatabaseCount('permissions', 95);
         $this->assertDatabaseCount('roles', 3);
     }
 

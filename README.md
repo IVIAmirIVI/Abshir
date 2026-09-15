@@ -100,6 +100,20 @@ For an unknown-Shop estimate, the service looks from `reference time - configure
 
 The estimate result exposes the price, source Shop and observation, exact observed time, Unit, Currency, configured window, and `LATEST_SHOP_LOWEST_PRICE` method. A future Order Item must copy its estimated unit price, method, source Shop ID, source observation ID, source observed time, window days, Currency ID, and Unit ID into an immutable snapshot. Later price observations must not change that snapshot. For known Shops, future Orders will show the latest same-Product + Shop + Unit + Currency observation as reference only; the customer ultimately pays a separately confirmed actual price. Future actual-price sources such as `SHOP_CONFIRMED`, `PURCHASE_RECEIPT`, and `MANUAL_VERIFIED` belong to Order pricing and are separate from the estimation method.
 
+### Phase 6 Order decisions
+
+An Order belongs to one Branch and contains one or more Order Shops, each containing Order Items. The Order has one operational status for the entire workflow; Shops do not have separate status machines. Pricing status is derived separately from item-level actual-price confirmation.
+
+Order creation records immutable Customer, selected phone, address, and Area snapshots while retaining foreign keys for traceability. Registered Shops and catalog Products retain references plus snapshots. One-time Shops and one-time Items exist only within the Order and never create permanent Shop or Product records.
+
+Estimated item prices are copied evidence. A registered Shop uses the latest matching Phase 5 observation; a one-time Shop uses the configured latest-per-Shop lowest-price estimate. Manual estimates are marked explicitly and invent no source. Actual price, Currency, source, actor, and confirmation time are stored separately and never overwrite estimate evidence.
+
+Captain assignments are historical. Active assignments contain exactly one `PRIMARY_COLLECTION` Captain before Support Captains may be added. Multiple Captains work on the same shared Order. Switching the primary Captain is an explicit, reasoned workflow that closes prior assignment rows. Captains cannot administer Orders or change items; authorized Order Employees record quantity changes and replacements while preserving original quantities and change history.
+
+All active Order Captain mutations serialize through a lock on the parent Order row before inspecting or locking assignment rows. PostgreSQL partial unique indexes separately prevent multiple active primary Captains and duplicate active Captain assignments. Direct removal of a primary Captain is rejected while Support Captains remain; the primary must be switched explicitly first.
+
+Delivery pricing, discounts, customer payments, invoices, collection and cash custody, financial ledgers, commissions, incentives, salaries, returns, messaging, mobile APIs, and the Captain Portal remain deferred.
+
 ## Security baseline
 
 Laravel CSRF middleware, password hashing, guarded model assignment, auth middleware, production-safe exception behavior, and environment-provided database credentials remain enabled. Keep `APP_DEBUG=false` in production.

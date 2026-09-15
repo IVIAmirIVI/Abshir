@@ -32,6 +32,7 @@ class AuthorizationSeeder extends Seeder
                 'shop_products' => ['view', 'create', 'update'],
                 'shop_partnerships' => ['view', 'create', 'update'],
                 'product_prices' => ['view', 'create', 'reports', 'estimate'],
+                'orders' => ['view', 'create', 'update', 'status.update', 'pricing.update', 'captains.assign', 'captains.remove', 'items.change'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -73,6 +74,14 @@ class AuthorizationSeeder extends Seeder
                         'product_prices.create',
                         'product_prices.reports',
                         'product_prices.estimate',
+                        'orders.view',
+                        'orders.create',
+                        'orders.update',
+                        'orders.status.update',
+                        'orders.pricing.update',
+                        'orders.captains.assign',
+                        'orders.captains.remove',
+                        'orders.items.change',
                     ])->pluck('id'));
                 }
             }

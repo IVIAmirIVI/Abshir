@@ -128,13 +128,13 @@ class ProductPricingAuthorizationTest extends TestCase
         $this->get('/price-observations')->assertRedirect('/login');
     }
 
-    public function test_seeder_is_idempotent_and_no_phase_six_schema_exists(): void
+    public function test_seeder_is_idempotent_and_phase_six_does_not_add_financial_schema(): void
     {
         $this->seed(AuthorizationSeeder::class);
         $this->seed(AuthorizationSeeder::class);
-        $this->assertDatabaseCount('permissions', 87);
+        $this->assertDatabaseCount('permissions', 95);
         $this->assertCount(4, Permission::where('code', 'like', 'product_prices.%')->get());
-        foreach (['orders', 'order_items', 'order_shops', 'invoices', 'payments', 'ledgers', 'commissions', 'incentives'] as $table) {
+        foreach (['invoices', 'payments', 'ledgers', 'commissions', 'incentives'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }
