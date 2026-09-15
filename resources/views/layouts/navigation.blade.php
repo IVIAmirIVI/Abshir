@@ -40,6 +40,12 @@
                     @can('shops.view')
                         <x-nav-link :href="route('shops.index')" :active="request()->routeIs('shops.*') || request()->routeIs('shop-types.*')">Shops</x-nav-link>
                     @endcan
+                    @can('product_prices.view')
+                        <x-nav-link :href="route('product-prices.index')" :active="request()->routeIs('product-prices.*') || request()->routeIs('products.price-*') || request()->routeIs('shops.price-history')">Pricing</x-nav-link>
+                    @endcan
+                    @can('system_settings.view')
+                        <x-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -122,6 +128,12 @@
             @endcan
             @can('shops.view')
                 <x-responsive-nav-link :href="route('shops.index')" :active="request()->routeIs('shops.*') || request()->routeIs('shop-types.*')">Shops</x-responsive-nav-link>
+            @endcan
+            @can('product_prices.view')
+                <x-responsive-nav-link :href="route('product-prices.index')" :active="request()->routeIs('product-prices.*') || request()->routeIs('products.price-*') || request()->routeIs('shops.price-history')">Pricing</x-responsive-nav-link>
+            @endcan
+            @can('system_settings.view')
+                <x-responsive-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-responsive-nav-link>
             @endcan
         </div>
         <!-- Responsive Settings Options -->

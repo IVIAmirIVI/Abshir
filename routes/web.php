@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\BranchController;
+use App\Http\Controllers\Admin\PriceEstimationSettingController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AreaController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductGroupController;
 use App\Http\Controllers\ProductGroupMembershipController;
 use App\Http\Controllers\ProductImageController;
+use App\Http\Controllers\ProductPriceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ShopController;
 use App\Http\Controllers\ShopPartnershipController;
@@ -50,6 +52,8 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::patch('branches/{branch}/status', [BranchController::class, 'status'])->name('branches.status');
     Route::resource('roles', RoleController::class)->except(['show', 'destroy']);
     Route::get('permissions', [RoleController::class, 'permissions'])->name('permissions.index');
+    Route::get('pricing-settings', [PriceEstimationSettingController::class, 'edit'])->name('pricing-settings.edit');
+    Route::put('pricing-settings', [PriceEstimationSettingController::class, 'update'])->name('pricing-settings.update');
 });
 
 Route::middleware('auth')->group(function () {
@@ -102,4 +106,11 @@ Route::middleware('auth')->group(function () {
     Route::patch('shops/{shop}/products/{shop_product}/status', [ShopProductController::class, 'status'])->name('shops.products.status');
     Route::post('shops/{shop}/partnerships', [ShopPartnershipController::class, 'store'])->name('shops.partnerships.store');
     Route::patch('shops/{shop}/partnerships/{partnership}/end', [ShopPartnershipController::class, 'end'])->name('shops.partnerships.end');
+    Route::get('price-observations', [ProductPriceController::class, 'index'])->name('product-prices.index');
+    Route::get('price-observations/create', [ProductPriceController::class, 'create'])->name('product-prices.create');
+    Route::post('price-observations', [ProductPriceController::class, 'store'])->name('product-prices.store');
+    Route::get('products/{product}/price-history', [ProductPriceController::class, 'productHistory'])->name('products.price-history');
+    Route::get('products/{product}/price-comparison', [ProductPriceController::class, 'comparison'])->name('products.price-comparison');
+    Route::get('shops/{shop}/price-history', [ProductPriceController::class, 'shopHistory'])->name('shops.price-history');
+    Route::get('price-estimate', [ProductPriceController::class, 'estimate'])->name('product-prices.estimate');
 });

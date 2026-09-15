@@ -23,4 +23,9 @@ class Currency extends Model
     {
         return $this->hasMany(Branch::class, 'default_currency_id');
     }
+
+    public function priceHistory(): HasMany
+    {
+        return $this->hasMany(ProductPriceHistory::class);
+    }
 }

@@ -49,6 +49,11 @@ class Shop extends Model
         return $this->hasMany(ShopPartnership::class);
     }
 
+    public function priceHistory(): HasMany
+    {
+        return $this->hasMany(ProductPriceHistory::class);
+    }
+
     public function scopeAccessibleTo(Builder $query, User $user): Builder
     {
         if ($user->isSuperAdmin()) {

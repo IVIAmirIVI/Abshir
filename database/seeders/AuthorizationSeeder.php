@@ -31,6 +31,7 @@ class AuthorizationSeeder extends Seeder
                 'shops' => ['view', 'create', 'update', 'activate', 'deactivate'],
                 'shop_products' => ['view', 'create', 'update'],
                 'shop_partnerships' => ['view', 'create', 'update'],
+                'product_prices' => ['view', 'create', 'reports', 'estimate'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -68,6 +69,10 @@ class AuthorizationSeeder extends Seeder
                         'shop_types.view',
                         'shops.view',
                         'shop_products.view',
+                        'product_prices.view',
+                        'product_prices.create',
+                        'product_prices.reports',
+                        'product_prices.estimate',
                     ])->pluck('id'));
                 }
             }

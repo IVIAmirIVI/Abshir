@@ -28,4 +28,9 @@ class Unit extends Model
     {
         return $this->hasMany(ShopProduct::class);
     }
+
+    public function priceHistory(): HasMany
+    {
+        return $this->hasMany(ProductPriceHistory::class);
+    }
 }

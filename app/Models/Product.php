@@ -47,6 +47,11 @@ class Product extends Model
         return $this->hasMany(ShopProduct::class);
     }
 
+    public function priceHistory(): HasMany
+    {
+        return $this->hasMany(ProductPriceHistory::class);
+    }
+
     public function isMemberOfAt(ProductGroup $group, Carbon $at): bool
     {
         return $this->groupMemberships()->where('product_group_id', $group->id)->activeAt($at)->exists();

@@ -61,6 +61,11 @@ class User extends Authenticatable
         return $this->hasOne(Captain::class);
     }
 
+    public function recordedPriceObservations(): HasMany
+    {
+        return $this->hasMany(ProductPriceHistory::class, 'recorded_by');
+    }
+
     public function canAccessCaptain(Captain $captain): bool
     {
         return Captain::query()->accessibleTo($this)->whereKey($captain->id)->exists();

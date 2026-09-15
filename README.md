@@ -1,6 +1,6 @@
 # Abshir
 
-Abshir is an internal operations system. It currently includes the project foundation, role and branch authorization, customers and areas, Captains, and the catalog and Shop foundation.
+Abshir is an internal operations system. It currently includes the project foundation, role and branch authorization, customers and areas, Captains, the catalog and Shop foundation, and Product pricing history and comparison.
 
 ## Stack
 
@@ -74,10 +74,6 @@ The home branch is the Captain's permanent base. Temporary branch assignments ad
 
 Captain Groups are reusable operational and reporting classifications, including simultaneous memberships. Dated membership rows are retained after they end, reject overlapping membership in the same group, and support membership-at-time queries for later incentive eligibility. Groups do not represent vehicle types. Vehicle metadata is deferred and, if added, will use a separate vehicle model rather than Captain Groups.
 
-### Deferred pricing rule
-
-For a future unknown-shop estimate, take each Shop's latest observed price for the same Product and Unit within the configured recent window (default three days), then suggest the lowest among those latest-per-Shop prices. Break equal-price ties using the more recent observation. The future UI must show the source Shop and observation timestamp, and Order Item snapshots must retain the estimate, source, Shop, observation timestamp, and window used. Phase 4 implements none of this pricing or Order behavior.
-
 ### Phase 4 catalog and Shop decisions
 
 Categories provide hierarchical catalog classification and navigation, with unrestricted depth and cycle prevention. Product Groups are separate, flexible commercial and reporting sets; membership rows retain their joined and left times so future commission or promotion rules can evaluate historical membership without embedding those rules in the Group.
@@ -90,7 +86,19 @@ A Shop has an optional Area, and its Branch relevance derives from that Area. Th
 
 Shop Partnerships are implemented as historical relationship periods with active, suspended, or ended status and mobile/online readiness metadata. They contain no commission, balance, settlement, or financial logic. Ending a partnership retains its historical row.
 
-One-time Order items and unknown/one-time Shops remain deferred to the Order phase. Future Order records must support either a registered Product/Shop reference or a preserved one-time snapshot without forcing permanent catalog or Shop creation. Future price observations will reference Product, Shop, Unit, Currency, exact price, observation time, source, and optional actor/reference. No price-history schema or estimation service exists in Phase 4.
+One-time Order items and unknown/one-time Shops remain deferred to the Order phase. Future Order records must support either a registered Product/Shop reference or a preserved one-time snapshot without forcing permanent catalog or Shop creation.
+
+### Phase 5 Product pricing decisions
+
+`ProductPriceHistory` stores append-only observations using exact `numeric(18,4)` prices. Each row identifies its Product, registered Shop, Unit, Currency, centralized source, optional notes and recorder, and both `observed_at` and `created_at`. `observed_at` is when the price was obtained and drives all price selection; `created_at` is only when it was entered. Ordinary application flows provide no edit or delete route. A correction is a new observation with explanatory notes so prior evidence remains queryable.
+
+Comparisons are valid only for the same Product, Unit, and Currency. There is no currency conversion. A known-Shop lookup selects the greatest `observed_at`, breaking equal timestamps by the greatest observation ID. The Shop comparison report applies the same ordering independently to each Shop + Unit + Currency context and never averages currencies or prices.
+
+For an unknown-Shop estimate, the service looks from `reference time - configured window` through the reference time, including both boundaries and excluding future observations. It selects each accessible Shop's latest observation first, then chooses the lowest price among those latest rows. Equal prices use the more recent `observed_at`, then the greater observation ID. The default window is three days and Super Admin can change it from 1 through 365 days. If the window contains no valid same-Product + same-Unit + same-Currency observation, the service returns an explicit unavailable result; it never falls back to an old observation or `ShopProduct.listed_price`.
+
+`ShopProduct.listed_price` remains optional current catalog information and does not create or change price-history rows automatically. Price history also does not update Shop Product listings. Price observations may exist for registered Shops without a Shop Product listing.
+
+The estimate result exposes the price, source Shop and observation, exact observed time, Unit, Currency, configured window, and `LATEST_SHOP_LOWEST_PRICE` method. A future Order Item must copy its estimated unit price, method, source Shop ID, source observation ID, source observed time, window days, Currency ID, and Unit ID into an immutable snapshot. Later price observations must not change that snapshot. For known Shops, future Orders will show the latest same-Product + Shop + Unit + Currency observation as reference only; the customer ultimately pays a separately confirmed actual price. Future actual-price sources such as `SHOP_CONFIRMED`, `PURCHASE_RECEIPT`, and `MANUAL_VERIFIED` belong to Order pricing and are separate from the estimation method.
 
 ## Security baseline
 
