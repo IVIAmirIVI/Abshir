@@ -10,15 +10,16 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['branch_id', 'customer_id', 'customer_phone_id', 'customer_address_id', 'order_number', 'ordered_at', 'customer_name_snapshot', 'customer_phone_snapshot', 'customer_phone_normalized_snapshot', 'address_label_snapshot', 'recipient_name_snapshot', 'area_name_snapshot', 'area_path_snapshot', 'address_line_1_snapshot', 'address_line_2_snapshot', 'landmark_snapshot', 'latitude_snapshot', 'longitude_snapshot', 'notes', 'created_by'])]
+#[Fillable(['branch_id', 'customer_id', 'customer_phone_id', 'customer_address_id', 'destination_area_id', 'destination_area_confirmed_by', 'destination_area_confirmed_at', 'order_number', 'ordered_at', 'customer_name_snapshot', 'customer_phone_snapshot', 'customer_phone_normalized_snapshot', 'address_label_snapshot', 'recipient_name_snapshot', 'area_name_snapshot', 'area_path_snapshot', 'address_line_1_snapshot', 'address_line_2_snapshot', 'landmark_snapshot', 'latitude_snapshot', 'longitude_snapshot', 'notes', 'created_by'])]
 class Order extends Model
 {
     protected $attributes = ['operational_status' => 'NEW', 'pricing_status' => 'ESTIMATED'];
 
     protected function casts(): array
     {
-        return ['ordered_at' => 'datetime', 'operational_status' => OrderOperationalStatus::class, 'pricing_status' => OrderPricingStatus::class, 'latitude_snapshot' => 'decimal:7', 'longitude_snapshot' => 'decimal:7'];
+        return ['ordered_at' => 'datetime', 'destination_area_confirmed_at' => 'datetime', 'operational_status' => OrderOperationalStatus::class, 'pricing_status' => OrderPricingStatus::class, 'latitude_snapshot' => 'decimal:7', 'longitude_snapshot' => 'decimal:7'];
     }
 
     public function branch(): BelongsTo
@@ -39,6 +40,21 @@ class Order extends Model
     public function customerAddress(): BelongsTo
     {
         return $this->belongsTo(CustomerAddress::class);
+    }
+
+    public function destinationArea(): BelongsTo
+    {
+        return $this->belongsTo(Area::class, 'destination_area_id');
+    }
+
+    public function deliveryPricings(): HasMany
+    {
+        return $this->hasMany(OrderDeliveryPricing::class)->orderBy('version');
+    }
+
+    public function currentDeliveryPricing(): HasOne
+    {
+        return $this->hasOne(OrderDeliveryPricing::class)->whereNull('superseded_at');
     }
 
     public function creator(): BelongsTo
@@ -87,6 +103,6 @@ class Order extends Model
             }
         }
 
-return (string) $total->toScale(4);
+        return (string) $total->toScale(4);
     }
 }

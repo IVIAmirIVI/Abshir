@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderCaptainService
 {
+    public function __construct(private readonly OrderDeliveryPricingService $deliveryPricing) {}
+
     public function assign(User $actor, Order $order, Captain $captain, OrderCaptainRole $role): OrderCaptain
     {
         Gate::forUser($actor)->authorize('orders.captains.assign');
@@ -29,7 +31,10 @@ class OrderCaptainService
                 throw ValidationException::withMessages(['assignment_role' => $hasPrimary ? 'The Order already has a Primary Collection Captain.' : 'Assign a Primary Collection Captain before Support Captains.']);
             }
 
-            return $order->captainAssignments()->create(['captain_id' => $captain->id, 'assignment_role' => $role, 'assigned_at' => now(), 'assigned_by' => $actor->id]);
+            $assignment = $order->captainAssignments()->create(['captain_id' => $captain->id, 'assignment_role' => $role, 'assigned_at' => now(), 'assigned_by' => $actor->id]);
+            $this->deliveryPricing->repriceAfterCaptainChangeLocked($actor, $order);
+
+            return $assignment;
         });
     }
 
@@ -46,6 +51,7 @@ class OrderCaptainService
             } if ($assignment->assignment_role === OrderCaptainRole::PrimaryCollection && $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::Support->value)->exists()) {
                 throw ValidationException::withMessages(['assignment' => 'Switch the Primary Collection Captain before removing this assignment.']);
             } $assignment->update(['removed_at' => now(), 'removed_by' => $actor->id, 'removal_reason' => $reason]);
+            $this->deliveryPricing->repriceAfterCaptainChangeLocked($actor, $order);
         });
     }
 
@@ -67,7 +73,10 @@ class OrderCaptainService
                 $target->update(['removed_at' => now(), 'removed_by' => $actor->id, 'removal_reason' => 'Promoted to Primary Collection: '.$reason]);
             }
 
-            return $order->captainAssignments()->create(['captain_id' => $captain->id, 'assignment_role' => OrderCaptainRole::PrimaryCollection, 'assigned_at' => now(), 'assigned_by' => $actor->id]);
+            $assignment = $order->captainAssignments()->create(['captain_id' => $captain->id, 'assignment_role' => OrderCaptainRole::PrimaryCollection, 'assigned_at' => now(), 'assigned_by' => $actor->id]);
+            $this->deliveryPricing->repriceAfterCaptainChangeLocked($actor, $order);
+
+            return $assignment;
         });
     }
 

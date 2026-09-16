@@ -112,7 +112,17 @@ Captain assignments are historical. Active assignments contain exactly one `PRIM
 
 All active Order Captain mutations serialize through a lock on the parent Order row before inspecting or locking assignment rows. PostgreSQL partial unique indexes separately prevent multiple active primary Captains and duplicate active Captain assignments. Direct removal of a primary Captain is rejected while Support Captains remain; the primary must be switched explicitly first.
 
-Delivery pricing, discounts, customer payments, invoices, collection and cash custody, financial ledgers, commissions, incentives, salaries, returns, messaging, mobile APIs, and the Captain Portal remain deferred.
+Customer payments, invoices, collection and cash custody, financial ledgers, commissions, incentives, salaries, returns, messaging, mobile APIs, and the Captain Portal remain deferred.
+
+### Phase 7 delivery pricing decisions
+
+Delivery pricing uses directional, exact origin-Area to destination-Area rules in the Branch default Currency. Rules are effective-dated and historical versions remain available for Orders whose `ordered_at` falls in the prior period. Missing routes return an explicit unavailable result; the application does not infer a parent, reverse, nearby, or same-Area rule. New Orders retain the selected destination Area reference in addition to their immutable address snapshots, while historical Orders are not assigned a fabricated destination.
+
+Each active Order Captain represents one complete delivery unit. Final pricing therefore requires at least one active Captain and a configured Captain share percentage. Every final price is a versioned snapshot containing the applicable rule, Areas, Currency, suggested and applied unit fees, active Captain count, Captain share, gross total, discount, customer total, actor, and time. Captain assignment count changes reprice while holding the Phase 6 Order lock; a primary-role switch with the same active Captains does not create a price version.
+
+An applied fee that differs from the suggested fee is an override, not a discount. Every override records its reason and comparison, including direct application within the configured threshold or by Super Admin. Larger employee overrides require a single explicit approval or rejection by an authorized user, and approval revalidates the applicable suggestion before creating a new pricing snapshot. Resolved requests cannot be resolved again.
+
+Delivery discounts are limited per Order Employee by a configured percentage. The customer total is gross delivery less the discount, while each Captain's entitlement remains the applied unit fee multiplied by the snapshotted Captain share. Discounts are distributed deterministically in Currency minor units across the active Captain assignments; Abshir's collectible share absorbs the discount first and any remaining entitlement gap is retained as `captain_shortfall`. These records state earned and collectible amounts only. Phase 9 will own all ledger postings and Captain balance movements.
 
 ## Security baseline
 

@@ -33,6 +33,12 @@ class AuthorizationSeeder extends Seeder
                 'shop_partnerships' => ['view', 'create', 'update'],
                 'product_prices' => ['view', 'create', 'reports', 'estimate'],
                 'orders' => ['view', 'create', 'update', 'status.update', 'pricing.update', 'captains.assign', 'captains.remove', 'items.change'],
+                'delivery_pricing' => ['view', 'apply', 'override'],
+                'delivery_pricing_rules' => ['view', 'create', 'update', 'activate', 'deactivate'],
+                'delivery_pricing_overrides' => ['approve'],
+                'delivery_discounts' => ['apply'],
+                'delivery_discount_limits' => ['manage'],
+                'delivery_financial_details' => ['view'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -82,6 +88,10 @@ class AuthorizationSeeder extends Seeder
                         'orders.captains.assign',
                         'orders.captains.remove',
                         'orders.items.change',
+                        'delivery_pricing.view',
+                        'delivery_pricing.apply',
+                        'delivery_pricing.override',
+                        'delivery_discounts.apply',
                     ])->pluck('id'));
                 }
             }

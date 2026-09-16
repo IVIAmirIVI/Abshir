@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\BranchController;
+use App\Http\Controllers\Admin\DeliveryPricingSettingController;
 use App\Http\Controllers\Admin\PriceEstimationSettingController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
@@ -17,7 +18,10 @@ use App\Http\Controllers\CustomerAddressController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CustomerPhoneController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DeliveryOverrideController;
+use App\Http\Controllers\DeliveryPricingRuleController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\OrderDeliveryPricingController;
 use App\Http\Controllers\OrderOperationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductGroupController;
@@ -56,6 +60,9 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('permissions', [RoleController::class, 'permissions'])->name('permissions.index');
     Route::get('pricing-settings', [PriceEstimationSettingController::class, 'edit'])->name('pricing-settings.edit');
     Route::put('pricing-settings', [PriceEstimationSettingController::class, 'update'])->name('pricing-settings.update');
+    Route::get('delivery-pricing-settings', [DeliveryPricingSettingController::class, 'edit'])->name('delivery-pricing-settings.edit');
+    Route::put('delivery-pricing-settings', [DeliveryPricingSettingController::class, 'update'])->name('delivery-pricing-settings.update');
+    Route::put('delivery-pricing-user-limits', [DeliveryPricingSettingController::class, 'limit'])->name('delivery-pricing-user-limits.update');
 });
 
 Route::middleware('auth')->group(function () {
@@ -124,4 +131,12 @@ Route::middleware('auth')->group(function () {
     Route::post('orders/{order}/captains', [OrderOperationController::class, 'assignCaptain'])->name('orders.captains.store');
     Route::post('orders/{order}/captains/switch-primary', [OrderOperationController::class, 'switchCaptain'])->name('orders.captains.switch');
     Route::patch('orders/{order}/captains/{assignment}/remove', [OrderOperationController::class, 'removeCaptain'])->name('orders.captains.remove');
+    Route::resource('delivery-pricing-rules', DeliveryPricingRuleController::class)->except(['show', 'destroy']);
+    Route::patch('delivery-pricing-rules/{delivery_pricing_rule}/status', [DeliveryPricingRuleController::class, 'status'])->name('delivery-pricing-rules.status');
+    Route::get('delivery-overrides', [DeliveryOverrideController::class, 'index'])->name('delivery-overrides.index');
+    Route::patch('delivery-overrides/{override}', [DeliveryOverrideController::class, 'resolve'])->name('delivery-overrides.resolve');
+    Route::patch('orders/{order}/delivery-pricing/destination', [OrderDeliveryPricingController::class, 'destination'])->name('orders.delivery-pricing.destination');
+    Route::post('orders/{order}/delivery-pricing', [OrderDeliveryPricingController::class, 'apply'])->name('orders.delivery-pricing.apply');
+    Route::post('orders/{order}/delivery-pricing/override', [OrderDeliveryPricingController::class, 'override'])->name('orders.delivery-pricing.override');
+    Route::post('orders/{order}/delivery-pricing/discount', [OrderDeliveryPricingController::class, 'discount'])->name('orders.delivery-pricing.discount');
 });

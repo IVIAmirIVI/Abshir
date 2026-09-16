@@ -132,7 +132,7 @@ class ProductPricingAuthorizationTest extends TestCase
     {
         $this->seed(AuthorizationSeeder::class);
         $this->seed(AuthorizationSeeder::class);
-        $this->assertDatabaseCount('permissions', 95);
+        $this->assertDatabaseCount('permissions', 107);
         $this->assertCount(4, Permission::where('code', 'like', 'product_prices.%')->get());
         foreach (['invoices', 'payments', 'ledgers', 'commissions', 'incentives'] as $table) {
             $this->assertFalse(Schema::hasTable($table));

@@ -49,6 +49,15 @@
                     @can('system_settings.view')
                         <x-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-nav-link>
                     @endcan
+                    @can('delivery_pricing_rules.view')
+                        <x-nav-link :href="route('delivery-pricing-rules.index')" :active="request()->routeIs('delivery-pricing-rules.*')">Delivery routes</x-nav-link>
+                    @endcan
+                    @can('delivery_pricing_overrides.approve')
+                        <x-nav-link :href="route('delivery-overrides.index')" :active="request()->routeIs('delivery-overrides.*')">Delivery approvals</x-nav-link>
+                    @endcan
+                    @can('system_settings.view')
+                        <x-nav-link :href="route('admin.delivery-pricing-settings.edit')" :active="request()->routeIs('admin.delivery-pricing-*')">Delivery settings</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -140,6 +149,15 @@
             @endcan
             @can('system_settings.view')
                 <x-responsive-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-responsive-nav-link>
+            @endcan
+            @can('delivery_pricing_rules.view')
+                <x-responsive-nav-link :href="route('delivery-pricing-rules.index')" :active="request()->routeIs('delivery-pricing-rules.*')">Delivery routes</x-responsive-nav-link>
+            @endcan
+            @can('delivery_pricing_overrides.approve')
+                <x-responsive-nav-link :href="route('delivery-overrides.index')" :active="request()->routeIs('delivery-overrides.*')">Delivery approvals</x-responsive-nav-link>
+            @endcan
+            @can('system_settings.view')
+                <x-responsive-nav-link :href="route('admin.delivery-pricing-settings.edit')" :active="request()->routeIs('admin.delivery-pricing-*')">Delivery settings</x-responsive-nav-link>
             @endcan
         </div>
         <!-- Responsive Settings Options -->

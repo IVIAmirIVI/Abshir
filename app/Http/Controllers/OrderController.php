@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\OrderShopType;
 use App\Http\Requests\OrderRequest;
+use App\Models\Area;
 use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\Customer;
@@ -10,6 +12,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\Unit;
+use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -50,10 +53,10 @@ class OrderController extends Controller
         return redirect()->route('orders.show', $o)->with('status', 'Order created. Add Shops and Items.');
     }
 
-    public function show(Request $r, Order $order, OrderService $s): View
+    public function show(Request $r, Order $order, OrderService $s, OrderDeliveryPricingService $deliveryPricing): View
     {
         $s->assertAccess($r->user(), $order);
-        $order->load(['branch', 'shops.shop', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'statusHistory.changedBy']);
+        $order->load(['branch.defaultCurrency', 'destinationArea.parent', 'shops.shop.area', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'statusHistory.changedBy']);
         $captains = Captain::query()->accessibleTo($r->user())->with(['user', 'employmentPeriods', 'branchAssignments'])->where('operational_status', 'AVAILABLE')->whereHas('user', fn (Builder $q) => $q->where('is_active', true))->whereHas('employmentPeriods', fn (Builder $q) => $q->whereNull('ended_at'))->get()->filter(fn (Captain $c) => $c->activeOperationalBranches()->contains('id', $order->branch_id));
 
         $shops = Shop::query()->accessibleTo($r->user())->where('is_active', true)
@@ -64,6 +67,20 @@ class OrderController extends Controller
                 }
             })->orderBy('name')->get();
 
-        return view('orders.show', ['order' => $order, 'shops' => $shops, 'products' => Product::where('is_active', true)->orderBy('name')->get(), 'units' => Unit::where('is_active', true)->orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'captains' => $captains]);
+        $pricingQuery = $order->currentDeliveryPricing()->with(['rule', 'fromArea.parent', 'toArea.parent', 'currency']);
+        if ($r->user()->can('delivery_financial_details.view')) {
+            $pricingQuery->with('allocations.captain.user');
+        }
+        $currentDeliveryPricing = $pricingQuery->first();
+        $pricingOrigins = Area::query()->accessibleTo($r->user())->where('is_active', true)->where('branch_id', $order->branch_id)->orderBy('name')->get();
+        $shopAreaIds = $order->shops->pluck('shop.area_id')->filter()->unique();
+        $suggestedOriginId = $order->shops->where('shop_type', OrderShopType::OneTime)->isEmpty() && $shopAreaIds->count() === 1 ? $shopAreaIds->first() : null;
+        $pricingPreview = null;
+        if ($r->filled('preview_from_area_id')) {
+            $validated = $r->validate(['preview_from_area_id' => ['required', 'integer', 'exists:areas,id']]);
+            $pricingPreview = $deliveryPricing->preview($r->user(), $order, Area::findOrFail($validated['preview_from_area_id']));
+        }
+
+        return view('orders.show', ['order' => $order, 'shops' => $shops, 'products' => Product::where('is_active', true)->orderBy('name')->get(), 'units' => Unit::where('is_active', true)->orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'captains' => $captains, 'currentDeliveryPricing' => $currentDeliveryPricing, 'pricingOrigins' => $pricingOrigins, 'destinationAreas' => $pricingOrigins, 'suggestedOriginId' => $suggestedOriginId, 'pricingPreview' => $pricingPreview]);
     }
 }
