@@ -56,7 +56,7 @@ class OrderController extends Controller
     public function show(Request $r, Order $order, OrderService $s, OrderDeliveryPricingService $deliveryPricing): View
     {
         $s->assertAccess($r->user(), $order);
-        $order->load(['branch.defaultCurrency', 'destinationArea.parent', 'shops.shop.area', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'statusHistory.changedBy']);
+        $order->load(['branch.defaultCurrency', 'destinationArea.parent', 'shops.shop.area', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'statusHistory.changedBy', 'invoices.currency', 'invoices.collection', 'currentInvoice']);
         $captains = Captain::query()->accessibleTo($r->user())->with(['user', 'employmentPeriods', 'branchAssignments'])->where('operational_status', 'AVAILABLE')->whereHas('user', fn (Builder $q) => $q->where('is_active', true))->whereHas('employmentPeriods', fn (Builder $q) => $q->whereNull('ended_at'))->get()->filter(fn (Captain $c) => $c->activeOperationalBranches()->contains('id', $order->branch_id));
 
         $shops = Shop::query()->accessibleTo($r->user())->where('is_active', true)

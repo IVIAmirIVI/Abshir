@@ -325,7 +325,7 @@ class DeliveryPricingTest extends TestCase
         $this->assertFalse($c['employee']->hasPermission('delivery_pricing_overrides.approve'));
         $this->assertFalse($c['employee']->hasPermission('delivery_financial_details.view'));
         $this->assertCount(0, Role::where('code', 'CAPTAIN')->sole()->permissions()->where('code', 'like', 'delivery%')->get());
-        foreach (['invoices', 'payments', 'financial_accounts', 'financial_transactions', 'captain_deposits', 'captain_receivables'] as $table) {
+        foreach (['payments', 'financial_accounts', 'financial_transactions', 'captain_deposits', 'captain_receivables'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

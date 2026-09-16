@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\InvoiceStatus;
 use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderPricingStatus;
 use Brick\Math\BigDecimal;
@@ -57,6 +58,16 @@ class Order extends Model
         return $this->hasOne(OrderDeliveryPricing::class)->whereNull('superseded_at');
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class)->orderBy('version');
+    }
+
+    public function currentInvoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class)->whereNull('superseded_at');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -90,6 +101,13 @@ class Order extends Model
     public function actualItemsTotal(): string
     {
         return $this->sumItems('actual_unit_price');
+    }
+
+    public function isFinanciallyComplete(): bool
+    {
+        $invoice = $this->currentInvoice()->with('collection')->first();
+
+        return $invoice?->status === InvoiceStatus::Issued && $invoice->collection !== null;
     }
 
     private function sumItems(string $column): string

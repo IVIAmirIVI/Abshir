@@ -214,7 +214,7 @@ class OrderManagementTest extends TestCase
         }$captain = $this->context('CAPTAIN')['actor'];
         $this->assertCount(0, $captain->roles->first()->permissions()->where('code', 'like', 'orders.%')->get());
         $this->actingAs($c['actor'])->delete('/orders/'.$order->id)->assertStatus(405);
-        foreach (['invoices', 'payments', 'ledgers', 'commissions', 'incentives'] as $table) {
+        foreach (['payments', 'ledgers', 'commissions', 'incentives'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

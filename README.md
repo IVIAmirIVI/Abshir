@@ -124,6 +124,20 @@ An applied fee that differs from the suggested fee is an override, not a discoun
 
 Delivery discounts are limited per Order Employee by a configured percentage. The customer total is gross delivery less the discount, while each Captain's entitlement remains the applied unit fee multiplied by the snapshotted Captain share. Discounts are distributed deterministically in Currency minor units across the active Captain assignments; Abshir's collectible share absorbs the discount first and any remaining entitlement gap is retained as `captain_shortfall`. These records state earned and collectible amounts only. Phase 9 will own all ledger postings and Captain balance movements.
 
+### Phase 8 Invoice and collection decisions
+
+An Order has at most one current Customer Invoice and may retain multiple historical versions. The focused lifecycle is `DRAFT`, `READY`, `ISSUED`, `VOIDED`, and `REPLACED`. A DRAFT becomes READY only through the Invoice service after all Order Item actual prices are confirmed, every actual-price evidence field exists, one Currency is used by Items and current Delivery Pricing, and an active `PRIMARY_COLLECTION` Captain exists. The READY snapshot records the source Delivery Pricing ID and a deterministic fingerprint of all source Item pricing facts. Issue revalidates those sources under locks and rejects stale snapshots until an authorized refresh rebuilds them.
+
+Invoice Items copy the Order Item description and Unit snapshots, quantity, actual unit price, Currency, and a `HalfUp` line total rounded to the Currency's decimal places. The Invoice stores exact Items subtotal, Customer delivery total, and grand total. Issued Customer-facing values are immutable. Corrections require an explicit Super Admin void or replacement workflow; replacement retains the old Invoice, its actor, time, reason, and link to a new READY version.
+
+Collection is full-payment-only and supports exactly `CASH` and `SHAM_CASH`. The amount and Currency must equal the issued Invoice exactly; partial payment, overpayment, debt, and installments are not modeled. A `CASH` collection means the Customer gave the money to the current active `PRIMARY_COLLECTION` Captain, so the collection snapshots both the Captain and Order Captain assignment. A `SHAM_CASH` collection means the Customer transferred money directly to the company owner's Sham Cash account, so both Captain references remain null and an optional transaction reference may be stored. Later Captain changes never rewrite either collection history. Collected Invoices cannot be voided or replaced until a future financial reversal workflow exists.
+
+The owner-only Sham Cash reconciliation page lists direct-to-company collections, supports date filtering, and totals each Currency separately. It does not represent Captain cash custody. The printable Invoice contains Customer-facing charges only and supports manual printing, Save as PDF, and the existing manual WhatsApp process.
+
+Phase 9 will translate collection facts into financial movements. `CASH` will create Customer/company cash custody for the collecting Captain; `SHAM_CASH` creates no Customer cash custody for any Captain. The company may still owe Captains their allocated Product purchase cost and Delivery entitlement. For shared Orders, the approved future purchase-cost rule divides cost equally among active Captains with deterministic exact handling of indivisible Currency remainders; the system will not track which Captain physically paid a Shop. Phase 9 will also define Captain handover to an `ORDER_EMPLOYEE`, including amount, Currency, time, receiver, method, evidence, and notes. None of these ledgers or handover operations exist in Phase 8.
+
+Phase 8.5 will add purchase receipt or Invoice evidence to each purchased Order Shop through a dedicated attachment workflow. Collection attachments and Shop evidence are not part of this phase.
+
 ## Security baseline
 
 Laravel CSRF middleware, password hashing, guarded model assignment, auth middleware, production-safe exception behavior, and environment-provided database credentials remain enabled. Keep `APP_DEBUG=false` in production.

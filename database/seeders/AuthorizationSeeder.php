@@ -39,6 +39,8 @@ class AuthorizationSeeder extends Seeder
                 'delivery_discounts' => ['apply'],
                 'delivery_discount_limits' => ['manage'],
                 'delivery_financial_details' => ['view'],
+                'invoices' => ['view', 'create', 'issue', 'void', 'replace'],
+                'invoice_collections' => ['view', 'create', 'sham_cash.view'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
             ];
@@ -92,6 +94,11 @@ class AuthorizationSeeder extends Seeder
                         'delivery_pricing.apply',
                         'delivery_pricing.override',
                         'delivery_discounts.apply',
+                        'invoices.view',
+                        'invoices.create',
+                        'invoices.issue',
+                        'invoice_collections.view',
+                        'invoice_collections.create',
                     ])->pluck('id'));
                 }
             }

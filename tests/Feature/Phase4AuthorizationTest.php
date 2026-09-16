@@ -68,9 +68,9 @@ class Phase4AuthorizationTest extends TestCase
     {
         $this->seed(AuthorizationSeeder::class);
         $this->seed(AuthorizationSeeder::class);
-        $this->assertDatabaseCount('permissions', 107);
+        $this->assertDatabaseCount('permissions', 115);
         $this->assertCount(0, Role::where('code', 'CAPTAIN')->sole()->permissions);
-        foreach (['invoices', 'payments', 'ledgers', 'commissions', 'incentives', 'inventories'] as $table) {
+        foreach (['payments', 'ledgers', 'commissions', 'incentives', 'inventories'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

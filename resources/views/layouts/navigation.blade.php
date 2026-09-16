@@ -46,6 +46,15 @@
                     @can('orders.view')
                         <x-nav-link :href="route('orders.index')" :active="request()->routeIs('orders.*')">Orders</x-nav-link>
                     @endcan
+                    @can('invoices.view')
+                        <x-nav-link :href="route('invoices.index')" :active="request()->routeIs('invoices.*') || request()->routeIs('orders.invoices.*')">Invoices</x-nav-link>
+                    @endcan
+                    @can('invoice_collections.view')
+                        <x-nav-link :href="route('invoice-collections.index')" :active="request()->routeIs('invoice-collections.index')">Collections</x-nav-link>
+                    @endcan
+                    @can('invoice_collections.sham_cash.view')
+                        <x-nav-link :href="route('invoice-collections.sham-cash')" :active="request()->routeIs('invoice-collections.sham-cash')">Sham Cash</x-nav-link>
+                    @endcan
                     @can('system_settings.view')
                         <x-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-nav-link>
                     @endcan
@@ -146,6 +155,15 @@
             @endcan
             @can('orders.view')
                 <x-responsive-nav-link :href="route('orders.index')" :active="request()->routeIs('orders.*')">Orders</x-responsive-nav-link>
+            @endcan
+            @can('invoices.view')
+                <x-responsive-nav-link :href="route('invoices.index')" :active="request()->routeIs('invoices.*') || request()->routeIs('orders.invoices.*')">Invoices</x-responsive-nav-link>
+            @endcan
+            @can('invoice_collections.view')
+                <x-responsive-nav-link :href="route('invoice-collections.index')" :active="request()->routeIs('invoice-collections.index')">Collections</x-responsive-nav-link>
+            @endcan
+            @can('invoice_collections.sham_cash.view')
+                <x-responsive-nav-link :href="route('invoice-collections.sham-cash')" :active="request()->routeIs('invoice-collections.sham-cash')">Sham Cash</x-responsive-nav-link>
             @endcan
             @can('system_settings.view')
                 <x-responsive-nav-link :href="route('admin.pricing-settings.edit')" :active="request()->routeIs('admin.pricing-settings.*')">Pricing settings</x-responsive-nav-link>
