@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\ShopBusinessClassification;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -20,6 +21,7 @@ class ShopTypeRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'code' => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('shop_types')->ignore($this->route('shop_type'))],
             'description' => ['nullable', 'string', 'max:5000'],
+            'business_classification' => ['nullable', Rule::enum(ShopBusinessClassification::class)],
             'is_active' => ['prohibited'],
         ];
     }

@@ -126,6 +126,7 @@ Route::middleware('auth')->group(function () {
     Route::get('price-estimate', [ProductPriceController::class, 'estimate'])->name('product-prices.estimate');
     Route::resource('orders', OrderController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('orders/{order}/shops', [OrderOperationController::class, 'addShop'])->name('orders.shops.store');
+    Route::patch('orders/{order}/shops/{order_shop}/classification', [OrderOperationController::class, 'classifyShop'])->name('orders.shops.classification');
     Route::post('orders/{order}/shops/{order_shop}/items', [OrderOperationController::class, 'addItem'])->name('orders.shops.items.store');
     Route::patch('orders/{order}/shops/{order_shop}/items/{item}/actual-price', [OrderOperationController::class, 'actual'])->name('orders.items.actual');
     Route::patch('orders/{order}/shops/{order_shop}/items/{item}/change', [OrderOperationController::class, 'change'])->name('orders.items.change');

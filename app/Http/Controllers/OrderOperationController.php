@@ -9,6 +9,7 @@ use App\Http\Requests\OrderCaptainRequest;
 use App\Http\Requests\OrderCaptainSwitchRequest;
 use App\Http\Requests\OrderItemChangeRequest;
 use App\Http\Requests\OrderItemRequest;
+use App\Http\Requests\OrderShopClassificationRequest;
 use App\Http\Requests\OrderShopRequest;
 use App\Http\Requests\OrderStatusRequest;
 use App\Models\Captain;
@@ -30,6 +31,13 @@ class OrderOperationController extends Controller
         $s->add($r->user(), $order, $r->validated());
 
         return back()->with('status', 'Order Shop added.');
+    }
+
+    public function classifyShop(OrderShopClassificationRequest $r, Order $order, OrderShop $orderShop, OrderShopService $s): RedirectResponse
+    {
+        $s->classifyLegacy($r->user(), $order, $orderShop, $r->validated('business_classification'));
+
+        return back()->with('status', 'Order Shop classification snapshotted.');
     }
 
     public function addItem(OrderItemRequest $r, Order $order, OrderShop $orderShop, OrderItemService $s): RedirectResponse

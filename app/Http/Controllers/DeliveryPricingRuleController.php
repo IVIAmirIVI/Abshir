@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\OrderPricingClass;
 use App\Http\Requests\DeliveryPricingRuleRequest;
 use App\Models\Area;
 use App\Models\Branch;
@@ -18,7 +19,7 @@ class DeliveryPricingRuleController extends Controller
     public function index(Request $request): View
     {
         Gate::authorize('delivery_pricing_rules.view');
-        $rules = DeliveryPricingRule::query()->with(['fromArea.parent', 'toArea.parent', 'currency'])->when($request->filled('branch_id'), fn ($q) => $q->whereHas('fromArea', fn ($areas) => $areas->where('branch_id', $request->integer('branch_id'))))->when($request->filled('from_area_id'), fn ($q) => $q->where('from_area_id', $request->integer('from_area_id')))->when($request->filled('to_area_id'), fn ($q) => $q->where('to_area_id', $request->integer('to_area_id')))->when($request->filled('currency_id'), fn ($q) => $q->where('currency_id', $request->integer('currency_id')))->when($request->input('scope') === 'current', fn ($q) => $q->effectiveAt(now()))->latest('effective_from')->paginate(25)->withQueryString();
+        $rules = DeliveryPricingRule::query()->with(['fromArea.parent', 'toArea.parent', 'currency'])->when($request->filled('branch_id'), fn ($q) => $q->whereHas('fromArea', fn ($areas) => $areas->where('branch_id', $request->integer('branch_id'))))->when($request->filled('from_area_id'), fn ($q) => $q->where('from_area_id', $request->integer('from_area_id')))->when($request->filled('to_area_id'), fn ($q) => $q->where('to_area_id', $request->integer('to_area_id')))->when($request->filled('currency_id'), fn ($q) => $q->where('currency_id', $request->integer('currency_id')))->when($request->filled('order_pricing_class'), fn ($q) => $q->where('order_pricing_class', $request->input('order_pricing_class')))->when($request->input('scope') === 'current', fn ($q) => $q->whereNotNull('order_pricing_class')->effectiveAt(now()))->latest('effective_from')->paginate(25)->withQueryString();
 
         return view('delivery-pricing-rules.index', ['rules' => $rules, ...$this->formData()]);
     }
@@ -61,6 +62,6 @@ class DeliveryPricingRuleController extends Controller
 
     private function formData(): array
     {
-        return ['areas' => Area::with('parent')->orderBy('name')->get(), 'branches' => Branch::orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get()];
+        return ['areas' => Area::with('parent')->orderBy('name')->get(), 'branches' => Branch::orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'pricingClasses' => OrderPricingClass::cases()];
     }
 }

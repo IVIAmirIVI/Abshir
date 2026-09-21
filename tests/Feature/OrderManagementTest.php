@@ -20,6 +20,7 @@ use App\Models\Product;
 use App\Models\ProductPriceHistory;
 use App\Models\Role;
 use App\Models\Shop;
+use App\Models\ShopType;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\OrderCaptainService;
@@ -50,7 +51,8 @@ class OrderManagementTest extends TestCase
         $unit = Unit::create(['name' => 'Piece '.$suffix, 'code' => 'U'.$suffix, 'allows_decimal' => false]);
         $currency = Currency::create(['name' => 'Dollar '.$suffix, 'code' => 'C'.$suffix]);
         $product = Product::create(['name' => 'Original Product', 'default_unit_id' => $unit->id]);
-        $shop = Shop::create(['name' => 'Registered Shop', 'area_id' => $area->id]);
+        $shopType = ShopType::create(['name' => 'Normal Shop '.$suffix, 'business_classification' => 'SHOP']);
+        $shop = Shop::create(['name' => 'Registered Shop', 'area_id' => $area->id, 'shop_type_id' => $shopType->id]);
         $actor = User::factory()->create();
         $actor->roles()->attach(Role::where('code', $role)->sole());
         $actor->branches()->attach($branch);
@@ -88,7 +90,7 @@ class OrderManagementTest extends TestCase
         $ss = app(OrderShopService::class);
         $registered = $ss->add($c['actor'], $order, ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
         $shopCount = Shop::count();
-        $one = $ss->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'shop_name' => 'Exceptional']);
+        $one = $ss->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Exceptional']);
         $productCount = Product::count();
         ProductPriceHistory::create(['product_id' => $c['product']->id, 'shop_id' => $c['shop']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id, 'price' => '12.5000', 'observed_at' => now(), 'source' => PriceObservationSource::ShopConfirmed]);
         $is = app(OrderItemService::class);
@@ -111,7 +113,7 @@ class OrderManagementTest extends TestCase
     {
         $c = $this->context();
         $order = $this->order($c);
-        $os = app(OrderShopService::class)->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'shop_name' => 'Shop']);
+        $os = app(OrderShopService::class)->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Shop']);
         $is = app(OrderItemService::class);
         $item = $is->add($c['actor'], $order, $os, ['item_type' => 'ONE_TIME_ITEM', 'item_name' => 'Item', 'unit_id' => $c['unit']->id, 'quantity' => '2']);
         $is->change($c['actor'], $order, $os, $item, ['change_type' => OrderItemChangeType::Quantity->value, 'quantity' => '3', 'reason' => 'Approved']);
@@ -288,7 +290,7 @@ class OrderManagementTest extends TestCase
         $c = $this->context();
         ProductPriceHistory::create(['product_id' => $c['product']->id, 'shop_id' => $c['shop']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id, 'price' => '9.0000', 'observed_at' => now()->subHour(), 'source' => PriceObservationSource::ShopConfirmed]);
         $order = $this->order($c);
-        $orderShop = app(OrderShopService::class)->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'shop_name' => 'Unknown']);
+        $orderShop = app(OrderShopService::class)->add($c['actor'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Unknown']);
         $item = app(OrderItemService::class)->add($c['actor'], $order, $orderShop, ['item_type' => 'CATALOG_ITEM', 'product_id' => $c['product']->id, 'unit_id' => $c['unit']->id, 'quantity' => '1', 'estimated_currency_id' => $c['currency']->id]);
         ProductPriceHistory::create(['product_id' => $c['product']->id, 'shop_id' => $c['shop']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id, 'price' => '4.0000', 'observed_at' => now(), 'source' => PriceObservationSource::ShopConfirmed]);
 
@@ -303,7 +305,7 @@ class OrderManagementTest extends TestCase
         $c = $this->context();
         $first = $this->order($c);
         $second = $this->order($c);
-        $firstShop = app(OrderShopService::class)->add($c['actor'], $first, ['shop_type' => 'ONE_TIME', 'shop_name' => 'First']);
+        $firstShop = app(OrderShopService::class)->add($c['actor'], $first, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'First']);
 
         $this->expectException(HttpException::class);
         app(OrderItemService::class)->add($c['actor'], $second, $firstShop, ['item_type' => 'ONE_TIME_ITEM', 'item_name' => 'Forged', 'unit_id' => $c['unit']->id, 'quantity' => '1']);

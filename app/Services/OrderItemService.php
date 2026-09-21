@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderItemService
 {
-    public function __construct(private readonly ProductPriceService $prices, private readonly OrderPricingService $pricingStatus) {}
+    public function __construct(private readonly ProductPriceService $prices, private readonly OrderPricingService $pricingStatus, private readonly OrderMutationGuard $mutationGuard) {}
 
     public function add(User $actor, Order $order, OrderShop $orderShop, array $data): OrderItem
     {
@@ -43,6 +43,9 @@ class OrderItemService
         }
 
         return DB::transaction(function () use ($actor, $order, $orderShop, $data, $type, $unit, $product): OrderItem {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
+            $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
             $estimate = $this->estimate($actor, $orderShop, $product, $unit, $data);
             $item = $orderShop->items()->create(['item_type' => $type, 'product_id' => $product?->id, 'product_name_snapshot' => $product?->name ?? $data['item_name'], 'unit_id' => $unit->id, 'unit_name_snapshot' => $unit->name, 'unit_symbol_snapshot' => $unit->symbol, 'requested_quantity' => $data['quantity'], 'current_quantity' => $data['quantity'], 'notes' => $data['notes'] ?? null, ...$estimate]);
             $this->pricingStatus->recalculate($order);
@@ -60,6 +63,8 @@ class OrderItemService
             throw ValidationException::withMessages(['actual_currency_id' => 'An inactive Currency cannot be used for a new actual price.']);
         }
         DB::transaction(function () use ($actor, $order, $item, $data): void {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
             $item = OrderItem::query()->lockForUpdate()->findOrFail($item->id);
             $item->update(['actual_unit_price' => $data['actual_unit_price'], 'actual_currency_id' => $data['actual_currency_id'], 'actual_price_source' => ActualPriceSource::from($data['actual_price_source']), 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $actor->id]);
             $this->pricingStatus->recalculate($order);
@@ -72,6 +77,8 @@ class OrderItemService
         $this->ownership($actor, $order, $shop, $item);
         $type = OrderItemChangeType::from($data['change_type']);
         DB::transaction(function () use ($actor, $order, $item, $data, $type): void {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
             $item = OrderItem::query()->lockForUpdate()->findOrFail($item->id);
             $previous = $item->only(['item_type', 'product_id', 'product_name_snapshot', 'unit_id', 'unit_name_snapshot', 'unit_symbol_snapshot', 'current_quantity']);
             $updates = [];

@@ -2,17 +2,18 @@
 
 namespace App\Models;
 
+use App\Enums\OrderPricingClass;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['from_area_id', 'to_area_id', 'currency_id', 'delivery_unit_fee', 'effective_from', 'effective_until', 'is_active', 'created_by', 'superseded_by', 'notes'])]
+#[Fillable(['from_area_id', 'to_area_id', 'currency_id', 'order_pricing_class', 'delivery_unit_fee', 'effective_from', 'effective_until', 'is_active', 'created_by', 'superseded_by', 'notes'])]
 class DeliveryPricingRule extends Model
 {
     protected function casts(): array
     {
-        return ['delivery_unit_fee' => 'decimal:4', 'effective_from' => 'datetime', 'effective_until' => 'datetime', 'is_active' => 'boolean'];
+        return ['order_pricing_class' => OrderPricingClass::class, 'delivery_unit_fee' => 'decimal:4', 'effective_from' => 'datetime', 'effective_until' => 'datetime', 'is_active' => 'boolean'];
     }
 
     public function fromArea(): BelongsTo

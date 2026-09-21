@@ -5,6 +5,7 @@
             <span>Version {{ $currentDeliveryPricing->version }} · {{ $currentDeliveryPricing->status->value }}</span>
         @endif
     </div>
+    <p>Order Pricing Class: <strong>{{ $order->pricing_class?->label() ?? 'Unavailable' }}</strong></p>
 
     @if(!$order->destination_area_id)
         <p class="rounded bg-amber-50 p-3">Historical destination Area requires explicit administrative confirmation before delivery pricing.</p>
@@ -37,7 +38,7 @@
 
     @if($pricingPreview)
         <div class="rounded border p-3">
-            <p><strong>Preview:</strong> {{ $pricingPreview['origin']->path() }} → {{ $pricingPreview['destination']->path() }}</p>
+            <p><strong>Preview:</strong> {{ $pricingPreview['origin']->path() }} → {{ $pricingPreview['destination']->path() }} · {{ $order->pricing_class?->label() }}</p>
             @if($pricingPreview['rule'])
                 <p>{{ $pricingPreview['rule']->delivery_unit_fee }} {{ $pricingPreview['currency']->code }} per active Captain, based on the rule applicable at {{ $order->ordered_at->format('Y-m-d H:i') }}.</p>
                 @can('delivery_pricing.apply')
@@ -56,6 +57,7 @@
     @if($currentDeliveryPricing)
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <p>Origin: {{ $currentDeliveryPricing->fromArea->path() }}</p>
+            <p>Pricing class snapshot: {{ $currentDeliveryPricing->order_pricing_class_snapshot?->label() ?? 'Legacy unclassified' }}</p>
             <p>Suggested unit: {{ $currentDeliveryPricing->suggested_unit_fee }} {{ $currentDeliveryPricing->currency->code }}</p>
             <p>Applied unit: {{ $currentDeliveryPricing->applied_unit_fee }}</p>
             <p>Captains/units: {{ $currentDeliveryPricing->captain_count_snapshot }}</p>

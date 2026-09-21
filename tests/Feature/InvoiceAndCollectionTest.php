@@ -8,7 +8,10 @@ use App\Enums\InvoiceCollectionMethod;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderItemType;
+use App\Enums\OrderOperationalStatus;
+use App\Enums\OrderPricingClass;
 use App\Enums\OrderShopType;
+use App\Enums\ShopBusinessClassification;
 use App\Models\Area;
 use App\Models\Branch;
 use App\Models\Captain;
@@ -27,8 +30,10 @@ use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderItemService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
+use App\Services\OrderShopService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -58,12 +63,13 @@ class InvoiceAndCollectionTest extends TestCase
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()->subDay()]);
-        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'shop_name_snapshot' => 'One-time Shop', 'sort_order' => 1]);
+        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'One-time Shop', 'sort_order' => 1]);
+        $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         $item = OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Snapshot Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '2.5', 'current_quantity' => '2.5', 'actual_unit_price' => '10.00', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
         app(OrderPricingService::class)->recalculate($order);
         $captain = $this->captain($branch);
         app(OrderCaptainService::class)->assign($employee, $order, $captain, OrderCaptainRole::PrimaryCollection);
-        app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id, 'currency_id' => $currency->id, 'delivery_unit_fee' => '5.00', 'effective_from' => now()->subDays(2), 'effective_until' => null]);
+        app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id, 'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value, 'delivery_unit_fee' => '5.00', 'effective_from' => now()->subDays(2), 'effective_until' => null]);
         app(DeliveryPricingSettings::class)->update($admin, '65', '0');
         app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
 
@@ -89,6 +95,70 @@ class InvoiceAndCollectionTest extends TestCase
     private function issued(array $context): Invoice
     {
         return app(InvoiceService::class)->issue($context['employee'], $context['order'], $this->ready($context));
+    }
+
+    public function test_shop_composition_change_invalidates_pricing_and_makes_ready_invoice_stale(): void
+    {
+        $c = $this->context();
+        $pricing = $c['order']->currentDeliveryPricing()->firstOrFail();
+        $invoice = $this->ready($c);
+
+        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'Second Shop']);
+
+        $this->assertSame(OrderPricingClass::MultiShop, $c['order']->fresh()->pricing_class);
+        $this->assertNotNull($pricing->fresh()->superseded_at);
+        $this->assertNull($c['order']->currentDeliveryPricing()->first());
+        $this->expectException(ValidationException::class);
+        app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice);
+    }
+
+    public function test_issued_invoice_blocks_shop_composition_changes(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+
+        try {
+            app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Too late']);
+            $this->fail('An issued Order accepted a new Shop.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('order', $exception->errors());
+        }
+
+        $this->assertSame(InvoiceStatus::Issued, $invoice->fresh()->status);
+        $this->assertSame(1, $c['order']->shops()->count());
+        $this->assertNotNull($c['order']->currentDeliveryPricing()->first());
+    }
+
+    public function test_issued_invoice_blocks_all_order_fact_mutation_paths(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        $unit = Unit::create(['name' => 'Guard Unit', 'code' => 'guard-unit']);
+        $captain = $this->captain($c['branch']);
+        $pricingCount = $c['order']->deliveryPricings()->count();
+        $captainCount = $c['order']->captainAssignments()->count();
+        $itemCount = $c['shop']->items()->count();
+
+        $this->expectValidation(fn () => app(OrderItemService::class)->add($c['employee'], $c['order'], $c['shop'], ['item_type' => 'ONE_TIME_ITEM', 'item_name' => 'Too late', 'unit_id' => $unit->id, 'quantity' => '1']));
+        $this->expectValidation(fn () => app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], ['actual_unit_price' => '12', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED']));
+        $this->expectValidation(fn () => app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $captain, OrderCaptainRole::Support));
+        $this->expectValidation(fn () => app(OrderDeliveryPricingService::class)->price($c['employee'], $c['order'], $c['from']));
+        $this->expectValidation(fn () => app(OrderDeliveryPricingService::class)->requestOverride($c['employee'], $c['order'], $c['from'], '4.50', 'Too late'));
+        $this->expectValidation(fn () => app(OrderDeliveryPricingService::class)->applyDiscount($c['admin'], $c['order'], '1', 'Too late'));
+
+        $this->assertSame(InvoiceStatus::Issued, $invoice->fresh()->status);
+        $this->assertSame($pricingCount, $c['order']->deliveryPricings()->count());
+        $this->assertSame($captainCount, $c['order']->captainAssignments()->count());
+        $this->assertSame($itemCount, $c['shop']->items()->count());
+    }
+
+    public function test_delivered_order_blocks_mutations_even_without_an_issued_invoice(): void
+    {
+        $c = $this->context();
+        $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+
+        $this->expectValidation(fn () => app(OrderDeliveryPricingService::class)->applyDiscount($c['admin'], $c['order']->fresh(), '1', 'Too late'));
+        $this->assertSame(1, $c['order']->deliveryPricings()->count());
     }
 
     public function test_employee_creates_one_current_draft_with_customer_and_order_snapshots(): void
@@ -171,7 +241,7 @@ class InvoiceAndCollectionTest extends TestCase
         $c['item']->update(['product_name_snapshot' => 'Corrected Item', 'actual_unit_price' => '20']);
         $product->update(['name' => 'Renamed Product']);
         $c['customer']->update(['name' => 'Changed Customer']);
-        app(OrderDeliveryPricingService::class)->applyDiscount($c['admin'], $c['order'], '1', 'Later correction');
+        $this->expectValidation(fn () => app(OrderDeliveryPricingService::class)->applyDiscount($c['admin'], $c['order'], '1', 'Later correction'));
         $this->assertSame('Snapshot Item', $invoice->fresh()->items()->sole()->description);
         $this->assertSame('10.0000', $invoice->fresh()->items()->sole()->unit_price);
         $this->assertSame('Snapshot Customer', $invoice->fresh()->customer_name_snapshot);
@@ -224,7 +294,6 @@ class InvoiceAndCollectionTest extends TestCase
         $other = Currency::create(['name' => 'Euro', 'code' => 'EUR', 'decimal_places' => 2]);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $other->id, now()));
         $support = $this->captain($c['branch']);
-        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $support, OrderCaptainRole::Support);
         $this->actingAs($c['employee'])->post(route('invoices.collection.store', $issued), ['collection_method' => 'CASH', 'collected_at' => now()->format('Y-m-d H:i:s'), 'captain_id' => $support->id, 'amount' => '1', 'currency_id' => $other->id])->assertSessionHasNoErrors();
         $collection = $issued->collection()->sole();
         $this->assertSame($c['captain']->id, $collection->captain_id);
@@ -237,16 +306,16 @@ class InvoiceAndCollectionTest extends TestCase
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
     }
 
-    public function test_collection_uses_current_primary_and_never_rewrites_after_switch(): void
+    public function test_collection_uses_primary_snapshotted_at_issue_and_issued_order_rejects_switch(): void
     {
         $c = $this->context();
-        $issued = $this->issued($c);
         $second = $this->captain($c['branch']);
         app(OrderCaptainService::class)->switchPrimary($c['employee'], $c['order'], $second, 'Collection handoff');
+        $issued = $this->issued($c);
         $collection = app(InvoiceCollectionService::class)->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
         $this->assertSame($second->id, $collection->captain_id);
         $third = $this->captain($c['branch']);
-        app(OrderCaptainService::class)->switchPrimary($c['employee'], $c['order'], $third, 'After collection');
+        $this->expectValidation(fn () => app(OrderCaptainService::class)->switchPrimary($c['employee'], $c['order'], $third, 'After issue'));
         $this->assertSame($second->id, $collection->fresh()->captain_id);
         $this->assertSame($collection->order_captain_id, $collection->fresh()->order_captain_id);
     }
@@ -255,9 +324,6 @@ class InvoiceAndCollectionTest extends TestCase
     {
         $c = $this->context();
         $issued = $this->issued($c);
-        $primary = $c['order']->captainAssignments()->whereNull('removed_at')->sole();
-        app(OrderCaptainService::class)->remove($c['employee'], $c['order'], $primary, 'Customer paid company directly');
-
         $service = app(InvoiceCollectionService::class);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::ShamCash, '29.99', $c['currency']->id, now()));
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::ShamCash, '30.01', $c['currency']->id, now()));

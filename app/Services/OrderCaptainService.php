@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderCaptainService
 {
-    public function __construct(private readonly OrderDeliveryPricingService $deliveryPricing) {}
+    public function __construct(private readonly OrderDeliveryPricingService $deliveryPricing, private readonly OrderMutationGuard $mutationGuard) {}
 
     public function assign(User $actor, Order $order, Captain $captain, OrderCaptainRole $role): OrderCaptain
     {
@@ -24,6 +24,7 @@ class OrderCaptainService
 
         return DB::transaction(function () use ($actor, $order, $captain, $role): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
             if ($order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists()) {
                 throw ValidationException::withMessages(['captain_id' => 'Captain is already assigned.']);
             } $hasPrimary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->exists();
@@ -45,6 +46,7 @@ class OrderCaptainService
         abort_if($assignment->order_id !== $order->id, 404);
         DB::transaction(function () use ($actor, $order, $assignment, $reason): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
             $assignment = OrderCaptain::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($assignment->id);
             if ($assignment->removed_at) {
                 throw ValidationException::withMessages(['assignment' => 'Assignment is already removed.']);
@@ -64,6 +66,7 @@ class OrderCaptainService
 
         return DB::transaction(function () use ($actor, $order, $captain, $reason): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
             $current = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->firstOrFail();
             if ($current->captain_id === $captain->id) {
                 throw ValidationException::withMessages(['captain_id' => 'Captain is already Primary Collection.']);

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\OrderPricingClass;
 use App\Models\Area;
 use App\Models\Currency;
 use App\Models\DeliveryPricingRule;
@@ -14,14 +15,15 @@ use Illuminate\Validation\ValidationException;
 
 class DeliveryPricingRuleService
 {
-    public function applicable(int $fromAreaId, int $toAreaId, int $currencyId, Carbon $at): ?DeliveryPricingRule
+    public function applicable(int $fromAreaId, int $toAreaId, int $currencyId, OrderPricingClass $pricingClass, Carbon $at): ?DeliveryPricingRule
     {
-        return DeliveryPricingRule::query()->where(['from_area_id' => $fromAreaId, 'to_area_id' => $toAreaId, 'currency_id' => $currencyId])->effectiveAt($at)->orderByDesc('effective_from')->orderByDesc('id')->first();
+        return DeliveryPricingRule::query()->where(['from_area_id' => $fromAreaId, 'to_area_id' => $toAreaId, 'currency_id' => $currencyId, 'order_pricing_class' => $pricingClass->value])->effectiveAt($at)->orderByDesc('effective_from')->orderByDesc('id')->first();
     }
 
     public function create(User $actor, array $data): DeliveryPricingRule
     {
         Gate::forUser($actor)->authorize('delivery_pricing_rules.create');
+        $data['order_pricing_class'] = $this->pricingClass($data)->value;
         $this->activeDimensions($data);
 
         return DB::transaction(function () use ($actor, $data): DeliveryPricingRule {
@@ -35,13 +37,14 @@ class DeliveryPricingRuleService
     public function version(User $actor, DeliveryPricingRule $old, array $data): DeliveryPricingRule
     {
         Gate::forUser($actor)->authorize('delivery_pricing_rules.update');
+        $data['order_pricing_class'] = $this->pricingClass($data)->value;
         $this->activeDimensions($data);
 
         return DB::transaction(function () use ($actor, $old, $data): DeliveryPricingRule {
             Area::query()->whereKey($data['from_area_id'])->lockForUpdate()->firstOrFail();
             $old = DeliveryPricingRule::query()->lockForUpdate()->findOrFail($old->id);
-            if ((int) $data['from_area_id'] !== $old->from_area_id || (int) $data['to_area_id'] !== $old->to_area_id || (int) $data['currency_id'] !== $old->currency_id) {
-                throw ValidationException::withMessages(['rule' => 'A rule version must keep the same Area pair and Currency. Create a separate rule for new dimensions.']);
+            if ((int) $data['from_area_id'] !== $old->from_area_id || (int) $data['to_area_id'] !== $old->to_area_id || (int) $data['currency_id'] !== $old->currency_id || $data['order_pricing_class'] !== $old->order_pricing_class?->value) {
+                throw ValidationException::withMessages(['rule' => 'A rule version must keep the same Area pair, Currency, and Order Pricing Class. Create a separate rule for new dimensions.']);
             }
             $effective = Carbon::parse($data['effective_from']);
             if ($effective->lte($old->effective_from)) {
@@ -80,15 +83,25 @@ class DeliveryPricingRuleService
         }
     }
 
+    private function pricingClass(array $data): OrderPricingClass
+    {
+        $pricingClass = OrderPricingClass::tryFrom((string) ($data['order_pricing_class'] ?? ''));
+        if (! $pricingClass) {
+            throw ValidationException::withMessages(['order_pricing_class' => 'Select a valid Order Pricing Class.']);
+        }
+
+        return $pricingClass;
+    }
+
     private function preventOverlap(array $data, ?int $ignore = null): void
     {
         $start = Carbon::parse($data['effective_from']);
         $end = empty($data['effective_until']) ? null : Carbon::parse($data['effective_until']);
-        $overlap = DeliveryPricingRule::query()->lockForUpdate()->where(['from_area_id' => $data['from_area_id'], 'to_area_id' => $data['to_area_id'], 'currency_id' => $data['currency_id']])->where('is_active', true)->when($ignore, fn ($q) => $q->whereKeyNot($ignore))->where(function ($q) use ($start): void {
+        $overlap = DeliveryPricingRule::query()->lockForUpdate()->where(['from_area_id' => $data['from_area_id'], 'to_area_id' => $data['to_area_id'], 'currency_id' => $data['currency_id'], 'order_pricing_class' => $data['order_pricing_class']])->where('is_active', true)->when($ignore, fn ($q) => $q->whereKeyNot($ignore))->where(function ($q) use ($start): void {
             $q->whereNull('effective_until')->orWhere('effective_until', '>', $start);
         })->when($end, fn ($q) => $q->where('effective_from', '<', $end))->exists();
         if ($overlap) {
-            throw ValidationException::withMessages(['effective_from' => 'This Area pair and Currency already has an overlapping effective rule.']);
+            throw ValidationException::withMessages(['effective_from' => 'This Area pair, Currency, and Order Pricing Class already has an overlapping effective rule.']);
         }
     }
 }
