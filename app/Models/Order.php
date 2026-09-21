@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Enums\InvoiceStatus;
+use App\Enums\OrderEntryMode;
 use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderPricingClass;
 use App\Enums\OrderPricingStatus;
+use App\Enums\OrderSource;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,14 +16,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['branch_id', 'customer_id', 'customer_phone_id', 'customer_address_id', 'destination_area_id', 'destination_area_confirmed_by', 'destination_area_confirmed_at', 'order_number', 'ordered_at', 'pricing_class', 'customer_name_snapshot', 'customer_phone_snapshot', 'customer_phone_normalized_snapshot', 'address_label_snapshot', 'recipient_name_snapshot', 'area_name_snapshot', 'area_path_snapshot', 'address_line_1_snapshot', 'address_line_2_snapshot', 'landmark_snapshot', 'latitude_snapshot', 'longitude_snapshot', 'notes', 'created_by'])]
+#[Fillable(['branch_id', 'customer_id', 'customer_phone_id', 'customer_address_id', 'destination_area_id', 'destination_area_confirmed_by', 'destination_area_confirmed_at', 'order_number', 'ordered_at', 'source', 'entry_mode', 'pricing_class', 'customer_name_snapshot', 'customer_phone_snapshot', 'customer_phone_normalized_snapshot', 'address_label_snapshot', 'recipient_name_snapshot', 'area_name_snapshot', 'area_path_snapshot', 'address_line_1_snapshot', 'address_line_2_snapshot', 'landmark_snapshot', 'latitude_snapshot', 'longitude_snapshot', 'notes', 'created_by'])]
 class Order extends Model
 {
     protected $attributes = ['operational_status' => 'NEW', 'pricing_status' => 'ESTIMATED'];
 
     protected function casts(): array
     {
-        return ['ordered_at' => 'datetime', 'destination_area_confirmed_at' => 'datetime', 'operational_status' => OrderOperationalStatus::class, 'pricing_status' => OrderPricingStatus::class, 'pricing_class' => OrderPricingClass::class, 'latitude_snapshot' => 'decimal:7', 'longitude_snapshot' => 'decimal:7'];
+        return ['ordered_at' => 'datetime', 'source' => OrderSource::class, 'entry_mode' => OrderEntryMode::class, 'destination_area_confirmed_at' => 'datetime', 'operational_status' => OrderOperationalStatus::class, 'pricing_status' => OrderPricingStatus::class, 'pricing_class' => OrderPricingClass::class, 'latitude_snapshot' => 'decimal:7', 'longitude_snapshot' => 'decimal:7'];
     }
 
     public function branch(): BelongsTo
@@ -87,6 +89,16 @@ class Order extends Model
     public function statusHistory(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class)->orderBy('changed_at')->orderBy('id');
+    }
+
+    public function cancellation(): HasOne
+    {
+        return $this->hasOne(OrderCancellation::class);
+    }
+
+    public function captainRatings(): HasMany
+    {
+        return $this->hasMany(CaptainRating::class);
     }
 
     public function scopeAccessibleTo(Builder $query, User $user): Builder

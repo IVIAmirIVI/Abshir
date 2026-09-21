@@ -42,7 +42,7 @@ class InvoiceConcurrencyTest extends TestCase
         $actor = User::factory()->create();
         $actor->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $actor->branches()->attach($branch);
-        $order = app(OrderService::class)->create($actor, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()]);
+        $order = app(OrderService::class)->create($actor, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         $concurrent = $this->openConcurrentConnection();
 
         try {
@@ -189,7 +189,7 @@ class InvoiceConcurrencyTest extends TestCase
         $actor = User::factory()->create();
         $actor->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $actor->branches()->attach($branch);
-        $order = app(OrderService::class)->create($actor, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()]);
+        $order = app(OrderService::class)->create($actor, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         $captainUser = User::factory()->create();
         $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
         $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);

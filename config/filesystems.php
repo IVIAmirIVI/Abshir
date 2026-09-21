@@ -38,6 +38,14 @@ return [
             'report' => false,
         ],
 
+        'order_receipts' => [
+            'driver' => 'local',
+            'root' => storage_path('app/order-receipts-private'),
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

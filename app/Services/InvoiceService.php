@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\InvoiceStatus;
+use App\Enums\OrderOperationalStatus;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\User;
@@ -22,6 +23,7 @@ class InvoiceService
 
         return DB::transaction(function () use ($actor, $order): Invoice {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->assertNotCancelled($order);
 
             return $this->createDraftLocked($actor, $order);
         });
@@ -34,6 +36,7 @@ class InvoiceService
 
         return DB::transaction(function () use ($order, $invoice): Invoice {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->assertNotCancelled($order);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if (! in_array($invoice->status, [InvoiceStatus::Draft, InvoiceStatus::Ready], true) || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Only the current DRAFT or READY Invoice may be refreshed.']);
@@ -50,6 +53,7 @@ class InvoiceService
 
         return DB::transaction(function () use ($actor, $order, $invoice): Invoice {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->assertNotCancelled($order);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Ready || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Only the current READY Invoice may be issued.']);
@@ -156,5 +160,12 @@ class InvoiceService
     private function access(User $actor, Order $order): void
     {
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+    }
+
+    private function assertNotCancelled(Order $order): void
+    {
+        if ($order->operational_status === OrderOperationalStatus::Cancelled) {
+            throw ValidationException::withMessages(['invoice' => 'Cancelled Orders cannot create, refresh, or issue Invoices.']);
+        }
     }
 }

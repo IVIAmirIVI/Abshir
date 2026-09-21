@@ -51,7 +51,7 @@ class DeliveryPricingOverrideConcurrencyTest extends TestCase
         $captainUser = User::factory()->create();
         $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
         $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
-        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()]);
+        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'First']);
         app(OrderCaptainService::class)->assign($employee, $order, $captain, OrderCaptainRole::PrimaryCollection);
         foreach ([OrderPricingClass::SingleShop->value => '100', OrderPricingClass::MultiShop->value => '200'] as $class => $fee) {

@@ -44,6 +44,8 @@ class OrderCaptainConcurrencyTest extends TestCase
             'customer_id' => $customer->id,
             'customer_phone_id' => $phone->id,
             'customer_address_id' => $address->id,
+            'source' => 'MANUAL',
+            'entry_mode' => 'LIVE',
             'ordered_at' => now(),
         ]);
         $service = app(OrderCaptainService::class);

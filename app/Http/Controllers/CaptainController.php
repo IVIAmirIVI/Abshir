@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\CaptainOperationalStatus;
 use App\Http\Requests\CaptainRequest;
 use App\Models\Captain;
+use App\Models\CaptainRating;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\CaptainService;
@@ -20,7 +21,12 @@ class CaptainController extends Controller
     {
         Gate::authorize('captains.view');
         $search = trim($request->string('search')->toString());
-        $captains = Captain::query()->accessibleTo($request->user())->with(['user', 'homeBranch'])
+        $captainsQuery = Captain::query()->accessibleTo($request->user())->with(['user', 'homeBranch']);
+        if ($request->user()->can('captain_ratings.view_summary')) {
+            $captainsQuery->withCount(['ratings as ratings_count' => fn (Builder $ratings) => $ratings->accessibleTo($request->user())])
+                ->withAvg(['ratings as ratings_average' => fn (Builder $ratings) => $ratings->accessibleTo($request->user())], 'rating');
+        }
+        $captains = $captainsQuery
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $query->where(fn (Builder $matches) => $matches
                     ->where('employee_code', 'like', "%{$search}%")
@@ -60,10 +66,23 @@ class CaptainController extends Controller
         if ($request->user()->can('captain_groups.view')) {
             $captain->load(['groupMemberships' => fn ($query) => $query->with(['group', 'createdBy', 'endedBy'])->latest('joined_at')]);
         }
+        $ratingSummary = null;
+        $recentRatings = collect();
+        if ($request->user()->can('captain_ratings.view_summary')) {
+            $ratings = CaptainRating::query()->accessibleTo($request->user())->where('captain_id', $captain->id);
+            $ratingSummary = [
+                'count' => (clone $ratings)->count(),
+                'average' => (clone $ratings)->avg('rating'),
+                'distribution' => (clone $ratings)->selectRaw('rating, COUNT(*) AS aggregate')->groupBy('rating')->pluck('aggregate', 'rating'),
+            ];
+            $recentRatings = (clone $ratings)->with('order:id,order_number,ordered_at')->latest('rated_at')->limit(20)->get();
+        }
 
         return view('captains.show', [
             'captain' => $captain,
             'activeBranches' => $request->user()->can('captain_branches.view') ? $captain->activeOperationalBranches() : collect(),
+            'ratingSummary' => $ratingSummary,
+            'recentRatings' => $recentRatings,
         ]);
     }
 

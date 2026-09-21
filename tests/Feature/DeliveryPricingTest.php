@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Enums\CaptainOperationalStatus;
 use App\Enums\DeliveryOverrideStatus;
+use App\Enums\OrderCancellationClassification;
+use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderPricingClass;
 use App\Models\Area;
@@ -14,12 +16,14 @@ use App\Models\Customer;
 use App\Models\DeliveryFeeOverrideRequest;
 use App\Models\DeliveryPricingRule;
 use App\Models\DeliveryPricingUserLimit;
+use App\Models\Order;
 use App\Models\OrderCaptain;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\DeliveryAllocationService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
+use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
@@ -51,7 +55,7 @@ class DeliveryPricingTest extends TestCase
         $employee = User::factory()->create();
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
-        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()->subDay()]);
+        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
         app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Test Shop']);
         $order->refresh();
 
@@ -82,6 +86,71 @@ class DeliveryPricingTest extends TestCase
         $rule = DeliveryPricingRule::create(['from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id, 'currency_id' => $c['currency']->id, 'order_pricing_class' => null, 'delivery_unit_fee' => '200', 'effective_from' => now()->subDays(2), 'is_active' => true, 'created_by' => $c['admin']->id]);
 
         return $c['order']->deliveryPricings()->create(['version' => 1, 'delivery_pricing_rule_id' => $rule->id, 'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id, 'currency_id' => $c['currency']->id, 'order_pricing_class_snapshot' => null, 'suggested_unit_fee' => '200', 'applied_unit_fee' => '200', 'captain_count_snapshot' => 1, 'captain_share_percent_snapshot' => '65', 'gross_delivery_total' => '200', 'discount_amount' => '0', 'customer_delivery_total' => '200', 'status' => 'PRICED', 'priced_at' => now(), 'created_by' => $c['admin']->id]);
+    }
+
+    public function test_historical_http_creation_selects_the_rule_effective_at_ordered_at(): void
+    {
+        $context = $this->context();
+        $historicalTime = now()->subDays(5)->startOfMinute();
+        $old = app(DeliveryPricingRuleService::class)->create($context['admin'], [
+            'from_area_id' => $context['from']->id,
+            'to_area_id' => $context['to']->id,
+            'currency_id' => $context['currency']->id,
+            'order_pricing_class' => OrderPricingClass::SingleShop->value,
+            'delivery_unit_fee' => '80',
+            'effective_from' => now()->subDays(10),
+        ]);
+        app(DeliveryPricingRuleService::class)->version($context['admin'], $old, [
+            'from_area_id' => $context['from']->id,
+            'to_area_id' => $context['to']->id,
+            'currency_id' => $context['currency']->id,
+            'order_pricing_class' => OrderPricingClass::SingleShop->value,
+            'delivery_unit_fee' => '120',
+            'effective_from' => now()->subDays(2),
+        ]);
+        $this->configure($context);
+
+        $this->actingAs($context['employee'])->post(route('orders.store'), [
+            'branch_id' => $context['branch']->id,
+            'customer_id' => $context['customer']->id,
+            'customer_phone_id' => $context['customer']->phones()->firstOrFail()->id,
+            'customer_address_id' => $context['customer']->addresses()->firstOrFail()->id,
+            'source' => 'PHONE',
+            'entry_mode' => 'HISTORICAL_MANUAL',
+            'ordered_at' => $historicalTime->format('Y-m-d H:i:s'),
+        ])->assertSessionHasNoErrors();
+        $order = Order::query()->latest('id')->firstOrFail();
+        $this->assertTrue($order->ordered_at->equalTo($historicalTime));
+        $this->assertTrue($order->created_at->greaterThan($order->ordered_at));
+        app(OrderShopService::class)->add($context['employee'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Historical Shop']);
+        app(OrderCaptainService::class)->assign($context['employee'], $order, $this->captain($context), OrderCaptainRole::PrimaryCollection);
+        $pricing = app(OrderDeliveryPricingService::class)->price($context['employee'], $order->fresh(), $context['from']);
+        $this->assertSame($old->id, $pricing->delivery_pricing_rule_id);
+        $this->assertSame('80.0000', $pricing->suggested_unit_fee);
+    }
+
+    public function test_cancelled_order_leaves_pending_override_inert_for_approval_rejection_and_new_requests(): void
+    {
+        $context = $this->context();
+        $this->rule($context, '100');
+        $this->configure($context, threshold: '0');
+        app(OrderCaptainService::class)->assign($context['employee'], $context['order'], $this->captain($context), OrderCaptainRole::PrimaryCollection);
+        $override = app(OrderDeliveryPricingService::class)->requestOverride($context['employee'], $context['order'], $context['from'], '70', 'Needs approval');
+        $this->assertInstanceOf(DeliveryFeeOverrideRequest::class, $override);
+        $this->assertSame(DeliveryOverrideStatus::Pending, $override->status);
+        app(OrderCancellationService::class)->cancel($context['employee'], $context['order'], OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, null);
+
+        foreach ([true, false] as $approve) {
+            try {
+                app(OrderDeliveryPricingService::class)->resolveOverride($context['admin'], $override->fresh(), $approve, 'No longer applicable');
+                $this->fail('A pending override was resolved after cancellation.');
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('order', $exception->errors());
+            }
+        }
+        $this->assertSame(DeliveryOverrideStatus::Pending, $override->fresh()->status);
+        $this->expectException(ValidationException::class);
+        app(OrderDeliveryPricingService::class)->requestOverride($context['employee'], $context['order']->fresh(), $context['from'], '75', 'Forbidden');
     }
 
     public function test_directional_same_area_exact_pair_and_effective_time_rules(): void

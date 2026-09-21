@@ -6,6 +6,8 @@ use App\Enums\ActualPriceSource;
 use App\Enums\CaptainOperationalStatus;
 use App\Enums\InvoiceCollectionMethod;
 use App\Enums\InvoiceStatus;
+use App\Enums\OrderCancellationClassification;
+use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderItemType;
 use App\Enums\OrderOperationalStatus;
@@ -28,24 +30,32 @@ use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderItemService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
+use App\Services\OrderShopProgressService;
+use App\Services\OrderShopReceiptService;
 use App\Services\OrderShopService;
+use App\Services\OrderStatusService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class InvoiceAndCollectionTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
     private function context(string $currencyCode = 'USD'): array
     {
@@ -62,7 +72,7 @@ class InvoiceAndCollectionTest extends TestCase
         $employee = User::factory()->create();
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
-        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()->subDay()]);
+        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
         $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'One-time Shop', 'sort_order' => 1]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         $item = OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Snapshot Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '2.5', 'current_quantity' => '2.5', 'actual_unit_price' => '10.00', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
@@ -95,6 +105,44 @@ class InvoiceAndCollectionTest extends TestCase
     private function issued(array $context): Invoice
     {
         return app(InvoiceService::class)->issue($context['employee'], $context['order'], $this->ready($context));
+    }
+
+    public function test_issued_invoice_allows_operational_evidence_then_delivery_but_keeps_financial_facts_frozen(): void
+    {
+        Storage::fake('order_receipts');
+        $context = $this->context();
+        $this->issued($context);
+        $statuses = app(OrderStatusService::class);
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer] as $status) {
+            $statuses->transition($context['employee'], $context['order']->fresh(), $status, null);
+        }
+
+        app(OrderShopProgressService::class)->record($context['employee'], $context['order']->fresh(), $context['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($context['employee'], $context['order']->fresh(), $context['shop'], UploadedFile::fake()->createWithContent('issued.png', base64_decode(self::PNG)), null);
+        try {
+            app(OrderShopService::class)->add($context['employee'], $context['order']->fresh(), ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Financial mutation']);
+            $this->fail('An issued Invoice allowed a financial Order mutation.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('order', $exception->errors());
+        }
+        $statuses->transition($context['employee'], $context['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $this->assertSame(OrderOperationalStatus::Delivered, $context['order']->fresh()->operational_status);
+    }
+
+    public function test_ready_invoice_becomes_non_issuable_specifically_because_order_is_cancelled(): void
+    {
+        $context = $this->context();
+        $invoice = $this->ready($context);
+        $this->assertSame(InvoiceStatus::Ready, $invoice->status);
+        app(OrderCancellationService::class)->cancel($context['employee'], $context['order'], OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, null);
+
+        try {
+            app(InvoiceService::class)->issue($context['employee'], $context['order']->fresh(), $invoice);
+            $this->fail('A READY Invoice was issued after Order cancellation.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('Cancelled Orders cannot create, refresh, or issue Invoices.', $exception->errors()['invoice'][0]);
+        }
+        $this->assertSame(InvoiceStatus::Ready, $invoice->fresh()->status);
     }
 
     public function test_shop_composition_change_invalidates_pricing_and_makes_ready_invoice_stale(): void
@@ -400,7 +448,7 @@ class InvoiceAndCollectionTest extends TestCase
         $outsider = User::factory()->create();
         $outsider->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $this->actingAs($outsider)->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertForbidden();
-        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['customer']->id, 'customer_phone_id' => $c['customer']->phones()->first()->id, 'customer_address_id' => $c['customer']->addresses()->first()->id, 'ordered_at' => now()]);
+        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['customer']->id, 'customer_phone_id' => $c['customer']->phones()->first()->id, 'customer_address_id' => $c['customer']->addresses()->first()->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$otherOrder, $invoice]))->assertNotFound();
         $response = $this->actingAs($c['employee'])->get(route('orders.invoices.print', [$c['order'], $invoice]));
         $response->assertOk()->assertDontSee('Captain entitlement')->assertDontSee('company collectible')->assertDontSee('shortfall')->assertDontSee('override threshold');

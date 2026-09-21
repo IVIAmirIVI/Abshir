@@ -69,6 +69,11 @@ class Captain extends Model
         return $this->hasMany(CaptainGroupMember::class);
     }
 
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(CaptainRating::class);
+    }
+
     public function scopeAccessibleTo(Builder $query, User $user, ?Carbon $at = null): Builder
     {
         if ($user->isSuperAdmin()) {

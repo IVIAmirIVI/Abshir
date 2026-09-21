@@ -43,7 +43,7 @@ class DeliveryPricingClassificationTest extends TestCase
         $employee = User::factory()->create();
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
-        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'ordered_at' => now()->subHour()]);
+        $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subHour()]);
 
         return compact('currency', 'branch', 'from', 'to', 'admin', 'employee', 'order');
     }
@@ -61,7 +61,7 @@ class DeliveryPricingClassificationTest extends TestCase
         $this->assertSame(ShopBusinessClassification::Restaurant, $snapshot->business_classification_snapshot);
         $this->assertSame(OrderPricingClass::SingleRestaurant, $c['order']->fresh()->pricing_class);
 
-        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['order']->customer_id, 'customer_phone_id' => $c['order']->customer_phone_id, 'customer_address_id' => $c['order']->customer_address_id, 'ordered_at' => now()]);
+        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['order']->customer_id, 'customer_phone_id' => $c['order']->customer_phone_id, 'customer_address_id' => $c['order']->customer_address_id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         $service->add($c['employee'], $otherOrder, ['shop_type' => 'REGISTERED', 'shop_id' => $normal->id]);
         $this->assertSame(OrderPricingClass::SingleShop, $otherOrder->fresh()->pricing_class);
 
@@ -126,7 +126,7 @@ class DeliveryPricingClassificationTest extends TestCase
             $this->assertArrayHasKey('business_classification', $exception->errors());
         }
 
-        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['order']->customer_id, 'customer_phone_id' => $c['order']->customer_phone_id, 'customer_address_id' => $c['order']->customer_address_id, 'ordered_at' => now()]);
+        $otherOrder = app(OrderService::class)->create($c['employee'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['order']->customer_id, 'customer_phone_id' => $c['order']->customer_phone_id, 'customer_address_id' => $c['order']->customer_address_id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
         $this->get(route('orders.shops.classification', [$otherOrder, $legacy]))->assertStatus(405);
         $this->actingAs($c['employee'])->patch(route('orders.shops.classification', [$otherOrder, $legacy]), ['business_classification' => 'SHOP'])->assertNotFound();
     }

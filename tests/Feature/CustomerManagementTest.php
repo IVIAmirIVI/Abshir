@@ -80,7 +80,7 @@ class CustomerManagementTest extends TestCase
         [$first, $second] = Customer::factory()->count(2)->create();
         $this->actingAs($admin)->post(route('customers.phones.store', $first), ['phone' => '+963 944 123 456', 'label' => 'Mobile'])->assertSessionHasNoErrors();
         $this->post(route('customers.phones.store', $first), ['phone' => '963-944-123-456'])->assertSessionHasErrors('normalized_phone');
-        $this->post(route('customers.phones.store', $second), ['phone' => '963-944-123-456'])->assertSessionHasNoErrors();
+        $this->post(route('customers.phones.store', $second), ['phone' => '963-944-123-456', 'duplicate_acknowledged' => true])->assertSessionHasNoErrors();
         $this->assertSame('963944123456', $first->phones()->sole()->normalized_phone);
     }
 

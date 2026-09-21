@@ -141,8 +141,8 @@ class OrderDeliveryPricingService
                 throw ValidationException::withMessages(['override' => 'This override request is already resolved.']);
             }
             $this->access($actor, $order);
+            $this->mutationGuard->assertMutableLocked($order);
             if ($approve) {
-                $this->mutationGuard->assertMutableLocked($order);
                 if ($request->order_pricing_class_snapshot !== $order->pricing_class) {
                     throw ValidationException::withMessages(['override' => 'The Order Pricing Class changed. Submit a new override request.']);
                 }

@@ -7,7 +7,7 @@
             @can('captains.create')<a class="rounded-md bg-gray-800 px-4 py-2 text-white" href="{{ route('captains.create') }}">Create captain</a>@endcan
         </div>
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            @forelse($captains as $captain)<article class="min-w-0 rounded-lg bg-white p-5 shadow space-y-3"><div class="flex justify-between gap-3"><h3 class="font-semibold break-words">{{ $captain->user->name }}</h3><span class="text-sm">{{ $captain->operational_status->label() }}</span></div><p class="text-sm text-gray-600 break-words">Home: {{ $captain->homeBranch->name }}</p><p class="text-sm break-all">{{ $captain->employee_code ?: 'No employee code' }}</p><a class="inline-block text-sm underline" href="{{ route('captains.show', $captain) }}">View captain</a></article>@empty<p>No captains found.</p>@endforelse
+            @forelse($captains as $captain)<article class="min-w-0 rounded-lg bg-white p-5 shadow space-y-3"><div class="flex justify-between gap-3"><h3 class="font-semibold break-words">{{ $captain->user->name }}</h3><span class="text-sm">{{ $captain->operational_status->label() }}</span></div><p class="text-sm text-gray-600 break-words">Home: {{ $captain->homeBranch->name }}</p><p class="text-sm break-all">{{ $captain->employee_code ?: 'No employee code' }}</p>@can('captain_ratings.view_summary')<p class="text-sm">Ratings: {{ $captain->ratings_count }} · Average: {{ $captain->ratings_count ? number_format((float) $captain->ratings_average, 2) : '—' }}</p>@endcan<a class="inline-block text-sm underline" href="{{ route('captains.show', $captain) }}">View captain</a></article>@empty<p>No captains found.</p>@endforelse
         </div>
         {{ $captains->links() }}
     </div>

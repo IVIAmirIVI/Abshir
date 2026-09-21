@@ -34,6 +34,7 @@ class CustomerPhoneRequest extends FormRequest
             ],
             'label' => ['nullable', 'string', 'max:100'],
             'is_primary' => ['sometimes', 'boolean'],
+            'duplicate_acknowledged' => ['sometimes', 'boolean'],
             'customer_id' => ['prohibited'],
         ];
     }

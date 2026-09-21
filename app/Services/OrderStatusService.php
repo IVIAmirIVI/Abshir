@@ -22,6 +22,16 @@ class OrderStatusService
                 throw ValidationException::withMessages(['operational_status' => 'This operational status transition is not allowed.']);
             } if ($target === OrderOperationalStatus::CaptainAssigned && ! $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', 'PRIMARY_COLLECTION')->exists()) {
                 throw ValidationException::withMessages(['operational_status' => 'Assign a Primary Collection Captain first.']);
+            } if ($target === OrderOperationalStatus::Delivered) {
+                if (! $order->shops()->exists()) {
+                    throw ValidationException::withMessages(['operational_status' => 'At least one Shop is required before delivery.']);
+                }
+                $missingEvidence = $order->shops()->where(function ($shops): void {
+                    $shops->whereNull('picked_up_at')->orWhereDoesntHave('receipts');
+                })->exists();
+                if ($missingEvidence) {
+                    throw ValidationException::withMessages(['operational_status' => 'Every Shop must be picked up and have receipt evidence before delivery.']);
+                }
             } $order->forceFill(['operational_status' => $target])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);
         });

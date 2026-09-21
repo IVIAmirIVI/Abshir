@@ -6,6 +6,7 @@ use App\Enums\OrderCaptainRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['order_id', 'captain_id', 'assignment_role', 'assigned_at', 'assigned_by', 'removed_at', 'removed_by', 'removal_reason'])]
 class OrderCaptain extends Model
@@ -33,5 +34,10 @@ class OrderCaptain extends Model
     public function removedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'removed_by');
+    }
+
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(CaptainRating::class);
     }
 }

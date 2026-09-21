@@ -7,16 +7,20 @@ use App\Models\CustomerPhone;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 class CustomerPhoneService
 {
-    public function __construct(public PhoneNormalizer $normalizer) {}
+    public function __construct(public PhoneNormalizer $normalizer, private readonly CustomerPhoneDuplicateService $duplicates) {}
 
     public function save(User $actor, Customer $customer, CustomerPhone $phone, array $data): CustomerPhone
     {
         Gate::forUser($actor)->authorize('customers.update');
         abort_unless($actor->canAccessCustomer($customer), 403);
         abort_if($phone->exists && $phone->customer_id !== $customer->id, 404);
+        if ($this->duplicates->visibleMatches($actor, $data['phone'], $customer->id)->isNotEmpty() && ! ($data['duplicate_acknowledged'] ?? false)) {
+            throw ValidationException::withMessages(['phone' => 'This phone number already exists for another customer. Confirm that you want to continue.']);
+        }
 
         return DB::transaction(function () use ($customer, $phone, $data): CustomerPhone {
             Customer::query()->lockForUpdate()->findOrFail($customer->id);

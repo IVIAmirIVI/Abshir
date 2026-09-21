@@ -62,7 +62,7 @@ class OrderManagementTest extends TestCase
 
     private function order(array $c): Order
     {
-        return app(OrderService::class)->create($c['actor'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['customer']->id, 'customer_phone_id' => $c['phone']->id, 'customer_address_id' => $c['address']->id, 'ordered_at' => now()->subDay()]);
+        return app(OrderService::class)->create($c['actor'], ['branch_id' => $c['branch']->id, 'customer_id' => $c['customer']->id, 'customer_phone_id' => $c['phone']->id, 'customer_address_id' => $c['address']->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
     }
 
     public function test_creation_preserves_customer_snapshots_and_initial_history(): void
@@ -233,6 +233,8 @@ class OrderManagementTest extends TestCase
             'customer_id' => $c['customer']->id,
             'customer_phone_id' => $otherPhone->id,
             'customer_address_id' => $c['address']->id,
+            'source' => 'MANUAL',
+            'entry_mode' => 'LIVE',
             'ordered_at' => now(),
         ]);
     }
@@ -249,6 +251,8 @@ class OrderManagementTest extends TestCase
             'customer_id' => $c['customer']->id,
             'customer_phone_id' => $c['phone']->id,
             'customer_address_id' => $otherAddress->id,
+            'source' => 'MANUAL',
+            'entry_mode' => 'LIVE',
             'ordered_at' => now(),
         ]);
     }
@@ -264,6 +268,8 @@ class OrderManagementTest extends TestCase
             'customer_id' => $c['customer']->id,
             'customer_phone_id' => $c['phone']->id,
             'customer_address_id' => $c['address']->id,
+            'source' => 'MANUAL',
+            'entry_mode' => 'LIVE',
             'ordered_at' => now(),
         ]);
     }
