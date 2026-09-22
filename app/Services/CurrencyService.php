@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Models\Currency;
+use App\Models\FinancialTransaction;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 class CurrencyService
 {
@@ -12,9 +15,22 @@ class CurrencyService
     {
         Gate::forUser($actor)->authorize($currency->exists ? 'currencies.update' : 'currencies.create');
         $data['code'] = strtoupper($data['code']);
-        $currency->fill($data)->save();
 
-        return $currency;
+        return DB::transaction(function () use ($currency, $data): Currency {
+            if ($currency->exists) {
+                $currency = Currency::query()->lockForUpdate()->findOrFail($currency->id);
+                if (array_key_exists('decimal_places', $data)
+                    && (int) $data['decimal_places'] !== (int) $currency->decimal_places
+                    && FinancialTransaction::query()->where('currency_id', $currency->id)->exists()) {
+                    throw ValidationException::withMessages([
+                        'decimal_places' => 'Currency decimal precision cannot change after financial ledger use.',
+                    ]);
+                }
+            }
+            $currency->fill($data)->save();
+
+            return $currency;
+        }, 3);
     }
 
     public function setActive(User $actor, Currency $currency, bool $active): void

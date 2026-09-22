@@ -351,6 +351,7 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertSame($c['employee']->id, $collection->recorded_by);
         $this->assertNotNull($collection->collected_at);
         $this->assertTrue($c['order']->isFinanciallyComplete());
+        $this->assertDatabaseCount('financial_transactions', 0);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
     }
 
@@ -384,6 +385,7 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertNull($collection->order_captain_id);
         $this->assertSame('SC-123', $collection->payment_reference);
         $this->assertSame($c['employee']->id, $collection->recorded_by);
+        $this->assertDatabaseCount('financial_transactions', 0);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::ShamCash, '30', $c['currency']->id, now()));
     }
 
@@ -485,9 +487,14 @@ class InvoiceAndCollectionTest extends TestCase
         }
     }
 
-    public function test_no_phase_nine_financial_schema_exists(): void
+    public function test_phase_nine_a_core_exists_without_order_financial_integration_tables(): void
     {
-        foreach (['financial_accounts', 'financial_transactions', 'captain_deposits', 'captain_receivables', 'cash_custody', 'commissions', 'incentives', 'salaries'] as $table) {
+        $this->context();
+        $this->assertDatabaseCount('financial_transactions', 0);
+        foreach (['financial_owners', 'financial_accounts', 'financial_transactions', 'financial_entries'] as $table) {
+            $this->assertTrue(Schema::hasTable($table));
+        }
+        foreach (['captain_deposits', 'captain_receivables', 'cash_handovers', 'settlement_sessions', 'commissions', 'incentives', 'salaries'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

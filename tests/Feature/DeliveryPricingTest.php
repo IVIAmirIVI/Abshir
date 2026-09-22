@@ -528,7 +528,7 @@ class DeliveryPricingTest extends TestCase
         $this->assertNotNull($primary->fresh()->removed_at);
     }
 
-    public function test_permissions_scope_and_no_future_financial_schema(): void
+    public function test_permissions_scope_and_no_out_of_scope_financial_schema(): void
     {
         $c = $this->context();
         $codes = $c['employee']->roles->first()->permissions()->where('code', 'like', 'delivery%')->pluck('code')->all();
@@ -537,7 +537,11 @@ class DeliveryPricingTest extends TestCase
         $this->assertFalse($c['employee']->hasPermission('delivery_pricing_overrides.approve'));
         $this->assertFalse($c['employee']->hasPermission('delivery_financial_details.view'));
         $this->assertCount(0, Role::where('code', 'CAPTAIN')->sole()->permissions()->where('code', 'like', 'delivery%')->get());
-        foreach (['payments', 'financial_accounts', 'financial_transactions', 'captain_deposits', 'captain_receivables'] as $table) {
+        $this->assertDatabaseCount('financial_transactions', 0);
+        foreach (['financial_owners', 'financial_accounts', 'financial_transactions', 'financial_entries'] as $table) {
+            $this->assertTrue(Schema::hasTable($table));
+        }
+        foreach (['payments', 'captain_deposits', 'captain_receivables', 'cash_handovers', 'settlement_sessions'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
     }

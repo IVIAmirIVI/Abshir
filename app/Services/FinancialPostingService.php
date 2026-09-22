@@ -1,0 +1,357 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\FinancialEntryDirection;
+use App\Enums\FinancialTransactionKind;
+use App\Enums\FinancialTransactionStatus;
+use App\Exceptions\FinancialIdempotencyConflictException;
+use App\Exceptions\FinancialLedgerException;
+use App\Models\Branch;
+use App\Models\Currency;
+use App\Models\FinancialAccount;
+use App\Models\FinancialTransaction;
+use App\Models\User;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
+
+class FinancialPostingService
+{
+    public function postEvent(
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $movements,
+        ?Branch $branch = null,
+        ?User $recordedBy = null,
+        ?string $reason = null,
+        ?string $notes = null,
+    ): FinancialTransaction {
+        return $this->post(
+            FinancialTransactionKind::Event,
+            $currency,
+            $sourceType,
+            $sourceId,
+            $eventType,
+            $sourceVersion,
+            $occurredAt,
+            $movements,
+            $branch,
+            $recordedBy,
+            null,
+            $reason,
+            $notes,
+        );
+    }
+
+    public function postTransfer(
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $movements,
+        ?Branch $branch = null,
+        ?User $recordedBy = null,
+        ?string $reason = null,
+        ?string $notes = null,
+    ): FinancialTransaction {
+        return $this->post(
+            FinancialTransactionKind::Transfer,
+            $currency,
+            $sourceType,
+            $sourceId,
+            $eventType,
+            $sourceVersion,
+            $occurredAt,
+            $movements,
+            $branch,
+            $recordedBy,
+            null,
+            $reason,
+            $notes,
+        );
+    }
+
+    public function reverse(
+        FinancialTransaction $original,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        string $reason,
+        ?Branch $branch = null,
+        ?User $recordedBy = null,
+        ?string $notes = null,
+    ): FinancialTransaction {
+        if (trim($reason) === '') {
+            throw new FinancialLedgerException('A reversal reason is required.');
+        }
+
+        return DB::transaction(function () use ($original, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $reason, $branch, $recordedBy, $notes): FinancialTransaction {
+            Currency::query()->lockForUpdate()->findOrFail($original->currency_id);
+            $original = FinancialTransaction::query()->lockForUpdate()->findOrFail($original->id);
+            if ($original->transaction_kind === FinancialTransactionKind::Reversal) {
+                throw new FinancialLedgerException('A reversal transaction cannot itself be reversed.');
+            }
+            if (FinancialTransaction::query()->where('reversal_of_transaction_id', $original->id)->exists()) {
+                throw new FinancialLedgerException('This financial transaction has already been reversed.');
+            }
+
+            $movements = $original->entries()->orderBy('financial_account_id')->get()->map(fn ($entry): array => [
+                'account' => $entry->account,
+                'direction' => $entry->direction->opposite(),
+                'amount' => $entry->amount,
+            ])->all();
+
+            return $this->postWithinTransaction(
+                FinancialTransactionKind::Reversal,
+                $original->currency,
+                $sourceType,
+                $sourceId,
+                $eventType,
+                $sourceVersion,
+                $occurredAt,
+                $movements,
+                $branch,
+                $recordedBy,
+                $original,
+                trim($reason),
+                $notes,
+            );
+        }, 3);
+    }
+
+    private function post(
+        FinancialTransactionKind $kind,
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $movements,
+        ?Branch $branch,
+        ?User $recordedBy,
+        ?FinancialTransaction $reversalOf,
+        ?string $reason,
+        ?string $notes,
+    ): FinancialTransaction {
+        return DB::transaction(fn (): FinancialTransaction => $this->postWithinTransaction(
+            $kind,
+            $currency,
+            $sourceType,
+            $sourceId,
+            $eventType,
+            $sourceVersion,
+            $occurredAt,
+            $movements,
+            $branch,
+            $recordedBy,
+            $reversalOf,
+            $reason,
+            $notes,
+        ), 3);
+    }
+
+    private function postWithinTransaction(
+        FinancialTransactionKind $kind,
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $movements,
+        ?Branch $branch,
+        ?User $recordedBy,
+        ?FinancialTransaction $reversalOf,
+        ?string $reason,
+        ?string $notes,
+    ): FinancialTransaction {
+        $this->validateIdentity($sourceType, $sourceId, $eventType, $sourceVersion);
+        $currency = Currency::query()->lockForUpdate()->findOrFail($currency->id);
+        $this->validateCurrency($currency);
+        $normalized = $this->normalizeMovements($currency, $movements);
+        $this->validateKind($kind, $normalized);
+
+        $occurredAt = CarbonImmutable::instance($occurredAt)->utc();
+        $payload = [
+            'transaction_kind' => $kind->value,
+            'currency_id' => $currency->id,
+            'branch_id' => $branch?->id,
+            'source_type' => trim($sourceType),
+            'source_id' => (string) $sourceId,
+            'event_type' => trim($eventType),
+            'source_version' => $sourceVersion,
+            'occurred_at' => $occurredAt->format('Y-m-d\TH:i:s.uP'),
+            'recorded_by_user_id' => $recordedBy?->id,
+            'reversal_of_transaction_id' => $reversalOf?->id,
+            'reason' => $reason,
+            'notes' => $notes,
+            'movements' => $normalized,
+        ];
+        $payloadHash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+
+        $identity = [
+            'source_type' => trim($sourceType),
+            'source_id' => (string) $sourceId,
+            'event_type' => trim($eventType),
+            'source_version' => $sourceVersion,
+        ];
+        $inserted = DB::table('financial_transactions')->insertOrIgnore($identity + [
+            'transaction_kind' => $kind->value,
+            'status' => FinancialTransactionStatus::Draft->value,
+            'currency_id' => $currency->id,
+            'branch_id' => $branch?->id,
+            'payload_hash' => $payloadHash,
+            'occurred_at' => $occurredAt,
+            'recorded_by_user_id' => $recordedBy?->id,
+            'reversal_of_transaction_id' => $reversalOf?->id,
+            'reason' => $reason,
+            'notes' => $notes,
+            'created_at' => now(),
+        ]);
+
+        $transaction = FinancialTransaction::query()->where($identity)->lockForUpdate()->first();
+        if (! $transaction) {
+            throw new FinancialLedgerException('The financial source identity conflicted with another ledger invariant.');
+        }
+        if (! hash_equals($transaction->payload_hash, $payloadHash)) {
+            throw new FinancialIdempotencyConflictException('The financial source identity already exists with a different payload.');
+        }
+        if ($inserted === 0) {
+            if ($transaction->status !== FinancialTransactionStatus::Posted) {
+                throw new FinancialLedgerException('An idempotent financial transaction is not fully POSTED.');
+            }
+
+            return $transaction->load('entries');
+        }
+
+        $accounts = FinancialAccount::query()
+            ->whereKey(collect($normalized)->pluck('financial_account_id'))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+        if ($accounts->count() !== count($normalized)) {
+            throw new FinancialLedgerException('Every financial movement must reference an existing account.');
+        }
+
+        foreach ($normalized as $movement) {
+            $account = $accounts->get($movement['financial_account_id']);
+            if (! $account || $account->currency_id !== $currency->id) {
+                throw new FinancialLedgerException('Transaction and Account currencies must match.');
+            }
+            DB::table('financial_entries')->insert([
+                'financial_transaction_id' => $transaction->id,
+                'financial_account_id' => $account->id,
+                'currency_id' => $currency->id,
+                'direction' => $movement['direction'],
+                'amount' => $movement['amount'],
+                'created_at' => now(),
+            ]);
+        }
+
+        $finalized = DB::table('financial_transactions')
+            ->where('id', $transaction->id)
+            ->where('status', FinancialTransactionStatus::Draft->value)
+            ->update([
+                'status' => FinancialTransactionStatus::Posted->value,
+                'posted_at' => now(),
+            ]);
+        if ($finalized !== 1) {
+            throw new FinancialLedgerException('The financial transaction could not be finalized.');
+        }
+
+        return $transaction->fresh()->load('entries');
+    }
+
+    private function normalizeMovements(Currency $currency, array $movements): array
+    {
+        if ($movements === []) {
+            throw new FinancialLedgerException('A financial transaction requires at least one movement.');
+        }
+
+        $normalized = [];
+        foreach ($movements as $movement) {
+            $account = $movement['account'] ?? null;
+            if (! $account instanceof FinancialAccount || ! $account->exists) {
+                throw new FinancialLedgerException('Every movement requires a persisted FinancialAccount.');
+            }
+            if (is_float($movement['amount'] ?? null)) {
+                throw new FinancialLedgerException('Financial amounts must not be provided as floats.');
+            }
+            try {
+                $direction = ($movement['direction'] ?? null) instanceof FinancialEntryDirection
+                    ? $movement['direction']
+                    : FinancialEntryDirection::from((string) ($movement['direction'] ?? ''));
+                $amount = BigDecimal::of($movement['amount'] ?? '');
+            } catch (\Throwable) {
+                throw new FinancialLedgerException('Financial movement direction or amount is invalid.');
+            }
+            if (! $amount->isGreaterThan(0)) {
+                throw new FinancialLedgerException('Financial movement amounts must be greater than zero.');
+            }
+            if ($amount->strippedOfTrailingZeros()->getScale() > $currency->decimal_places) {
+                throw new FinancialLedgerException('Financial amount exceeds the Currency decimal precision.');
+            }
+            if (isset($normalized[$account->id])) {
+                throw new FinancialLedgerException('Only one movement per Account is allowed in a Transaction.');
+            }
+            $normalized[$account->id] = [
+                'financial_account_id' => $account->id,
+                'direction' => $direction->value,
+                'amount' => (string) $amount->toScale(4, RoundingMode::Unnecessary),
+            ];
+        }
+        ksort($normalized, SORT_NUMERIC);
+
+        return array_values($normalized);
+    }
+
+    private function validateKind(FinancialTransactionKind $kind, array $movements): void
+    {
+        if ($kind !== FinancialTransactionKind::Transfer) {
+            return;
+        }
+
+        $increase = BigDecimal::zero();
+        $decrease = BigDecimal::zero();
+        foreach ($movements as $movement) {
+            if ($movement['direction'] === FinancialEntryDirection::Increase->value) {
+                $increase = $increase->plus($movement['amount']);
+            } else {
+                $decrease = $decrease->plus($movement['amount']);
+            }
+        }
+        if ($increase->isZero() || $decrease->isZero() || ! $increase->isEqualTo($decrease)) {
+            throw new FinancialLedgerException('A TRANSFER must have equal INCREASE and DECREASE totals.');
+        }
+    }
+
+    private function validateIdentity(string $sourceType, string|int $sourceId, string $eventType, int $sourceVersion): void
+    {
+        if (trim($sourceType) === '' || mb_strlen(trim($sourceType)) > 100 || (string) $sourceId === '' || mb_strlen((string) $sourceId) > 191 || trim($eventType) === '' || mb_strlen(trim($eventType)) > 100) {
+            throw new FinancialLedgerException('Financial source identity is invalid.');
+        }
+        if ($sourceVersion < 1) {
+            throw new FinancialLedgerException('Financial source version must be positive.');
+        }
+    }
+
+    private function validateCurrency(Currency $currency): void
+    {
+        if (! $currency->exists || $currency->decimal_places < 0 || $currency->decimal_places > 4) {
+            throw new FinancialLedgerException('Currency decimal precision must be between 0 and 4.');
+        }
+    }
+}
