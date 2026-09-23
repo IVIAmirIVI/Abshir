@@ -178,6 +178,14 @@ class InvoiceConcurrencyTest extends TestCase
 
     private function issuedFixture(): array
     {
+        $connection = (string) config('database.default');
+        $configurationKey = "database.connections.{$connection}.search_path";
+        $originalSearchPath = (string) config($configurationKey);
+        $schema = 'invoice_concurrency_'.str()->lower(str()->random(12));
+        DB::statement('CREATE SCHEMA "'.$schema.'"');
+        config([$configurationKey => $schema]);
+        DB::purge($connection);
+        DB::reconnect($connection);
         Artisan::call('migrate', ['--force' => true]);
         $this->seed(AuthorizationSeeder::class);
         $currency = Currency::create(['name' => 'Concurrency currency', 'code' => strtoupper(substr(bin2hex(random_bytes(2)), 0, 3)), 'decimal_places' => 2]);
@@ -212,28 +220,15 @@ class InvoiceConcurrencyTest extends TestCase
             'created_by' => $actor->id,
         ]);
 
-        return compact('currency', 'branch', 'area', 'customer', 'phone', 'address', 'actor', 'order', 'captainUser', 'captain', 'assignment', 'invoice');
+        return compact('currency', 'branch', 'area', 'customer', 'phone', 'address', 'actor', 'order', 'captainUser', 'captain', 'assignment', 'invoice', 'connection', 'configurationKey', 'originalSearchPath', 'schema');
     }
 
     private function cleanupFixture(array $fixture): void
     {
-        DB::table('invoice_collections')->where('invoice_id', $fixture['invoice']->id)->delete();
-        DB::table('invoices')->where('order_id', $fixture['order']->id)->delete();
-        DB::table('order_captains')->where('order_id', $fixture['order']->id)->delete();
-        DB::table('order_status_history')->where('order_id', $fixture['order']->id)->delete();
-        DB::table('orders')->where('id', $fixture['order']->id)->delete();
-        DB::table('captain_employment_periods')->where('captain_id', $fixture['captain']->id)->delete();
-        DB::table('captains')->where('id', $fixture['captain']->id)->delete();
-        DB::table('users')->where('id', $fixture['captainUser']->id)->delete();
-        DB::table('user_roles')->where('user_id', $fixture['actor']->id)->delete();
-        DB::table('user_branches')->where('user_id', $fixture['actor']->id)->delete();
-        DB::table('users')->where('id', $fixture['actor']->id)->delete();
-        DB::table('customer_addresses')->where('customer_id', $fixture['customer']->id)->delete();
-        DB::table('customer_phones')->where('customer_id', $fixture['customer']->id)->delete();
-        DB::table('customers')->where('id', $fixture['customer']->id)->delete();
-        DB::table('areas')->where('id', $fixture['area']->id)->delete();
-        DB::table('branches')->where('id', $fixture['branch']->id)->delete();
-        DB::table('currencies')->where('id', $fixture['currency']->id)->delete();
+        DB::purge($fixture['connection']);
+        config([$fixture['configurationKey'] => $fixture['originalSearchPath']]);
+        DB::reconnect($fixture['connection']);
+        DB::statement('DROP SCHEMA IF EXISTS "'.$fixture['schema'].'" CASCADE');
     }
 
     private function openConcurrentConnection(): Connection

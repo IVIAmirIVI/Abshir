@@ -351,7 +351,8 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertSame($c['employee']->id, $collection->recorded_by);
         $this->assertNotNull($collection->collected_at);
         $this->assertTrue($c['order']->isFinanciallyComplete());
-        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertDatabaseCount('financial_transactions', 1);
+        $this->assertDatabaseHas('financial_transactions', ['source_type' => 'INVOICE_COLLECTION', 'source_id' => (string) $collection->id, 'event_type' => 'INVOICE_CASH_CUSTODY_RECEIVED']);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
     }
 

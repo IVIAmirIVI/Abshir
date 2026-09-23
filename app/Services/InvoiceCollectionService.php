@@ -17,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class InvoiceCollectionService
 {
+    public function __construct(private readonly OrderFinancialPostingService $financials) {}
+
     public function record(User $actor, Invoice $invoice, InvoiceCollectionMethod $method, string $amount, int $currencyId, mixed $collectedAt, ?string $notes = null, ?string $paymentReference = null): InvoiceCollection
     {
         Gate::forUser($actor)->authorize('invoice_collections.create');
@@ -49,7 +51,7 @@ class InvoiceCollectionService
                 $orderCaptainId = $primary->id;
             }
 
-            return $invoice->collection()->create([
+            $collection = $invoice->collection()->create([
                 'order_id' => $order->id,
                 'captain_id' => $captainId,
                 'order_captain_id' => $orderCaptainId,
@@ -61,6 +63,9 @@ class InvoiceCollectionService
                 'recorded_by' => $actor->id,
                 'notes' => $notes,
             ]);
+            $this->financials->postCashCollectionCustody($collection);
+
+            return $collection;
         });
     }
 }

@@ -14,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class InvoiceService
 {
-    public function __construct(private readonly InvoiceSnapshotService $snapshots) {}
+    public function __construct(
+        private readonly InvoiceSnapshotService $snapshots,
+        private readonly OrderFinancialPostingService $financials,
+    ) {}
 
     public function createDraft(User $actor, Order $order): Invoice
     {
@@ -66,6 +69,7 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => 'Another current Invoice exists.']);
             }
             $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $actor->id]);
+            $this->financials->postOrderDerivedIfReady($order);
 
             return $invoice->fresh();
         });
@@ -87,6 +91,7 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be voided until a financial reversal workflow exists.']);
             }
+            $this->assertNotFinanciallyCrystallized($invoice);
             $invoice->update(['status' => InvoiceStatus::Voided, 'voided_at' => now(), 'voided_by' => $actor->id, 'void_reason' => $reason, 'superseded_at' => now()]);
         });
     }
@@ -108,6 +113,7 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be replaced until a financial reversal workflow exists.']);
             }
+            $this->assertNotFinanciallyCrystallized($invoice);
             $snapshot = $this->snapshots->build($order);
             $invoice->update(['status' => InvoiceStatus::Replaced, 'replaced_at' => now(), 'replaced_by' => $actor->id, 'replacement_reason' => $reason, 'superseded_at' => now()]);
             $replacement = $this->createDraftLocked($actor, $order);
@@ -166,6 +172,15 @@ class InvoiceService
     {
         if ($order->operational_status === OrderOperationalStatus::Cancelled) {
             throw ValidationException::withMessages(['invoice' => 'Cancelled Orders cannot create, refresh, or issue Invoices.']);
+        }
+    }
+
+    private function assertNotFinanciallyCrystallized(Invoice $invoice): void
+    {
+        if ($this->financials->hasOrderDerivedEvents($invoice)) {
+            throw ValidationException::withMessages([
+                'invoice' => 'A financially crystallized Invoice cannot be corrected until the financial reversal workflow exists.',
+            ]);
         }
     }
 }

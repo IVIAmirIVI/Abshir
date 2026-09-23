@@ -20,6 +20,80 @@ use Illuminate\Support\Facades\DB;
 
 class FinancialPostingService
 {
+    /** Validate a planned movement without requiring or creating an Account. */
+    public function validatePlannedAmount(Currency $currency, mixed $rawAmount): string
+    {
+        $this->validateCurrency($currency);
+        if (is_float($rawAmount)) {
+            throw new FinancialLedgerException('Financial amounts must not be provided as floats.');
+        }
+        try {
+            $amount = BigDecimal::of($rawAmount ?? '');
+        } catch (\Throwable) {
+            throw new FinancialLedgerException('Financial movement direction or amount is invalid.');
+        }
+        if (! $amount->isGreaterThan(0)) {
+            throw new FinancialLedgerException('Financial movement amounts must be greater than zero.');
+        }
+        if ($amount->strippedOfTrailingZeros()->getScale() > $currency->decimal_places) {
+            throw new FinancialLedgerException('Financial amount exceeds the Currency decimal precision.');
+        }
+
+        return (string) $amount->toScale(4, RoundingMode::Unnecessary);
+    }
+
+    /** @return array{state: 'missing'|'exact'|'conflict', transaction: ?FinancialTransaction} */
+    public function inspectEvent(
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $movements,
+        ?Branch $branch = null,
+        ?User $recordedBy = null,
+        ?string $reason = null,
+        ?string $notes = null,
+    ): array {
+        $this->validateIdentity($sourceType, $sourceId, $eventType, $sourceVersion);
+        $this->validateCurrency($currency);
+        $normalized = $this->normalizeMovements($currency, $movements);
+        $payloadHash = $this->payloadHash(
+            FinancialTransactionKind::Event,
+            $currency,
+            $sourceType,
+            $sourceId,
+            $eventType,
+            $sourceVersion,
+            $occurredAt,
+            $normalized,
+            $branch,
+            $recordedBy,
+            null,
+            $reason,
+            $notes,
+        );
+
+        $transactions = FinancialTransaction::query()
+            ->where('source_type', trim($sourceType))
+            ->where('source_id', (string) $sourceId)
+            ->where('event_type', trim($eventType))
+            ->get();
+        if ($transactions->isEmpty()) {
+            return ['state' => 'missing', 'transaction' => null];
+        }
+        $transaction = $transactions->firstWhere('source_version', $sourceVersion);
+        if ($transactions->count() !== 1
+            || ! $transaction
+            || $transaction->status !== FinancialTransactionStatus::Posted
+            || ! hash_equals($transaction->payload_hash, $payloadHash)) {
+            return ['state' => 'conflict', 'transaction' => $transaction];
+        }
+
+        return ['state' => 'exact', 'transaction' => $transaction];
+    }
+
     public function postEvent(
         Currency $currency,
         string $sourceType,
@@ -184,22 +258,7 @@ class FinancialPostingService
         $this->validateKind($kind, $normalized);
 
         $occurredAt = CarbonImmutable::instance($occurredAt)->utc();
-        $payload = [
-            'transaction_kind' => $kind->value,
-            'currency_id' => $currency->id,
-            'branch_id' => $branch?->id,
-            'source_type' => trim($sourceType),
-            'source_id' => (string) $sourceId,
-            'event_type' => trim($eventType),
-            'source_version' => $sourceVersion,
-            'occurred_at' => $occurredAt->format('Y-m-d\TH:i:s.uP'),
-            'recorded_by_user_id' => $recordedBy?->id,
-            'reversal_of_transaction_id' => $reversalOf?->id,
-            'reason' => $reason,
-            'notes' => $notes,
-            'movements' => $normalized,
-        ];
-        $payloadHash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+        $payloadHash = $this->payloadHash($kind, $currency, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $normalized, $branch, $recordedBy, $reversalOf, $reason, $notes);
 
         $identity = [
             'source_type' => trim($sourceType),
@@ -283,26 +342,17 @@ class FinancialPostingService
 
         $normalized = [];
         foreach ($movements as $movement) {
+            $amount = $this->validatePlannedAmount($currency, $movement['amount'] ?? null);
             $account = $movement['account'] ?? null;
             if (! $account instanceof FinancialAccount || ! $account->exists) {
                 throw new FinancialLedgerException('Every movement requires a persisted FinancialAccount.');
-            }
-            if (is_float($movement['amount'] ?? null)) {
-                throw new FinancialLedgerException('Financial amounts must not be provided as floats.');
             }
             try {
                 $direction = ($movement['direction'] ?? null) instanceof FinancialEntryDirection
                     ? $movement['direction']
                     : FinancialEntryDirection::from((string) ($movement['direction'] ?? ''));
-                $amount = BigDecimal::of($movement['amount'] ?? '');
             } catch (\Throwable) {
                 throw new FinancialLedgerException('Financial movement direction or amount is invalid.');
-            }
-            if (! $amount->isGreaterThan(0)) {
-                throw new FinancialLedgerException('Financial movement amounts must be greater than zero.');
-            }
-            if ($amount->strippedOfTrailingZeros()->getScale() > $currency->decimal_places) {
-                throw new FinancialLedgerException('Financial amount exceeds the Currency decimal precision.');
             }
             if (isset($normalized[$account->id])) {
                 throw new FinancialLedgerException('Only one movement per Account is allowed in a Transaction.');
@@ -310,7 +360,7 @@ class FinancialPostingService
             $normalized[$account->id] = [
                 'financial_account_id' => $account->id,
                 'direction' => $direction->value,
-                'amount' => (string) $amount->toScale(4, RoundingMode::Unnecessary),
+                'amount' => $amount,
             ];
         }
         ksort($normalized, SORT_NUMERIC);
@@ -353,5 +403,39 @@ class FinancialPostingService
         if (! $currency->exists || $currency->decimal_places < 0 || $currency->decimal_places > 4) {
             throw new FinancialLedgerException('Currency decimal precision must be between 0 and 4.');
         }
+    }
+
+    private function payloadHash(
+        FinancialTransactionKind $kind,
+        Currency $currency,
+        string $sourceType,
+        string|int $sourceId,
+        string $eventType,
+        int $sourceVersion,
+        CarbonInterface $occurredAt,
+        array $normalizedMovements,
+        ?Branch $branch,
+        ?User $recordedBy,
+        ?FinancialTransaction $reversalOf,
+        ?string $reason,
+        ?string $notes,
+    ): string {
+        $payload = [
+            'transaction_kind' => $kind->value,
+            'currency_id' => $currency->id,
+            'branch_id' => $branch?->id,
+            'source_type' => trim($sourceType),
+            'source_id' => (string) $sourceId,
+            'event_type' => trim($eventType),
+            'source_version' => $sourceVersion,
+            'occurred_at' => CarbonImmutable::instance($occurredAt)->utc()->format('Y-m-d\TH:i:s.uP'),
+            'recorded_by_user_id' => $recordedBy?->id,
+            'reversal_of_transaction_id' => $reversalOf?->id,
+            'reason' => $reason,
+            'notes' => $notes,
+            'movements' => $normalizedMovements,
+        ];
+
+        return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
     }
 }
