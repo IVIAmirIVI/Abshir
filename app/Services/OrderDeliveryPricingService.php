@@ -199,7 +199,9 @@ class OrderDeliveryPricingService
             return;
         }
         $active = $order->captainAssignments()->whereNull('removed_at')->orderBy('id')->lockForUpdate()->get();
-        if ($active->count() === $current->captain_count_snapshot) {
+        $previousCaptainIds = $current->allocations()->orderBy('captain_id')->pluck('captain_id')->all();
+        $currentCaptainIds = $active->pluck('captain_id')->sort()->values()->all();
+        if ($active->count() === $current->captain_count_snapshot && $previousCaptainIds === $currentCaptainIds) {
             return;
         }
         if ($active->isEmpty()) {

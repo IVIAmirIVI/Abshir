@@ -17,6 +17,8 @@ class InvoiceService
     public function __construct(
         private readonly InvoiceSnapshotService $snapshots,
         private readonly OrderFinancialPostingService $financials,
+        private readonly OrderFinancialSourceSnapshotService $financialSources,
+        private readonly CorrectedOrderFinancialService $correctedFinancials,
     ) {}
 
     public function createDraft(User $actor, Order $order): Invoice
@@ -69,7 +71,8 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => 'Another current Invoice exists.']);
             }
             $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $actor->id]);
-            $this->financials->postOrderDerivedIfReady($order);
+            $this->financialSources->capture($invoice->fresh());
+            $this->correctedFinancials->postIfReady($order);
 
             return $invoice->fresh();
         });

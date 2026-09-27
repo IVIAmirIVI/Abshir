@@ -91,10 +91,9 @@ class Phase85ConcurrencyTest extends TestCase
     public function test_real_cancellation_and_invoice_issue_services_cannot_both_succeed(): void
     {
         $this->requirePostgresConcurrency();
-        $fixture = $this->fixture();
-        $invoiceFixture = $this->readyInvoice($fixture);
-
-        try {
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $invoiceFixture = $this->readyInvoice($fixture);
             $results = $this->raceServices($fixture['order'], [
                 ['operation' => 'cancel_before', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id],
                 ['operation' => 'issue', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id, 'invoice_id' => $invoiceFixture['invoice']->id],
@@ -104,10 +103,7 @@ class Phase85ConcurrencyTest extends TestCase
             $cancelled = $fixture['order']->fresh()->operational_status === OrderOperationalStatus::Cancelled;
             $issued = $invoiceFixture['invoice']->fresh()->status === InvoiceStatus::Issued;
             $this->assertNotSame($cancelled, $issued);
-        } finally {
-            $this->cleanupInvoiceFixture($fixture, $invoiceFixture);
-            $this->cleanup($fixture);
-        }
+        });
     }
 
     public function test_real_before_purchase_cancellation_and_receipt_services_cannot_both_succeed(): void
@@ -244,8 +240,12 @@ class Phase85ConcurrencyTest extends TestCase
         $item = OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Race Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1', 'current_quantity' => '1', 'actual_unit_price' => '10.00', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $fixture['actor']->id]);
         $fixture['order']->forceFill(['pricing_class' => OrderPricingClass::SingleShop, 'pricing_status' => OrderPricingStatus::Confirmed])->save();
         $captain = $this->captain($fixture['branch']);
-        app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+        $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
         $pricing = $fixture['order']->deliveryPricings()->create(['version' => 1, 'from_area_id' => $origin->id, 'to_area_id' => $fixture['area']->id, 'currency_id' => $currency->id, 'order_pricing_class_snapshot' => OrderPricingClass::SingleShop, 'suggested_unit_fee' => '5.00', 'applied_unit_fee' => '5.00', 'captain_count_snapshot' => 1, 'captain_share_percent_snapshot' => '65.00', 'gross_delivery_total' => '5.00', 'discount_amount' => '0', 'customer_delivery_total' => '5.00', 'status' => 'PRICED', 'priced_at' => now(), 'created_by' => $fixture['actor']->id]);
+        $pricing->allocations()->create(['order_captain_id' => $assignment->id, 'captain_id' => $captain->id,
+            'currency_id' => $currency->id, 'applied_unit_fee' => '5.00', 'captain_share_percent_snapshot' => '65.00',
+            'captain_entitlement' => '3.25', 'discount_allocated' => '0', 'customer_delivery_amount_allocated' => '5.00',
+            'company_collectible' => '1.75', 'captain_shortfall' => '0']);
         $invoice = app(InvoiceService::class)->createDraft($fixture['actor'], $fixture['order']);
         $invoice = app(InvoiceService::class)->refresh($fixture['actor'], $fixture['order'], $invoice);
 
@@ -319,6 +319,26 @@ class Phase85ConcurrencyTest extends TestCase
     {
         if (DB::getDriverName() !== 'pgsql' || ! class_exists(Process::class)) {
             $this->markTestSkipped('This locking regression test requires PostgreSQL and independent PHP worker processes.');
+        }
+    }
+
+    private function withIsolatedSchema(callable $callback): void
+    {
+        $connection = (string) config('database.default');
+        $key = "database.connections.{$connection}.search_path";
+        $original = config($key);
+        $schema = 'phase85_finance_'.str()->lower(str()->random(12));
+        DB::statement('CREATE SCHEMA "'.$schema.'"');
+        try {
+            config([$key => $schema]);
+            DB::purge($connection);
+            DB::reconnect($connection);
+            $callback();
+        } finally {
+            DB::purge($connection);
+            config([$key => $original]);
+            DB::reconnect($connection);
+            DB::statement('DROP SCHEMA IF EXISTS "'.$schema.'" CASCADE');
         }
     }
 }

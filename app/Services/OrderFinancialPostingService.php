@@ -9,7 +9,6 @@ use App\Enums\InvoiceCollectionMethod;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderOperationalStatus;
-use App\Exceptions\FinancialIdempotencyConflictException;
 use App\Exceptions\FinancialLedgerException;
 use App\Models\Captain;
 use App\Models\Currency;
@@ -42,64 +41,12 @@ class OrderFinancialPostingService
     /** @return Collection<int, FinancialTransaction> */
     public function postOrderDerivedIfReady(Order $order): Collection
     {
-        return DB::transaction(function () use ($order): Collection {
-            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            if ($order->operational_status !== OrderOperationalStatus::Delivered
-                || ! Invoice::query()->where('order_id', $order->id)->whereNull('superseded_at')->where('status', InvoiceStatus::Issued->value)->lockForUpdate()->exists()) {
-                return collect();
-            }
-            $assessment = $this->assessOrder($order);
-            if ($assessment['state'] === 'not_ready') {
-                return collect();
-            }
-            if ($assessment['state'] === 'unresolved') {
-                throw new FinancialLedgerException($assessment['reason']);
-            }
-            if ($assessment['state'] === 'conflict') {
-                throw new FinancialIdempotencyConflictException('Existing order-derived financial events conflict with their authoritative source snapshots.');
-            }
-
-            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            $invoice = $this->currentIssuedInvoice($order);
-            [$currency, $allocations, $occurredAt] = $this->authoritativeOrderSources($order, $invoice);
-            $events = collect();
-            foreach ($this->expectedOrderConcepts($invoice, $currency, $allocations) as $eventType => $descriptors) {
-                if ($descriptors === []) {
-                    continue;
-                }
-                $events->push($this->posting->postEvent(
-                    $currency, self::INVOICE_SOURCE, $invoice->id, $eventType, $invoice->version,
-                    $occurredAt, $this->materializeMovements($descriptors, $currency, true),
-                    $order->branch, $invoice->issuer,
-                ));
-            }
-
-            return $events;
-        }, 3);
+        throw new FinancialLedgerException('Legacy Phase 9B Order events cannot be posted. Use the corrected collection-based posting service.');
     }
 
     public function postCashCollectionCustody(InvoiceCollection $collection): ?FinancialTransaction
     {
-        return DB::transaction(function () use ($collection): ?FinancialTransaction {
-            $assessment = $this->assessCashCollection($collection);
-            if ($assessment['state'] === 'no_effect') {
-                return null;
-            }
-            if ($assessment['state'] === 'conflict') {
-                throw new FinancialIdempotencyConflictException('Existing CASH custody event conflicts with its authoritative Collection source.');
-            }
-            if ($assessment['state'] === 'unresolved') {
-                throw new FinancialLedgerException($assessment['reason']);
-            }
-            [$order, , $collection, $currency, , $descriptors] = $this->authoritativeCashSource($collection);
-
-            return $this->posting->postEvent(
-                $currency, self::COLLECTION_SOURCE, $collection->id,
-                FinancialEventType::InvoiceCashCustodyReceived->value, 1,
-                $collection->collected_at, $this->materializeMovements($descriptors, $currency, true),
-                $order->branch, $collection->recordedBy,
-            );
-        }, 3);
+        throw new FinancialLedgerException('Legacy full-Invoice CASH custody cannot be posted. Use the corrected collection-based posting service.');
     }
 
     public function hasOrderDerivedEvents(Invoice $invoice): bool
@@ -108,7 +55,12 @@ class OrderFinancialPostingService
             ->where('source_type', self::INVOICE_SOURCE)
             ->where('source_id', (string) $invoice->id)
             ->whereIn('event_type', collect(FinancialEventType::orderDerived())->map->value)
-            ->exists();
+            ->exists()
+            || FinancialTransaction::query()
+                ->where('source_type', self::COLLECTION_SOURCE)
+                ->whereIn('source_id', $invoice->collection()->pluck('id')->map(fn ($id) => (string) $id))
+                ->whereIn('event_type', collect(FinancialEventType::correctedOrderDerived())->map->value)
+                ->exists();
     }
 
     public function assessOrder(Order $order): array

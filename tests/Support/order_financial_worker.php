@@ -1,12 +1,18 @@
 <?php
 
 use App\Enums\InvoiceCollectionMethod;
+use App\Enums\OrderOperationalStatus;
+use App\Models\Area;
 use App\Models\Invoice;
-use App\Models\InvoiceCollection;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\CorrectedOrderFinancialService;
 use App\Services\InvoiceCollectionService;
-use App\Services\OrderFinancialPostingService;
+use App\Services\InvoiceService;
+use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderFinancialBackfillService;
+use App\Services\OrderFinancialSemanticsCorrectionService;
+use App\Services\OrderStatusService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -22,10 +28,20 @@ while (! file_exists($goPath)) {
 }
 
 try {
-    $service = app(OrderFinancialPostingService::class);
     $result = match ($payload['operation']) {
-        'order' => $service->postOrderDerivedIfReady(Order::findOrFail($payload['id']))->count(),
-        'cash' => $service->postCashCollectionCustody(InvoiceCollection::findOrFail($payload['id']))?->id,
+        'post' => count(app(CorrectedOrderFinancialService::class)->postIfReady(Order::findOrFail($payload['id']))),
+        'backfill' => app(OrderFinancialBackfillService::class)->run(true, fn (string $line) => null),
+        'correct' => app(OrderFinancialSemanticsCorrectionService::class)->correct(Order::findOrFail($payload['id']), true)['state'],
+        'deliver' => (function () use ($payload): int {
+            app(OrderStatusService::class)->transition(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['id']), OrderOperationalStatus::Delivered, null);
+
+            return $payload['id'];
+        })(),
+        'issue' => app(InvoiceService::class)->issue(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['order_id']), Invoice::findOrFail($payload['id']))->id,
+        'reprice' => app(OrderDeliveryPricingService::class)->price(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['id']), Area::findOrFail($payload['origin_id']))->id,
+        'direct-allocation-update' => DB::table('order_delivery_allocations')->where('id', $payload['id'])->update([
+            'captain_entitlement' => '4.0000', 'company_collectible' => '1.0000',
+        ]),
         'collect' => app(InvoiceCollectionService::class)->record(
             User::findOrFail($payload['actor_id']),
             Invoice::findOrFail($payload['id']),

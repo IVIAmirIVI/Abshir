@@ -507,7 +507,7 @@ class DeliveryPricingTest extends TestCase
         }
     }
 
-    public function test_captain_count_change_versions_pricing_but_primary_switch_does_not(): void
+    public function test_captain_participant_change_versions_pricing_even_when_count_is_unchanged(): void
     {
         $c = $this->context();
         $this->rule($c);
@@ -524,7 +524,7 @@ class DeliveryPricingTest extends TestCase
         $this->assertSame(1, $c['order']->currentDeliveryPricing()->first()->captain_count_snapshot);
         $version = $c['order']->currentDeliveryPricing()->first()->version;
         $captainService->switchPrimary($c['employee'], $c['order'], $second, 'Operational handoff');
-        $this->assertSame($version, $c['order']->currentDeliveryPricing()->first()->version);
+        $this->assertSame($version + 1, $c['order']->currentDeliveryPricing()->first()->version);
         $this->assertNotNull($primary->fresh()->removed_at);
     }
 

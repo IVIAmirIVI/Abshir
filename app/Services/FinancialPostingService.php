@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\FinancialEntryDirection;
+use App\Enums\FinancialEventType;
 use App\Enums\FinancialTransactionKind;
 use App\Enums\FinancialTransactionStatus;
 use App\Exceptions\FinancialIdempotencyConflictException;
@@ -259,6 +260,7 @@ class FinancialPostingService
 
         $occurredAt = CarbonImmutable::instance($occurredAt)->utc();
         $payloadHash = $this->payloadHash($kind, $currency, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $normalized, $branch, $recordedBy, $reversalOf, $reason, $notes);
+        $preciseOrderEvent = in_array($eventType, array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()), true);
 
         $identity = [
             'source_type' => trim($sourceType),
@@ -272,7 +274,7 @@ class FinancialPostingService
             'currency_id' => $currency->id,
             'branch_id' => $branch?->id,
             'payload_hash' => $payloadHash,
-            'occurred_at' => $occurredAt->format('Y-m-d H:i:sP'),
+            'occurred_at' => $occurredAt->format($preciseOrderEvent ? 'Y-m-d H:i:s.uP' : 'Y-m-d H:i:sP'),
             'recorded_by_user_id' => $recordedBy?->id,
             'reversal_of_transaction_id' => $reversalOf?->id,
             'reason' => $reason,

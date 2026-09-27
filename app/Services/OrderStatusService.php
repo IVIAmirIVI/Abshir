@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderStatusService
 {
-    public function __construct(private readonly OrderFinancialPostingService $financials) {}
+    public function __construct(private readonly CorrectedOrderFinancialService $financials) {}
 
     public function transition(User $actor, Order $order, OrderOperationalStatus $target, ?string $reason): void
     {
@@ -37,7 +37,7 @@ class OrderStatusService
             } $order->forceFill(['operational_status' => $target])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);
             if ($target === OrderOperationalStatus::Delivered) {
-                $this->financials->postOrderDerivedIfReady($order);
+                $this->financials->postIfReady($order);
             }
         });
     }

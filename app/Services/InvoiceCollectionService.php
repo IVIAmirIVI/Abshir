@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class InvoiceCollectionService
 {
-    public function __construct(private readonly OrderFinancialPostingService $financials) {}
+    public function __construct(private readonly CorrectedOrderFinancialService $financials) {}
 
     public function record(User $actor, Invoice $invoice, InvoiceCollectionMethod $method, string $amount, int $currencyId, mixed $collectedAt, ?string $notes = null, ?string $paymentReference = null): InvoiceCollection
     {
@@ -63,7 +63,7 @@ class InvoiceCollectionService
                 'recorded_by' => $actor->id,
                 'notes' => $notes,
             ]);
-            $this->financials->postCashCollectionCustody($collection);
+            $this->financials->postIfReady($order);
 
             return $collection;
         });

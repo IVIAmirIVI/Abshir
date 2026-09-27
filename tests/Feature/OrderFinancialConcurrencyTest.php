@@ -4,6 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\ActualPriceSource;
 use App\Enums\CaptainOperationalStatus;
+use App\Enums\FinancialAccountKind;
+use App\Enums\FinancialEntryDirection;
+use App\Enums\FinancialEventType;
+use App\Enums\InvoiceCollectionMethod;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderItemType;
@@ -17,27 +21,37 @@ use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\FinancialTransaction;
+use App\Models\OrderFinancialSourceSnapshot;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
+use App\Services\FinancialAccountService;
+use App\Services\FinancialPostingService;
+use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderFinancialSourceSnapshotService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
+use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use PDOException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class OrderFinancialConcurrencyTest extends TestCase
 {
-    public function test_real_services_serialize_crystallization_and_cash_custody(): void
+    public function test_real_services_serialize_corrected_posting_and_collection(): void
     {
         $this->withIsolatedSchema(function (): void {
             Artisan::call('migrate', ['--force' => true]);
@@ -48,28 +62,653 @@ class OrderFinancialConcurrencyTest extends TestCase
             $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
             $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
 
-            $orderResults = $this->race('order', $c['order']->id, $c['order']->id);
+            $assignment = $c['order']->captainAssignments()->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->sole();
+            $collection = $ready->collection()->create([
+                'order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id,
+                'order_captain_id' => $assignment->id, 'collection_method' => 'CASH',
+                'currency_id' => $c['currency']->id, 'amount' => $ready->grand_total,
+                'collected_at' => now(), 'recorded_by' => $c['employee']->id,
+            ]);
+            $orderResults = $this->race('post', $c['order']->id, $c['order']->id);
             $this->assertSame(['success' => 2], collect($orderResults)->countBy('status')->all(), json_encode($orderResults));
-            $this->assertSame(3, FinancialTransaction::where('source_type', 'CUSTOMER_INVOICE')->count());
+            $this->assertSame(1, FinancialTransaction::where('source_type', 'INVOICE_COLLECTION')->where('source_id', (string) $collection->id)->count());
+            $this->assertSame('1.7500', FinancialTransaction::where('source_type', 'INVOICE_COLLECTION')->sole()->entries()->sole()->amount);
 
-            $cashResults = $this->race('collect', $ready->id, $c['order']->id, [
-                'actor_id' => $c['employee']->id,
-                'currency_id' => $c['currency']->id,
-                'amount' => $ready->grand_total,
+            $second = $this->context();
+            $secondReady = app(InvoiceService::class)->refresh($second['employee'], $second['order'], app(InvoiceService::class)->createDraft($second['employee'], $second['order']));
+            $secondReady->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $second['employee']->id]);
+            $second['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $second['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $second['employee']->id, 'changed_at' => now()]);
+            $cashResults = $this->race('collect', $secondReady->id, $second['order']->id, [
+                'actor_id' => $second['employee']->id,
+                'currency_id' => $second['currency']->id,
+                'amount' => $secondReady->grand_total,
                 'collected_at' => now()->toISOString(),
             ]);
             $this->assertSame(1, collect($cashResults)->where('status', 'success')->count(), json_encode($cashResults));
             $loser = collect($cashResults)->firstWhere('status', 'error');
             $this->assertSame(ValidationException::class, $loser['class'] ?? null, json_encode($cashResults));
-            $this->assertSame(1, $ready->collection()->count());
-            $this->assertSame(1, FinancialTransaction::where('source_type', 'INVOICE_COLLECTION')->count());
-            $this->assertSame($ready->grand_total, FinancialTransaction::where('source_type', 'INVOICE_COLLECTION')->sole()->entries()->sole()->amount);
+            $this->assertSame(1, $secondReady->collection()->count());
+            $this->assertSame(2, FinancialTransaction::where('source_type', 'INVOICE_COLLECTION')->count());
+            $this->assertSame('1.7500', FinancialTransaction::where('source_id', (string) $secondReady->collection()->sole()->id)->sole()->entries()->sole()->amount);
         });
+    }
+
+    public function test_collection_and_delivery_race_crystallizes_exactly_once(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $invoice = app(InvoiceService::class)->issue(
+                $c['employee'], $c['order'],
+                app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order'])),
+            );
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::HeadingToCustomer])->save();
+            $shop = $c['order']->shops()->sole();
+            $shop->update(['picked_up_at' => now()]);
+            $shop->receipts()->create(['storage_path' => 'test/'.str()->uuid().'.png', 'original_filename' => 'test.png', 'mime_type' => 'image/png', 'file_size' => 1, 'uploaded_by' => $c['employee']->id, 'uploaded_at' => now()]);
+            $results = $this->race(['collect', 'deliver'], [$invoice->id, $c['order']->id], $c['order']->id, [
+                ['actor_id' => $c['employee']->id, 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now()->toISOString()],
+                ['actor_id' => $c['employee']->id],
+            ]);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(OrderOperationalStatus::Delivered, $c['order']->fresh()->operational_status);
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        });
+    }
+
+    public function test_issue_and_collection_race_respects_issue_prerequisite_and_retries_safely(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $results = $this->race(['issue', 'collect'], $ready->id, $c['order']->id, [
+                ['actor_id' => $c['employee']->id, 'order_id' => $c['order']->id],
+                ['actor_id' => $c['employee']->id, 'currency_id' => $c['currency']->id, 'amount' => $ready->grand_total, 'collected_at' => now()->toISOString()],
+            ]);
+            $this->assertGreaterThanOrEqual(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(InvoiceStatus::Issued, $ready->fresh()->status);
+            if (! $ready->collection()->exists()) {
+                app(InvoiceCollectionService::class)->record($c['employee'], $ready->fresh(), InvoiceCollectionMethod::Cash, $ready->grand_total, $c['currency']->id, now());
+            }
+            $this->assertSame(1, $ready->collection()->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        });
+    }
+
+    public function test_backfill_and_live_retry_share_one_corrected_event_identity(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $assignment = $c['order']->captainAssignments()->sole();
+            $invoice->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id, 'order_captain_id' => $assignment->id, 'collection_method' => 'CASH', 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
+            $results = $this->race(['post', 'backfill'], $c['order']->id, $c['order']->id);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        });
+    }
+
+    public function test_correction_and_normal_posting_race_never_duplicates_reversal_or_new_event(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $assignment = $c['order']->captainAssignments()->sole();
+            $collection = $invoice->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id, 'order_captain_id' => $assignment->id, 'collection_method' => 'CASH', 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
+            $accounts = app(FinancialAccountService::class);
+            $account = $accounts->getOrCreate($accounts->ownerForCaptain($assignment->captain), $c['currency'], FinancialAccountKind::CaptainCashCustody);
+            app(FinancialPostingService::class)->postEvent($c['currency'], 'INVOICE_COLLECTION', $collection->id, FinancialEventType::InvoiceCashCustodyReceived->value, 1, $collection->collected_at, [['account' => $account, 'direction' => FinancialEntryDirection::Increase, 'amount' => $collection->amount]], $c['order']->branch, $collection->recordedBy);
+            $results = $this->race(['correct', 'post'], $c['order']->id, $c['order']->id);
+            $this->assertGreaterThanOrEqual(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(1, FinancialTransaction::whereNotNull('reversal_of_transaction_id')->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        });
+    }
+
+    public function test_invoice_issue_and_production_repricing_contend_on_one_order_before_snapshot(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $originId = $c['order']->currentDeliveryPricing()->sole()->from_area_id;
+
+            $results = $this->race(['issue', 'reprice'], [$ready->id, $c['order']->id], $c['order']->id, [
+                ['actor_id' => $c['employee']->id, 'order_id' => $c['order']->id],
+                ['actor_id' => $c['employee']->id, 'origin_id' => $originId],
+            ]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(1, collect($results)->where('status', 'error')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+
+            if ($ready->fresh()->status !== InvoiceStatus::Issued) {
+                $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], $ready->fresh());
+                $ready = app(InvoiceService::class)->issue($c['employee'], $c['order'], $ready);
+            }
+            $snapshot = OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->sole();
+            $this->assertSame($ready->source_order_delivery_pricing_id, $snapshot->order_delivery_pricing_id);
+            $this->assertSame($c['order']->branch_id, $snapshot->branch_id);
+            $this->assertSame($ready->delivery_total, $snapshot->lines()->sum('customer_delivery_amount_allocated'));
+            $this->assertCount(1, $snapshot->lines);
+        });
+    }
+
+    public function test_direct_sql_snapshot_insert_is_validated_at_commit(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $other = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+            $payload = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+            $otherAssignment = $other['order']->captainAssignments()->sole();
+            $otherPricing = $other['order']->currentDeliveryPricing()->sole();
+
+            $cases = [
+                'wrong Order' => fn (&$head, &$lines) => $head['order_id'] = $other['order']->id,
+                'wrong Invoice' => fn (&$head, &$lines) => $head['invoice_id'] = 999999,
+                'wrong Branch' => fn (&$head, &$lines) => $head['branch_id'] = $other['order']->branch_id,
+                'wrong Currency' => fn (&$head, &$lines) => $head['currency_id'] = $other['currency']->id,
+                'wrong pricing source' => fn (&$head, &$lines) => $head['order_delivery_pricing_id'] = $otherPricing->id,
+                'foreign participant' => function (&$head, &$lines) use ($otherAssignment): void {
+                    $lines[0]['order_captain_id'] = $otherAssignment->id;
+                    $lines[0]['captain_id'] = $otherAssignment->captain_id;
+                },
+                'Captain mismatch' => fn (&$head, &$lines) => $lines[0]['captain_id'] = $otherAssignment->captain_id,
+                'missing primary' => fn (&$head, &$lines) => $lines[0]['is_primary'] = false,
+                'wrong primary identity' => fn (&$head, &$lines) => $head['primary_order_captain_id'] = $otherAssignment->id,
+                'wrong entitlement' => fn (&$head, &$lines) => $lines[0]['captain_entitlement'] = '9.0000',
+                'wrong collectible' => fn (&$head, &$lines) => $lines[0]['company_collectible'] = '9.0000',
+                'wrong shortfall' => fn (&$head, &$lines) => $lines[0]['captain_shortfall'] = '9.0000',
+                'delivery total drift' => function (&$head, &$lines): void {
+                    $lines[0]['customer_delivery_amount_allocated'] = '6.0000';
+                    $lines[0]['company_collectible'] = '2.7500';
+                },
+                'product total drift' => fn (&$head, &$lines) => $lines[0]['product_funding_share'] = '9.0000',
+                'duplicate participant' => fn (&$head, &$lines) => $lines[] = $lines[0],
+                'excess precision' => fn (&$head, &$lines) => $lines[0]['product_funding_share'] = '10.001',
+                'tiny excess precision' => fn (&$head, &$lines) => $lines[0]['product_funding_share'] = '10.00004',
+                'NaN' => fn (&$head, &$lines) => $head['items_subtotal'] = 'NaN',
+                'Infinity' => fn (&$head, &$lines) => $head['items_subtotal'] = 'Infinity',
+                '-Infinity' => fn (&$head, &$lines) => $head['items_subtotal'] = '-Infinity',
+                'invalid payload hash' => fn (&$head, &$lines) => $head['payload_hash'] = str_repeat('x', 64),
+            ];
+            foreach ($cases as $label => $change) {
+                $head = $payload;
+                $lines = $head['captain_allocations'];
+                unset($head['captain_allocations']);
+                $change($head, $lines);
+                try {
+                    $this->insertSnapshotDirectly($head, $lines);
+                    $this->fail("{$label} was accepted at COMMIT.");
+                } catch (QueryException|PDOException $exception) {
+                    $this->assertSame(0, OrderFinancialSourceSnapshot::count(), $label.' '.$exception->getMessage());
+                }
+            }
+            $source = DB::table('order_delivery_allocations')
+                ->where('order_delivery_pricing_id', $payload['order_delivery_pricing_id'])->first();
+            $extra = (array) $source;
+            unset($extra['id']);
+            $extra['order_captain_id'] = $otherAssignment->id;
+            $extra['captain_id'] = $otherAssignment->captain_id;
+            $extraId = DB::table('order_delivery_allocations')->insertGetId($extra);
+            try {
+                $head = $payload;
+                $lines = $head['captain_allocations'];
+                unset($head['captain_allocations']);
+                try {
+                    $this->insertSnapshotDirectly($head, $lines);
+                    $this->fail('An allocation for a nonparticipant was accepted.');
+                } catch (QueryException|PDOException) {
+                    $this->assertSame(0, OrderFinancialSourceSnapshot::count());
+                }
+            } finally {
+                DB::table('order_delivery_allocations')->where('id', $extraId)->delete();
+            }
+            $head = $payload;
+            $lines = $head['captain_allocations'];
+            unset($head['captain_allocations']);
+            $this->assertSame($c['order']->id, $head['order_id']);
+            $columns = DB::select("SELECT table_name, column_name, numeric_precision FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name IN ('order_financial_source_snapshots', 'order_financial_source_snapshot_lines')
+                AND data_type = 'numeric'");
+            $this->assertCount(6, $columns);
+            foreach ($columns as $column) {
+                $this->assertNull($column->numeric_precision, $column->table_name.'.'.$column->column_name);
+            }
+            $this->insertSnapshotDirectly($head, $lines);
+            $this->assertSame(1, OrderFinancialSourceSnapshot::count());
+            $this->assertSame($payload['payload_hash'], app(OrderFinancialSourceSnapshotService::class)->read($ready->fresh())['payload_hash']);
+            try {
+                DB::table('currencies')->where('id', $c['currency']->id)->update(['decimal_places' => 3]);
+                $this->fail('A frozen snapshot Currency changed precision.');
+            } catch (QueryException|PDOException) {
+                $this->assertSame(2, $c['currency']->fresh()->decimal_places);
+            }
+        });
+    }
+
+    public function test_direct_snapshot_money_obeys_zero_and_four_decimal_currency_precision(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            foreach ([0 => '10.1', 4 => '10.00004'] as $precision => $invalidShare) {
+                $c = $this->context();
+                $c['currency']->update(['decimal_places' => $precision]);
+                if ($precision === 0) {
+                    app(DeliveryPricingSettings::class)->update($c['admin'], '100', '0');
+                    app(OrderDeliveryPricingService::class)->price($c['employee'], $c['order'], $c['from']);
+                }
+                $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+                $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+                $payload = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+                $head = $payload;
+                $lines = $head['captain_allocations'];
+                unset($head['captain_allocations']);
+                $lines[0]['product_funding_share'] = $invalidShare;
+                try {
+                    $this->insertSnapshotDirectly($head, $lines);
+                    $this->fail("Currency precision {$precision} accepted {$invalidShare}.");
+                } catch (QueryException|PDOException) {
+                    $this->assertSame(0, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+                }
+                $head['items_subtotal'] = $precision === 0 ? '10.0000' : '10.00';
+                $lines[0]['product_funding_share'] = '10.0000';
+                $this->insertSnapshotDirectly($head, $lines);
+                $this->assertSame(1, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+            }
+        });
+    }
+
+    public function test_valid_looking_wrong_hash_is_rejected_without_poisoning_the_invoice_snapshot_slot(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+            $payload = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+            $lines = $payload['captain_allocations'];
+            unset($payload['captain_allocations']);
+            $payload['payload_hash'] = hash('sha256', 'unrelated valid-looking fingerprint');
+
+            try {
+                $this->insertSnapshotDirectly($payload, $lines);
+                $this->fail('A valid-looking incorrect fingerprint committed.');
+            } catch (QueryException|PDOException $exception) {
+                $this->assertStringContainsString('payload fingerprint mismatch', $exception->getMessage());
+                $this->assertSame(0, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+            }
+
+            $snapshot = app(OrderFinancialSourceSnapshotService::class)->capture($ready->fresh());
+            $this->assertSame(1, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+            $this->assertSame($snapshot->payload_hash, app(OrderFinancialSourceSnapshotService::class)->read($ready->fresh())['payload_hash']);
+            $this->assertSame($snapshot->id, app(OrderFinancialSourceSnapshotService::class)->capture($ready->fresh())->id);
+        });
+    }
+
+    public function test_valid_direct_sql_fingerprint_commits_and_corrected_posting_consumes_it(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+            $payload = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+            $lines = $payload['captain_allocations'];
+            unset($payload['captain_allocations']);
+            $this->insertSnapshotDirectly($payload, $lines);
+            $snapshot = OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->sole();
+            $this->assertSame($snapshot->payload_hash, DB::scalar('SELECT financial_order_snapshot_expected_hash(?)', [$snapshot->id]));
+            $this->assertSame($snapshot->payload_hash, app(OrderFinancialSourceSnapshotService::class)->read($ready->fresh())['payload_hash']);
+
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer,
+                'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $assignment = $c['order']->captainAssignments()->sole();
+            $ready->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id,
+                'order_captain_id' => $assignment->id, 'collection_method' => InvoiceCollectionMethod::Cash,
+                'currency_id' => $c['currency']->id, 'amount' => $ready->grand_total,
+                'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
+            $events = app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+            $this->assertCount(1, $events);
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        });
+    }
+
+    public function test_database_fingerprint_covers_every_frozen_financial_identity(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+            $base = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+            $changes = [
+                'OrderCaptain' => fn (&$p) => $p['captain_allocations'][0]['order_captain_id']++,
+                'Captain' => fn (&$p) => $p['captain_allocations'][0]['captain_id']++,
+                'primary role' => fn (&$p) => $p['captain_allocations'][0]['is_primary'] = false,
+                'customer allocation' => fn (&$p) => $p['captain_allocations'][0]['customer_delivery_amount_allocated'] = '4.0000',
+                'entitlement' => fn (&$p) => $p['captain_allocations'][0]['captain_entitlement'] = '4.0000',
+                'company share' => fn (&$p) => $p['captain_allocations'][0]['company_collectible'] = '1.0000',
+                'shortfall' => fn (&$p) => $p['captain_allocations'][0]['captain_shortfall'] = '1.0000',
+                'product share' => fn (&$p) => $p['captain_allocations'][0]['product_funding_share'] = '9.0000',
+                'primary assignment' => fn (&$p) => $p['primary_order_captain_id']++,
+                'primary Captain' => fn (&$p) => $p['primary_captain_id']++,
+                'Currency precision' => fn (&$p) => $p['currency_decimal_places']++,
+                'Branch' => fn (&$p) => $p['branch_id']++,
+                'pricing source' => fn (&$p) => $p['order_delivery_pricing_id']++,
+                'issued microsecond' => fn (&$p) => $p['issued_at'] = CarbonImmutable::parse($p['issued_at'])->addMicrosecond()->format('Y-m-d\TH:i:s.uP'),
+            ];
+            foreach ($changes as $label => $change) {
+                $altered = $base;
+                $change($altered);
+                $this->assertNotSame($base['payload_hash'], $this->snapshotHashFromParts($altered), $label);
+            }
+        });
+    }
+
+    public function test_direct_sql_under_and_over_allocation_fail_at_commit_while_exact_total_succeeds(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $pricing = $c['order']->currentDeliveryPricing()->sole();
+            $pricing->update(['suggested_unit_fee' => '100.00', 'applied_unit_fee' => '100.00',
+                'gross_delivery_total' => '100.00', 'customer_delivery_total' => '100.00']);
+            $pricing->allocations()->sole()->update(['applied_unit_fee' => '100.00', 'captain_entitlement' => '65.00',
+                'customer_delivery_amount_allocated' => '100.00', 'company_collectible' => '35.00']);
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $ready->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+            $base = app(OrderFinancialSourceSnapshotService::class)->build($ready->fresh());
+            $this->assertSame('100.0000', $ready->delivery_total);
+            foreach (['under' => ['90.0000', '25.0000'], 'over' => ['110.0000', '45.0000']] as $label => [$allocated, $company]) {
+                $altered = $base;
+                $altered['captain_allocations'][0]['customer_delivery_amount_allocated'] = $allocated;
+                $altered['captain_allocations'][0]['company_collectible'] = $company;
+                $altered['payload_hash'] = $this->snapshotHashFromParts($altered);
+                $lines = $altered['captain_allocations'];
+                unset($altered['captain_allocations']);
+                try {
+                    $this->insertSnapshotDirectly($altered, $lines);
+                    $this->fail("{$label} allocation committed.");
+                } catch (QueryException|PDOException $exception) {
+                    $this->assertStringContainsString('unreconciled participants or totals', $exception->getMessage(), $label);
+                    $this->assertSame(0, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+                }
+            }
+            $lines = $base['captain_allocations'];
+            unset($base['captain_allocations']);
+            $this->insertSnapshotDirectly($base, $lines);
+            $this->assertSame(1, OrderFinancialSourceSnapshot::where('invoice_id', $ready->id)->count());
+        });
+    }
+
+    public function test_staggered_allocation_upgrade_rejects_a_weak_snapshot_with_an_extra_source_allocation(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateThroughSnapshotStage('2026_09_27_120000_harden_order_financial_source_snapshots.php');
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $other = $this->context();
+            [$head, $lines, $invoice] = $this->legacySnapshotFixture($c);
+            $source = (array) $c['order']->currentDeliveryPricing()->sole()->allocations()->sole()->getAttributes();
+            unset($source['id']);
+            $otherAssignment = $other['order']->captainAssignments()->sole();
+            $source['order_captain_id'] = $otherAssignment->id;
+            $source['captain_id'] = $otherAssignment->captain_id;
+            DB::table('order_delivery_allocations')->insert($source);
+            $this->insertSnapshotDirectly($head, $lines);
+            $this->assertSame(1, OrderFinancialSourceSnapshot::where('invoice_id', $invoice->id)->count(), 'The weak 120000 guard accepted the extra source allocation.');
+
+            $this->applySnapshotMigration('2026_09_27_130000_preserve_order_financial_source_timestamp_precision.php');
+            $this->applySnapshotMigration('2026_09_27_140000_verify_financial_snapshot_allocation_set.php');
+            $this->applySnapshotMigration('2026_09_27_150000_freeze_financial_snapshot_currency.php');
+            try {
+                $this->applySnapshotMigration('2026_09_27_160000_finalize_order_financial_snapshot_integrity.php');
+                $this->fail('An old snapshot with an extra source allocation passed final migration.');
+            } catch (\RuntimeException $exception) {
+                $this->assertStringContainsString('unmatched allocation set', $exception->getMessage());
+                $this->assertStringContainsString("snapshot_id=1, order_id={$c['order']->id}, invoice_id={$invoice->id}", $exception->getMessage());
+            }
+            $this->assertFalse(Schema::hasColumn('order_financial_source_snapshots', 'currency_decimal_places'));
+        });
+    }
+
+    public function test_staggered_currency_upgrade_rejects_precision_that_was_not_historically_frozen(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateThroughSnapshotStage('2026_09_27_120000_harden_order_financial_source_snapshots.php');
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            [$head, $lines, $invoice] = $this->legacySnapshotFixture($c);
+            $this->insertSnapshotDirectly($head, $lines);
+            $this->applySnapshotMigration('2026_09_27_130000_preserve_order_financial_source_timestamp_precision.php');
+            $this->applySnapshotMigration('2026_09_27_140000_verify_financial_snapshot_allocation_set.php');
+            DB::table('currencies')->where('id', $c['currency']->id)->update(['decimal_places' => 4]);
+            $this->assertSame(4, (int) $c['currency']->fresh()->decimal_places);
+
+            $this->applySnapshotMigration('2026_09_27_150000_freeze_financial_snapshot_currency.php');
+            try {
+                $this->applySnapshotMigration('2026_09_27_160000_finalize_order_financial_snapshot_integrity.php');
+                $this->fail('Unknown historical Currency precision passed final migration.');
+            } catch (\RuntimeException $exception) {
+                $this->assertStringContainsString('historical precision cannot be proven', $exception->getMessage());
+                $this->assertStringContainsString("snapshot_id=1, order_id={$c['order']->id}, invoice_id={$invoice->id}", $exception->getMessage());
+            }
+        });
+    }
+
+    public function test_staggered_upgrade_without_old_snapshots_completes_and_freezes_future_precision(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateThroughSnapshotStage('2026_09_27_120000_harden_order_financial_source_snapshots.php');
+            foreach (['130000_preserve_order_financial_source_timestamp_precision',
+                '140000_verify_financial_snapshot_allocation_set',
+                '150000_freeze_financial_snapshot_currency',
+                '160000_finalize_order_financial_snapshot_integrity'] as $suffix) {
+                $this->applySnapshotMigration('2026_09_27_'.$suffix.'.php');
+            }
+            $this->assertTrue(Schema::hasColumn('order_financial_source_snapshots', 'currency_decimal_places'));
+            $this->assertSame(0, OrderFinancialSourceSnapshot::count());
+        });
+    }
+
+    public function test_direct_sql_allocation_writer_waits_for_issued_snapshot_and_cannot_change_its_history(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $allocation = $c['order']->currentDeliveryPricing()->sole()->allocations()->sole();
+            $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'abshir-snapshot-race-'.bin2hex(random_bytes(8));
+            mkdir($directory, 0700, true);
+            $payloadPath = $directory.DIRECTORY_SEPARATOR.'payload.json';
+            $readyPath = $directory.DIRECTORY_SEPARATOR.'ready';
+            $goPath = $directory.DIRECTORY_SEPARATOR.'go';
+            $resultPath = $directory.DIRECTORY_SEPARATOR.'result.json';
+            $tag = 'snapshot-sql-'.bin2hex(random_bytes(6));
+            $process = null;
+            DB::beginTransaction();
+            try {
+                $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], $ready);
+                $snapshot = OrderFinancialSourceSnapshot::where('invoice_id', $invoice->id)->sole();
+                $this->assertSame('1.7500', $snapshot->lines()->sole()->company_collectible);
+                file_put_contents($payloadPath, json_encode(['operation' => 'direct-allocation-update', 'id' => $allocation->id, 'worker_tag' => $tag], JSON_THROW_ON_ERROR));
+                $process = new Process([PHP_BINARY, base_path('tests/Support/order_financial_worker.php'), $payloadPath, $readyPath, $goPath, $resultPath], base_path(), $this->workerEnvironment());
+                $process->setTimeout(30);
+                $process->start();
+                $deadline = microtime(true) + 10;
+                while (! file_exists($readyPath) && microtime(true) < $deadline) {
+                    usleep(25_000);
+                }
+                $this->assertFileExists($readyPath);
+                touch($goPath);
+                do {
+                    DB::select('SELECT pg_stat_clear_snapshot()');
+                    $blocked = (int) DB::selectOne("SELECT count(*) total FROM pg_stat_activity WHERE application_name = ? AND wait_event_type = 'Lock'", [$tag])->total;
+                    if ($blocked === 1) {
+                        break;
+                    }
+                    usleep(25_000);
+                } while (microtime(true) < $deadline);
+                $this->assertSame(1, $blocked, 'Direct SQL must wait for the snapshot source table lock.');
+                DB::commit();
+                $process->wait();
+                $this->assertTrue($process->isSuccessful(), $process->getErrorOutput());
+                $this->assertSame('success', json_decode(file_get_contents($resultPath), true, flags: JSON_THROW_ON_ERROR)['status']);
+                $this->assertSame('1.0000', $allocation->fresh()->company_collectible);
+                $this->assertSame('1.7500', $snapshot->lines()->sole()->company_collectible);
+            } finally {
+                if (DB::transactionLevel()) {
+                    DB::rollBack();
+                }
+                if ($process?->isRunning()) {
+                    $process->stop();
+                }
+                foreach (glob($directory.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
+                    unlink($path);
+                }
+                rmdir($directory);
+            }
+        });
+    }
+
+    public function test_two_captain_snapshot_commits_with_exact_product_and_delivery_totals(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $captainUser = User::factory()->create();
+            $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $c['order']->branch_id,
+                'operational_status' => CaptainOperationalStatus::Available]);
+            $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+            app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $captain, OrderCaptainRole::Support);
+
+            $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+            $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], $ready);
+            $snapshot = OrderFinancialSourceSnapshot::where('invoice_id', $invoice->id)->sole();
+            $this->assertCount(2, $snapshot->lines);
+            $this->assertSame('10.0000', $snapshot->lines()->sum('product_funding_share'));
+            $this->assertSame($invoice->delivery_total, $snapshot->lines()->sum('customer_delivery_amount_allocated'));
+            $this->assertSame(1, $snapshot->lines()->where('is_primary', true)->count());
+        });
+    }
+
+    private function insertSnapshotDirectly(array $head, array $lines): void
+    {
+        DB::transaction(function () use ($head, $lines): void {
+            unset($head['primary_captain_id']);
+            $id = DB::table('order_financial_source_snapshots')->insertGetId($head + ['captured_at' => now()->format('Y-m-d H:i:s.uP')]);
+            foreach ($lines as $line) {
+                DB::table('order_financial_source_snapshot_lines')->insert(['order_financial_source_snapshot_id' => $id] + $line);
+            }
+        });
+    }
+
+    private function snapshotHashFromParts(array $payload): string
+    {
+        $lines = $payload['captain_allocations'];
+        unset($payload['captain_allocations'], $payload['payload_hash']);
+
+        return (string) DB::scalar('SELECT financial_order_snapshot_hash_parts(CAST(? AS jsonb), CAST(? AS jsonb))', [
+            json_encode($payload, JSON_THROW_ON_ERROR), json_encode($lines, JSON_THROW_ON_ERROR),
+        ]);
+    }
+
+    private function migrateThroughSnapshotStage(string $lastMigration): void
+    {
+        $files = glob(database_path('migrations/*.php')) ?: [];
+        sort($files, SORT_STRING);
+        foreach ($files as $file) {
+            if (strcmp(basename($file), $lastMigration) > 0) {
+                break;
+            }
+            $this->applySnapshotMigration(basename($file));
+        }
+    }
+
+    private function applySnapshotMigration(string $filename): void
+    {
+        (require database_path('migrations/'.$filename))->up();
+    }
+
+    private function legacySnapshotFixture(array $c): array
+    {
+        $invoice = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
+        $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
+        $invoice = $invoice->fresh();
+        $pricing = $c['order']->currentDeliveryPricing()->sole();
+        $allocation = $pricing->allocations()->sole();
+        $assignment = $c['order']->captainAssignments()->sole();
+        $lines = [[
+            'order_captain_id' => $assignment->id,
+            'captain_id' => $assignment->captain_id,
+            'is_primary' => true,
+            'product_funding_share' => $invoice->items_subtotal,
+            'captain_entitlement' => $allocation->captain_entitlement,
+            'customer_delivery_amount_allocated' => $allocation->customer_delivery_amount_allocated,
+            'company_collectible' => $allocation->company_collectible,
+            'captain_shortfall' => $allocation->captain_shortfall,
+        ]];
+        $payload = [
+            'invoice_id' => $invoice->id,
+            'invoice_version' => $invoice->version,
+            'order_id' => $c['order']->id,
+            'branch_id' => $c['order']->branch_id,
+            'issued_at' => CarbonImmutable::parse(DB::table('invoices')->where('id', $invoice->id)->value('issued_at'))->utc()->format('Y-m-d\TH:i:s.uP'),
+            'order_delivery_pricing_id' => $pricing->id,
+            'currency_id' => $c['currency']->id,
+            'primary_order_captain_id' => $assignment->id,
+            'items_subtotal' => $invoice->items_subtotal,
+            'captain_allocations' => $lines,
+        ];
+        $canonical = function (mixed $value) use (&$canonical): mixed {
+            if (! is_array($value)) {
+                return $value;
+            }
+            if (! array_is_list($value)) {
+                ksort($value);
+            }
+            foreach ($value as &$entry) {
+                $entry = $canonical($entry);
+            }
+
+            return $value;
+        };
+        $hash = hash('sha256', json_encode($canonical($payload), JSON_THROW_ON_ERROR));
+        unset($payload['captain_allocations']);
+
+        return [[...$payload, 'payload_hash' => $hash], $lines, $invoice];
     }
 
     private function context(): array
     {
-        $currency = Currency::create(['name' => 'Dollar', 'code' => 'USD', 'decimal_places' => 2]);
+        $currency = Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $from = Area::factory()->for($branch)->create();
         $to = Area::factory()->for($branch)->create();
@@ -94,10 +733,10 @@ class OrderFinancialConcurrencyTest extends TestCase
         app(DeliveryPricingSettings::class)->update($admin, '65', '0');
         app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
 
-        return compact('currency', 'employee', 'order');
+        return compact('currency', 'employee', 'order', 'admin', 'from');
     }
 
-    private function race(string $operation, int $id, int $orderId, array $extra = []): array
+    private function race(string|array $operation, int|array $id, int $orderId, array $extra = []): array
     {
         $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'abshir-order-finance-'.bin2hex(random_bytes(8));
         mkdir($directory, 0700, true);
@@ -108,10 +747,13 @@ class OrderFinancialConcurrencyTest extends TestCase
         DB::table('orders')->where('id', $orderId)->lockForUpdate()->firstOrFail();
         try {
             foreach ([0, 1] as $index) {
+                $workerOperation = is_array($operation) ? $operation[$index] : $operation;
+                $workerId = is_array($id) ? $id[$index] : $id;
+                $workerExtra = isset($extra[$index]) ? $extra[$index] : $extra;
                 $payloadPath = $directory.DIRECTORY_SEPARATOR."payload-{$index}.json";
                 $readyPath = $directory.DIRECTORY_SEPARATOR."ready-{$index}";
                 $resultPath = $directory.DIRECTORY_SEPARATOR."result-{$index}.json";
-                file_put_contents($payloadPath, json_encode(compact('operation', 'id') + $extra + ['worker_tag' => $tag], JSON_THROW_ON_ERROR));
+                file_put_contents($payloadPath, json_encode(['operation' => $workerOperation, 'id' => $workerId] + $workerExtra + ['worker_tag' => $tag], JSON_THROW_ON_ERROR));
                 $process = new Process([PHP_BINARY, base_path('tests/Support/order_financial_worker.php'), $payloadPath, $readyPath, $goPath, $resultPath], base_path(), $this->workerEnvironment());
                 $process->setTimeout(30);
                 $process->start();
