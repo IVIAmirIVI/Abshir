@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\PriceEstimationSettingController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AreaController;
+use App\Http\Controllers\BillPaymentFeeRuleController;
 use App\Http\Controllers\CaptainBranchAssignmentController;
 use App\Http\Controllers\CaptainController;
 use App\Http\Controllers\CaptainEmploymentController;
@@ -23,6 +24,7 @@ use App\Http\Controllers\DeliveryOverrideController;
 use App\Http\Controllers\DeliveryPricingRuleController;
 use App\Http\Controllers\InvoiceCollectionController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\OrderBillPaymentController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderDeliveryPricingController;
 use App\Http\Controllers\OrderOperationController;
@@ -68,6 +70,9 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('delivery-pricing-settings', [DeliveryPricingSettingController::class, 'edit'])->name('delivery-pricing-settings.edit');
     Route::put('delivery-pricing-settings', [DeliveryPricingSettingController::class, 'update'])->name('delivery-pricing-settings.update');
     Route::put('delivery-pricing-user-limits', [DeliveryPricingSettingController::class, 'limit'])->name('delivery-pricing-user-limits.update');
+    Route::get('bill-payment-fees', [BillPaymentFeeRuleController::class, 'index'])->name('bill-payment-fees.index');
+    Route::post('bill-payment-fees', [BillPaymentFeeRuleController::class, 'store'])->name('bill-payment-fees.store');
+    Route::post('bill-payment-fees/{rule}/versions', [BillPaymentFeeRuleController::class, 'version'])->name('bill-payment-fees.version');
 });
 
 Route::middleware('auth')->group(function () {
@@ -129,6 +134,10 @@ Route::middleware('auth')->group(function () {
     Route::get('shops/{shop}/price-history', [ProductPriceController::class, 'shopHistory'])->name('shops.price-history');
     Route::get('price-estimate', [ProductPriceController::class, 'estimate'])->name('product-prices.estimate');
     Route::resource('orders', OrderController::class)->only(['index', 'create', 'store', 'show']);
+    Route::post('orders/{order}/bill-payment-requests', [OrderBillPaymentController::class, 'request'])->name('orders.bill-payment-requests.store');
+    Route::post('orders/{order}/bill-payment-requests/{billPaymentRequest}/cancel', [OrderBillPaymentController::class, 'cancel'])->name('orders.bill-payment-requests.cancel');
+    Route::post('orders/{order}/bill-payment-requests/{billPaymentRequest}/complete', [OrderBillPaymentController::class, 'complete'])->name('orders.bill-payment-requests.complete');
+    Route::get('orders/{order}/bill-payment-requests/{billPaymentRequest}/payments/{billPayment}/evidence/{evidence}', [OrderBillPaymentController::class, 'evidence'])->name('orders.bill-payments.evidence.show');
     Route::post('orders/{order}/shops', [OrderOperationController::class, 'addShop'])->name('orders.shops.store');
     Route::patch('orders/{order}/shops/{order_shop}/classification', [OrderOperationController::class, 'classifyShop'])->name('orders.shops.classification');
     Route::post('orders/{order}/shops/{order_shop}/items', [OrderOperationController::class, 'addItem'])->name('orders.shops.items.store');

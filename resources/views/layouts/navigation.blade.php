@@ -67,6 +67,9 @@
                     @can('system_settings.view')
                         <x-nav-link :href="route('admin.delivery-pricing-settings.edit')" :active="request()->routeIs('admin.delivery-pricing-*')">Delivery settings</x-nav-link>
                     @endcan
+                    @can('bill_payment_fees.manage')
+                        <x-nav-link :href="route('admin.bill-payment-fees.index')" :active="request()->routeIs('admin.bill-payment-fees.*')">Bill-payment fees</x-nav-link>
+                    @endcan
                 </div>
             </div>
 
@@ -176,6 +179,9 @@
             @endcan
             @can('system_settings.view')
                 <x-responsive-nav-link :href="route('admin.delivery-pricing-settings.edit')" :active="request()->routeIs('admin.delivery-pricing-*')">Delivery settings</x-responsive-nav-link>
+            @endcan
+            @can('bill_payment_fees.manage')
+                <x-responsive-nav-link :href="route('admin.bill-payment-fees.index')" :active="request()->routeIs('admin.bill-payment-fees.*')">Bill-payment fees</x-responsive-nav-link>
             @endcan
         </div>
         <!-- Responsive Settings Options -->

@@ -26,10 +26,12 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Unit;
 use App\Models\User;
+use App\Services\BillPaymentFeeRuleService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\OrderBillPaymentService;
 use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
@@ -105,6 +107,44 @@ class InvoiceAndCollectionTest extends TestCase
     private function issued(array $context): Invoice
     {
         return app(InvoiceService::class)->issue($context['employee'], $context['order'], $this->ready($context));
+    }
+
+    public function test_issued_invoice_and_delivery_duration_survive_multiple_external_bill_requests(): void
+    {
+        Storage::fake('order_receipts');
+        Storage::fake(OrderBillPaymentService::DISK);
+        $c = $this->context();
+        app(BillPaymentFeeRuleService::class)->create($c['admin'], $c['currency']->id, '2', now()->subDays(2));
+        $first = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $second = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $invoice = $this->issued($c);
+        $beforeInvoice = (array) DB::table('invoices')->where('id', $invoice->id)->first();
+        $beforeCollections = DB::table('invoice_collections')->where('invoice_id', $invoice->id)->count();
+
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'], UploadedFile::fake()->createWithContent('invoice-proof.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $deliveredAt = $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole()->changed_at;
+        $duration = $c['order']->ordered_at->diffInSeconds($deliveredAt);
+        $this->assertTrue($c['order']->hasPendingBillPaymentRequests());
+
+        $assignment = $c['order']->captainAssignments()->whereNull('removed_at')->firstOrFail();
+        app(OrderBillPaymentService::class)->complete($c['employee'], $c['order'], $first, [
+            'order_captain_id' => $assignment->id, 'currency_id' => $c['currency']->id,
+            'bill_number' => 'EXT-100', 'bill_date' => today()->toDateString(),
+            'principal_amount' => '100', 'payment_reference' => 'SHAM-EXT-100',
+        ], [UploadedFile::fake()->createWithContent('external-proof.png', base64_decode(self::PNG))]);
+        $this->assertTrue($c['order']->hasPendingBillPaymentRequests());
+        app(OrderBillPaymentService::class)->cancel($c['employee'], $c['order'], $second, 'No longer needed');
+        $this->assertTrue($c['order']->additionalServicesComplete());
+        $this->assertSame('DELIVERED', $c['order']->fresh()->operational_status->value);
+        $this->assertSame($deliveredAt->toISOString(), $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole()->changed_at->toISOString());
+        $this->assertSame($duration, $c['order']->ordered_at->diffInSeconds($c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole()->changed_at));
+        $this->assertEquals($beforeInvoice, (array) DB::table('invoices')->where('id', $invoice->id)->first());
+        $this->assertSame($beforeCollections, DB::table('invoice_collections')->where('invoice_id', $invoice->id)->count());
     }
 
     public function test_issued_invoice_allows_operational_evidence_then_delivery_but_keeps_financial_facts_frozen(): void

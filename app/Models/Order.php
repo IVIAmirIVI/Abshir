@@ -101,6 +101,26 @@ class Order extends Model
         return $this->hasMany(CaptainRating::class);
     }
 
+    public function billPaymentRequests(): HasMany
+    {
+        return $this->hasMany(OrderBillPaymentRequest::class);
+    }
+
+    public function billPayments(): HasMany
+    {
+        return $this->hasMany(OrderBillPayment::class);
+    }
+
+    public function hasPendingBillPaymentRequests(): bool
+    {
+        return $this->billPaymentRequests()->where('status', 'REQUESTED')->exists();
+    }
+
+    public function additionalServicesComplete(): bool
+    {
+        return ! $this->hasPendingBillPaymentRequests();
+    }
+
     public function scopeAccessibleTo(Builder $query, User $user): Builder
     {
         return $user->isSuperAdmin() ? $query : $query->whereIn('branch_id', $user->availableBranches()->select('branches.id'));

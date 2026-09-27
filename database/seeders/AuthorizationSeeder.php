@@ -45,6 +45,8 @@ class AuthorizationSeeder extends Seeder
                 'invoice_collections' => ['view', 'create', 'sham_cash.view'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
+                'bill_payments' => ['record', 'view'],
+                'bill_payment_fees' => ['manage'],
             ];
             foreach ($groups as $group => $actions) {
                 foreach ($actions as $action) {
@@ -106,6 +108,8 @@ class AuthorizationSeeder extends Seeder
                         'invoices.issue',
                         'invoice_collections.view',
                         'invoice_collections.create',
+                        'bill_payments.record',
+                        'bill_payments.view',
                     ])->pluck('id'));
                 }
             }

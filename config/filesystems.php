@@ -46,6 +46,13 @@ return [
             'report' => false,
         ],
 
+        'order_bill_payments' => [
+            'driver' => 'local',
+            'root' => storage_path('app/order-bill-payments-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

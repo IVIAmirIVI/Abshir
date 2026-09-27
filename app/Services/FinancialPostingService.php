@@ -272,7 +272,7 @@ class FinancialPostingService
             'currency_id' => $currency->id,
             'branch_id' => $branch?->id,
             'payload_hash' => $payloadHash,
-            'occurred_at' => $occurredAt,
+            'occurred_at' => $occurredAt->format('Y-m-d H:i:sP'),
             'recorded_by_user_id' => $recordedBy?->id,
             'reversal_of_transaction_id' => $reversalOf?->id,
             'reason' => $reason,
