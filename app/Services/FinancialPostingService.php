@@ -180,6 +180,11 @@ class FinancialPostingService
             if (FinancialTransaction::query()->where('reversal_of_transaction_id', $original->id)->exists()) {
                 throw new FinancialLedgerException('This financial transaction has already been reversed.');
             }
+            if ($branch !== null && $branch->id !== $original->branch_id) {
+                throw new FinancialLedgerException('A reversal must retain the original transaction Branch.');
+            }
+            // The original immutable transaction, never the caller, owns reversal Branch placement.
+            $branch = $original->branch_id ? Branch::query()->findOrFail($original->branch_id) : null;
 
             $movements = $original->entries()->orderBy('financial_account_id')->get()->map(fn ($entry): array => [
                 'account' => $entry->account,
@@ -253,6 +258,7 @@ class FinancialPostingService
         ?string $notes,
     ): FinancialTransaction {
         $this->validateIdentity($sourceType, $sourceId, $eventType, $sourceVersion);
+        $this->lockOrderEventSource($kind, $sourceType, $sourceId, $eventType);
         $currency = Currency::query()->lockForUpdate()->findOrFail($currency->id);
         $this->validateCurrency($currency);
         $normalized = $this->normalizeMovements($currency, $movements);
@@ -334,6 +340,36 @@ class FinancialPostingService
         }
 
         return $transaction->fresh()->load('entries');
+    }
+
+    /** Keep the production source -> Currency -> Account order before PostgreSQL's insert guard. */
+    private function lockOrderEventSource(FinancialTransactionKind $kind, string $sourceType, string|int $sourceId, string $eventType): void
+    {
+        if ($kind !== FinancialTransactionKind::Event || ! ctype_digit((string) $sourceId)
+            || strlen((string) $sourceId) > 18) {
+            return;
+        }
+        $id = (string) $sourceId;
+        if ($sourceType === 'CUSTOMER_INVOICE'
+            && in_array($eventType, array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::orderDerived()), true)) {
+            $orderId = DB::table('invoices')->where('id', $id)->value('order_id');
+        } elseif ($sourceType === 'INVOICE_COLLECTION'
+            && in_array($eventType, [FinancialEventType::InvoiceCashCustodyReceived->value,
+                ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived())], true)) {
+            $orderId = DB::table('invoice_collections')->where('id', $id)->value('order_id');
+        } elseif ($sourceType === 'ORDER_BILL_PAYMENT'
+            && in_array($eventType, [FinancialEventType::BillPaymentCashCollected->value,
+                FinancialEventType::BillPaymentServiceFeeRetained->value], true)) {
+            $orderId = DB::table('order_bill_payments')->where('id', $id)->value('order_id');
+        } elseif ($sourceType === 'ORDER_BILL_PAYMENT_PRINCIPAL_HANDOVER'
+            && $eventType === FinancialEventType::BillPaymentPrincipalHandedOver->value) {
+            $orderId = DB::table('order_bill_payment_principal_handovers')->where('id', $id)->value('order_id');
+        } else {
+            return;
+        }
+        if ($orderId !== null) {
+            DB::table('orders')->where('id', $orderId)->lockForUpdate()->first();
+        }
     }
 
     private function normalizeMovements(Currency $currency, array $movements): array

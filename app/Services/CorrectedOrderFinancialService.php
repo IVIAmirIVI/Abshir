@@ -176,7 +176,7 @@ class CorrectedOrderFinancialService
             $unexpected = FinancialTransaction::query()->where('source_type', self::SOURCE)
                 ->where('source_id', (string) $collection->id)
                 ->whereIn('event_type', collect(FinancialEventType::correctedOrderDerived())->map->value)
-                ->whereNotIn('event_type', array_keys($concepts))->exists();
+                ->whereNotIn('event_type', [...array_keys($concepts), FinancialEventType::OrderCashCompanyDeliveryShareHeld->value])->exists();
             if ($unexpected) {
                 return ['state' => 'conflict', 'reason' => 'Collection has corrected events for a different payment method.'];
             }
@@ -210,8 +210,49 @@ class CorrectedOrderFinancialService
             $query->where(fn ($invoiceEvents) => $invoiceEvents->where('source_type', OrderFinancialPostingService::INVOICE_SOURCE)
                 ->whereIn('source_id', $invoiceIds)->whereIn('event_type', collect(FinancialEventType::orderDerived())->map->value))
                 ->orWhere(fn ($cashEvents) => $cashEvents->where('source_type', self::SOURCE)
-                    ->whereIn('source_id', $collectionIds)->where('event_type', FinancialEventType::InvoiceCashCustodyReceived->value));
+                    ->whereIn('source_id', $collectionIds)->whereIn('event_type', [
+                        FinancialEventType::InvoiceCashCustodyReceived->value,
+                        FinancialEventType::OrderCashCompanyDeliveryShareHeld->value,
+                    ]));
         })->whereDoesntHave('reversal')->pluck('id')->all();
+    }
+
+    /** Verify the published 9B.6 Custody event against its immutable source before reversal. */
+    public function inspectObsoleteHeld(Order $order, FinancialTransaction $event): bool
+    {
+        $assessment = $this->assess($order, true);
+        if (! in_array($assessment['state'], ['eligible', 'complete'], true)
+            || ($assessment['method'] ?? null) !== InvoiceCollectionMethod::Cash->value
+            || $event->source_type !== self::SOURCE
+            || $event->source_id !== (string) $assessment['collection_id']
+            || $event->event_type !== FinancialEventType::OrderCashCompanyDeliveryShareHeld->value
+            || $event->source_version !== 1) {
+            return false;
+        }
+        $invoice = Invoice::query()->findOrFail($assessment['invoice_id']);
+        $snapshot = $this->snapshots->read($invoice);
+        $primary = collect($snapshot['captain_allocations'])->firstWhere('is_primary', true);
+        $company = collect($snapshot['captain_allocations'])->reduce(
+            fn (BigDecimal $sum, array $row): BigDecimal => $sum->plus($row['company_collectible']), BigDecimal::zero(),
+        );
+        if (! $primary || ! $company->isGreaterThan(0)) {
+            return false;
+        }
+        $currency = Currency::query()->findOrFail($snapshot['currency_id']);
+        $movements = $this->movements([
+            $this->descriptor($primary['captain_id'], FinancialAccountKind::CaptainCashCustody, (string) $company->toScale(4)),
+        ], $currency, false);
+        if ($movements === null) {
+            return false;
+        }
+        $collection = InvoiceCollection::query()->findOrFail($assessment['collection_id']);
+        $branch = Branch::query()->findOrFail($snapshot['branch_id']);
+
+        return $this->posting->inspectEvent(
+            $currency, self::SOURCE, $collection->id, $event->event_type, 1,
+            CarbonImmutable::parse($assessment['occurred_at']), $movements,
+            $branch, $collection->recordedBy, null, $assessment['notes'],
+        )['state'] === 'exact';
     }
 
     /** @return array<string, array<int, array<string, mixed>>> */
@@ -238,11 +279,11 @@ class CorrectedOrderFinancialService
         $primary = collect($rows)->firstWhere('is_primary', true);
         if ($collection->collection_method === InvoiceCollectionMethod::Cash) {
             if ($company->isGreaterThan(0)) {
-                $due[] = $this->descriptor($primary['captain_id'], FinancialAccountKind::CaptainCashCustody, (string) $company->toScale(4));
+                $due[] = $this->descriptor($primary['captain_id'], FinancialAccountKind::CaptainDeposit, (string) $company->toScale(4), FinancialEntryDirection::Decrease);
             }
 
             return [
-                FinancialEventType::OrderCashCompanyDeliveryShareHeld->value => $due,
+                FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value => $due,
                 FinancialEventType::OrderCashDeliveryShortfallDue->value => $shortfalls,
             ];
         }
@@ -253,9 +294,9 @@ class CorrectedOrderFinancialService
         ];
     }
 
-    private function descriptor(int $captainId, FinancialAccountKind $kind, string $amount): array
+    private function descriptor(int $captainId, FinancialAccountKind $kind, string $amount, FinancialEntryDirection $direction = FinancialEntryDirection::Increase): array
     {
-        return ['captain_id' => $captainId, 'kind' => $kind, 'direction' => FinancialEntryDirection::Increase, 'amount' => $amount];
+        return ['captain_id' => $captainId, 'kind' => $kind, 'direction' => $direction, 'amount' => $amount];
     }
 
     private function canonicalJson(array $payload): string

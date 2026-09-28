@@ -2,6 +2,7 @@
 
 use App\Enums\FinancialAccountKind;
 use App\Exceptions\FinancialLedgerException;
+use App\Models\Branch;
 use App\Models\Currency;
 use App\Models\FinancialAccount;
 use App\Models\FinancialOwner;
@@ -81,6 +82,7 @@ function event(array $payload): array
         $currency, $payload['source_type'], $payload['source_id'], $payload['event_type'], 1,
         CarbonImmutable::parse($payload['occurred_at']),
         [['account' => $account, 'direction' => 'INCREASE', 'amount' => $payload['amount']]],
+        Branch::query()->findOrFail($payload['branch_id']),
     );
 
     return [

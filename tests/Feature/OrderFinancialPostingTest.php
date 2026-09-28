@@ -26,6 +26,8 @@ use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\BillPaymentFeeRuleService;
+use App\Services\CaptainBranchService;
 use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
@@ -34,9 +36,11 @@ use App\Services\FinancialBalanceQueryService;
 use App\Services\FinancialPostingService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\OrderBillPaymentService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderFinancialPostingService;
+use App\Services\OrderFinancialSemanticsCorrectionService;
 use App\Services\OrderFinancialSourceSnapshotService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
@@ -44,8 +48,10 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -54,7 +60,7 @@ class OrderFinancialPostingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_cash_waits_for_delivery_then_posts_only_company_share_to_primary_custody(): void
+    public function test_cash_waits_for_delivery_then_debits_primary_deposit_without_custody(): void
     {
         $c = $this->context(2, '100.00');
         $invoice = $this->issue($c);
@@ -65,16 +71,17 @@ class OrderFinancialPostingTest extends TestCase
         app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
         $this->assertSame(1, FinancialTransaction::count());
         $event = FinancialTransaction::sole();
-        $this->assertSame(FinancialEventType::OrderCashCompanyDeliveryShareHeld->value, $event->event_type);
+        $this->assertSame(FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value, $event->event_type);
         $this->assertSame((string) $collection->id, $event->source_id);
         $deliveredAt = $c['order']->statusHistory()->where('new_status', OrderOperationalStatus::Delivered->value)->sole()->changed_at;
         $this->assertSame($deliveredAt->timestamp, $event->occurred_at->timestamp);
         $this->assertStringContainsString('"collection_method":"CASH"', $event->notes);
-        $this->assertSame('3.5000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-3.5000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
         $this->assertSame('0.0000', $this->balance($c['captains'][1]->id, FinancialAccountKind::CaptainCashCustody));
         foreach ($c['captains'] as $captain) {
             $this->assertSame('0.0000', $this->balance($captain->id, FinancialAccountKind::CaptainCompanyReceivable));
-            $this->assertSame('0.0000', $this->balance($captain->id, FinancialAccountKind::CaptainDeposit));
+            $this->assertSame($captain->id === $c['captains'][0]->id ? '-3.5000' : '0.0000', $this->balance($captain->id, FinancialAccountKind::CaptainDeposit));
         }
         $this->assertSame(0, FinancialTransaction::whereIn('event_type', collect(FinancialEventType::orderDerived())->map->value)->count());
         $this->assertSame('100.0000', $invoice->items_subtotal);
@@ -107,7 +114,7 @@ class OrderFinancialPostingTest extends TestCase
         $invoice = $this->issue($c);
         $this->markDelivered($c);
         app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total, $c['currency']->id, now());
-        $this->assertSame('1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
         $this->assertSame('0.0000', $this->balance($c['captains'][1]->id, FinancialAccountKind::CaptainCashCustody));
         $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCompanyReceivable));
         $this->assertSame('2.0000', $this->balance($c['captains'][1]->id, FinancialAccountKind::CaptainCompanyReceivable));
@@ -171,7 +178,7 @@ class OrderFinancialPostingTest extends TestCase
         Artisan::call('financial:backfill-order-events', ['--apply' => true]);
         Artisan::call('financial:backfill-order-events', ['--apply' => true]);
         $this->assertSame(1, FinancialTransaction::where('source_id', (string) $collection->id)->count());
-        $this->assertSame('1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
     }
 
     public function test_legacy_correction_reverses_exact_old_cash_events_then_posts_company_share(): void
@@ -184,7 +191,7 @@ class OrderFinancialPostingTest extends TestCase
         $before = collect(['financial_owners', 'financial_accounts', 'financial_transactions', 'financial_entries', 'order_financial_source_snapshots'])
             ->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all();
         Artisan::call('financial:correct-order-financial-semantics');
-        $this->assertStringContainsString('WOULD_CORRECT', Artisan::output());
+        $this->assertStringContainsString('LEGACY_9B_CORRECTION_REQUIRED', Artisan::output());
         $this->assertSame($before, collect(array_keys($before))->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all());
         Artisan::call('financial:backfill-order-events', ['--apply' => true]);
         $this->assertStringContainsString('LEGACY_CORRECTION_REQUIRED', Artisan::output());
@@ -192,11 +199,228 @@ class OrderFinancialPostingTest extends TestCase
         $this->assertSame(0, Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]));
         $this->assertSame(9, FinancialTransaction::count());
         $this->assertSame(4, FinancialTransaction::whereNotNull('reversal_of_transaction_id')->count());
-        $this->assertSame('1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
-        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
         $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCompanyReceivable));
         Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]);
         $this->assertSame(9, FinancialTransaction::count());
+    }
+
+    public function test_obsolete_9b6_custody_is_reversed_once_and_replaced_by_branch_deposit_debit(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $held = $this->postObsoleteHeld($c, $collection);
+        $tables = ['financial_transactions', 'financial_entries', 'financial_accounts', 'financial_owners'];
+        $before = collect($tables)->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all();
+        Artisan::call('financial:correct-order-financial-semantics');
+        $this->assertStringContainsString('PHASE_9B6_CORRECTION_REQUIRED', Artisan::output());
+        $this->assertSame($before, collect($tables)->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all());
+        Artisan::call('financial:backfill-order-events', ['--apply' => true]);
+        $this->assertStringContainsString('LEGACY_CORRECTION_REQUIRED', Artisan::output());
+        $this->assertSame(1, FinancialTransaction::count());
+        $this->assertSame(0, Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]));
+        $this->assertSame(3, FinancialTransaction::count());
+        $this->assertSame($c['branch']->id, $held->reversal()->sole()->branch_id);
+        $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
+        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+            $c['captains'][0], $c['branch'], $c['currency'], FinancialAccountKind::CaptainDeposit,
+        ));
+        Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]);
+        $this->assertSame(3, FinancialTransaction::count());
+    }
+
+    public function test_correcting_one_obsolete_custody_event_does_not_consume_another_order(): void
+    {
+        $first = $this->context();
+        $second = $this->context(1, '25.00', 2, $first['currency'], $first['branch'], $first['captains'][0]);
+        foreach ([$first, $second] as $context) {
+            $invoice = $this->issue($context);
+            $this->markDelivered($context);
+            $collection = $this->historicalCollection($context, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+            $this->postObsoleteHeld($context, $collection);
+        }
+
+        $correction = app(OrderFinancialSemanticsCorrectionService::class);
+        $this->assertSame('corrected', $correction->correct($first['order'], true)['state']);
+        $this->assertSame('corrected', $correction->correct($second['order'], true)['state']);
+        $this->assertSame(2, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+        $this->assertSame(2, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
+        $this->assertSame(2, FinancialTransaction::where('event_type', 'REVERSE_OBSOLETE_CASH_CUSTODY')->count());
+        $this->assertSame('0.0000', $this->balance($first['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+    }
+
+    public function test_earlier_unrelated_custody_decrease_does_not_block_later_order_correction(): void
+    {
+        $c = $this->context();
+        $accountService = app(FinancialAccountService::class);
+        $custody = $accountService->getOrCreate($accountService->ownerForCaptain($c['captains'][0]),
+            $c['currency'], FinancialAccountKind::CaptainCashCustody);
+        foreach (['INCREASE' => 'UNRELATED_RECEIPT', 'DECREASE' => 'UNRELATED_HANDOVER'] as $direction => $eventType) {
+            app(FinancialPostingService::class)->postEvent(
+                $c['currency'], 'UNRELATED_CASH_FLOW', $eventType, $eventType, 1, now()->subDay(),
+                [['account' => $custody, 'direction' => $direction, 'amount' => '1.00']], $c['branch'],
+            );
+        }
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $this->postObsoleteHeld($c, $collection);
+
+        $this->assertSame('corrected', app(OrderFinancialSemanticsCorrectionService::class)
+            ->correct($c['order'], true)['state']);
+        $this->assertSame(1, FinancialTransaction::where('event_type', 'REVERSE_OBSOLETE_CASH_CUSTODY')->count());
+    }
+
+    public function test_bill_principal_handover_on_same_account_does_not_consume_obsolete_order_custody(): void
+    {
+        Storage::fake(OrderBillPaymentService::DISK);
+        $normal = $this->context();
+        $invoice = $this->issue($normal);
+        $this->markDelivered($normal);
+        $collection = $this->historicalCollection($normal, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $this->postObsoleteHeld($normal, $collection);
+
+        $bill = $this->context(1, '25.00', 2, $normal['currency'], $normal['branch'], $normal['captains'][0]);
+        app(BillPaymentFeeRuleService::class)->create($bill['admin'], $bill['currency']->id, '2.00', now()->subDay());
+        $request = app(OrderBillPaymentService::class)->request($bill['employee'], $bill['order'], $bill['currency']->id);
+        $this->markDelivered($bill);
+        $assignment = $bill['order']->captainAssignments()->sole();
+        $image = UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+        app(OrderBillPaymentService::class)->complete($bill['employee'], $bill['order'], $request, [
+            'order_captain_id' => $assignment->id, 'currency_id' => $bill['currency']->id,
+            'bill_number' => 'B-9B7', 'bill_date' => today()->toDateString(),
+            'principal_amount' => '10.00', 'payment_reference' => '9B7-HANDOVER',
+        ], [$image]);
+        $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::BillPaymentPrincipalHandedOver->value)->count());
+        $this->assertSame('corrected', app(OrderFinancialSemanticsCorrectionService::class)
+            ->correct($normal['order'], true)['state']);
+    }
+
+    public function test_permanent_captain_transfer_keeps_old_debit_in_original_branch_and_new_order_in_new_branch(): void
+    {
+        $first = $this->context();
+        $invoice = $this->issue($first);
+        $this->markDelivered($first);
+        app(InvoiceCollectionService::class)->record($first['employee'], $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total, $first['currency']->id, now());
+        $captain = $first['captains'][0];
+        $branchB = Branch::factory()->create(['default_currency_id' => $first['currency']->id]);
+        app(CaptainBranchService::class)->transfer($first['admin'], $captain, [
+            'branch_id' => $branchB->id, 'starts_at' => now()->subMinute(), 'reason' => 'Operational transfer',
+        ]);
+        $second = $this->context(1, '25.00', 2, $first['currency'], $branchB, $captain);
+        $secondInvoice = $this->issue($second);
+        $this->markDelivered($second);
+        app(InvoiceCollectionService::class)->record($second['employee'], $secondInvoice, InvoiceCollectionMethod::Cash, $secondInvoice->grand_total, $second['currency']->id, now());
+        $balances = app(FinancialBalanceQueryService::class);
+        $this->assertSame('-1.7500', $balances->captainBranchBalance($captain, $first['branch'], $first['currency'], FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('-1.7500', $balances->captainBranchBalance($captain, $branchB, $first['currency'], FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('-3.5000', $balances->captainBalances($captain, $first['currency'])[FinancialAccountKind::CaptainDeposit->value]);
+        $this->assertSame(0, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+    }
+
+    public function test_cash_shortfall_and_sham_reimbursements_stay_in_their_source_branches(): void
+    {
+        $cash = $this->context();
+        $cash['order']->currentDeliveryPricing->allocations()->sole()->update([
+            'captain_entitlement' => '25.0000', 'customer_delivery_amount_allocated' => '5.0000',
+            'company_collectible' => '0.0000', 'captain_shortfall' => '20.0000',
+        ]);
+        $cashInvoice = $this->issue($cash);
+        $this->markDelivered($cash);
+        app(InvoiceCollectionService::class)->record($cash['employee'], $cashInvoice, InvoiceCollectionMethod::Cash,
+            $cashInvoice->grand_total, $cash['currency']->id, now());
+
+        $captain = $cash['captains'][0];
+        $branchB = Branch::factory()->create(['default_currency_id' => $cash['currency']->id]);
+        app(CaptainBranchService::class)->transfer($cash['admin'], $captain, [
+            'branch_id' => $branchB->id, 'starts_at' => now()->subMinute(), 'reason' => 'Cross-Branch receivable example',
+        ]);
+        $sham = $this->context(1, '50.00', 2, $cash['currency'], $branchB, $captain);
+        $sham['order']->currentDeliveryPricing->allocations()->sole()->update([
+            'captain_entitlement' => '30.0000', 'customer_delivery_amount_allocated' => '5.0000',
+            'company_collectible' => '0.0000', 'captain_shortfall' => '25.0000',
+        ]);
+        $shamInvoice = $this->issue($sham);
+        $this->markDelivered($sham);
+        app(InvoiceCollectionService::class)->record($sham['employee'], $shamInvoice, InvoiceCollectionMethod::ShamCash,
+            $shamInvoice->grand_total, $sham['currency']->id, now());
+
+        $balances = app(FinancialBalanceQueryService::class);
+        $this->assertSame('20.0000', $balances->captainBranchBalance($captain, $cash['branch'], $cash['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertSame('80.0000', $balances->captainBranchBalance($captain, $branchB, $cash['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertSame('100.0000', $balances->captainBalances($captain, $cash['currency'])[FinancialAccountKind::CaptainCompanyReceivable->value]);
+        $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $cash['branch'], $cash['currency'], FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $branchB, $cash['currency'], FinancialAccountKind::CaptainCashCustody));
+    }
+
+    public function test_consumed_obsolete_custody_is_a_zero_write_manual_conflict(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $held = $this->postObsoleteHeld($c, $collection);
+        app(FinancialPostingService::class)->postEvent(
+            $c['currency'], 'HISTORICAL_HANDOVER', 'unattributed', 'CASH_HANDOVER', 1, now(),
+            [['account' => $held->entries()->sole()->account, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '1.00']],
+            $c['branch'],
+        );
+        $before = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
+        $this->assertSame(1, Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]));
+        $this->assertStringContainsString('manual review', Artisan::output());
+        $this->assertSame($before, DB::table('financial_transactions')->orderBy('id')->get()->toJson());
+        $this->assertSame(0, FinancialTransaction::whereNotNull('reversal_of_transaction_id')->count());
+    }
+
+    public function test_late_deposit_failure_rolls_back_obsolete_custody_reversal(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $this->postObsoleteHeld($c, $collection);
+        $before = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
+        DB::unprepared(<<<'SQL'
+CREATE FUNCTION reject_test_9b7_deposit() RETURNS trigger AS $$
+BEGIN
+    IF NEW.event_type = 'ORDER_CASH_COMPANY_DELIVERY_SHARE_DEPOSIT_DEBIT' THEN
+        RAISE EXCEPTION 'Injected late Deposit failure' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER reject_test_9b7_deposit BEFORE INSERT ON financial_transactions
+FOR EACH ROW EXECUTE FUNCTION reject_test_9b7_deposit();
+SQL);
+        $this->assertSame(1, Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]));
+        $this->assertSame($before, DB::table('financial_transactions')->orderBy('id')->get()->toJson());
+        $this->assertSame(0, FinancialTransaction::whereNotNull('reversal_of_transaction_id')->count());
+    }
+
+    public function test_partial_9b6_correction_with_final_deposit_already_present_is_atomic_conflict(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
+        $this->postObsoleteHeld($c, $collection);
+        $assessment = app(CorrectedOrderFinancialService::class)->assess($c['order'], true);
+        $accountService = app(FinancialAccountService::class);
+        $deposit = $accountService->getOrCreate($accountService->ownerForCaptain($c['captains'][0]), $c['currency'], FinancialAccountKind::CaptainDeposit);
+        app(FinancialPostingService::class)->postEvent(
+            $c['currency'], CorrectedOrderFinancialService::SOURCE, $collection->id,
+            FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value, 1,
+            CarbonImmutable::parse($assessment['occurred_at']),
+            [['account' => $deposit, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '1.7500']],
+            $c['branch'], $collection->recordedBy, null, $assessment['notes'],
+        );
+        $before = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
+        $this->assertSame(1, Artisan::call('financial:correct-order-financial-semantics', ['--apply' => true]));
+        $this->assertSame($before, DB::table('financial_transactions')->orderBy('id')->get()->toJson());
     }
 
     public function test_uncollected_legacy_invoice_events_are_reversed_without_replacement(): void
@@ -225,7 +449,7 @@ class OrderFinancialPostingTest extends TestCase
         $this->markDelivered($c);
         app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
         $this->assertSame(3, FinancialTransaction::count());
-        $this->assertSame('1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
     }
 
     public function test_invoice_snapshot_is_immutable_and_financial_drift_is_rejected(): void
@@ -284,7 +508,7 @@ class OrderFinancialPostingTest extends TestCase
         $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
     }
 
-    public function test_primary_promotion_reprices_changed_participants_and_custody_follows_collector(): void
+    public function test_primary_promotion_reprices_changed_participants_and_deposit_follows_collector(): void
     {
         $c = $this->context(2);
         $version = $c['order']->currentDeliveryPricing()->sole()->version;
@@ -294,8 +518,8 @@ class OrderFinancialPostingTest extends TestCase
         $this->markDelivered($c);
         $collection = app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total, $c['currency']->id, now());
         $this->assertSame($c['captains'][1]->id, $collection->captain_id);
-        $this->assertSame('1.7500', $this->balance($c['captains'][1]->id, FinancialAccountKind::CaptainCashCustody));
-        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainCashCustody));
+        $this->assertSame('-1.7500', $this->balance($c['captains'][1]->id, FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('0.0000', $this->balance($c['captains'][0]->id, FinancialAccountKind::CaptainDeposit));
     }
 
     public function test_conflicting_legacy_payload_causes_no_partial_correction_writes(): void
@@ -390,7 +614,7 @@ class OrderFinancialPostingTest extends TestCase
         $this->assertStringContainsString('WOULD POST', $backfillOutput);
         $this->assertStringContainsString('LEGACY_CORRECTION_REQUIRED', $backfillOutput);
         Artisan::call('financial:correct-order-financial-semantics');
-        $this->assertStringContainsString('WOULD_CORRECT', Artisan::output());
+        $this->assertStringContainsString('LEGACY_9B_CORRECTION_REQUIRED', Artisan::output());
         $this->assertSame($before, collect($tables)->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all());
     }
 
@@ -428,10 +652,10 @@ class OrderFinancialPostingTest extends TestCase
         $assessment = app(CorrectedOrderFinancialService::class)->assess($c['order']);
         $this->assertSame('eligible', $assessment['state']);
         $accounts = app(FinancialAccountService::class);
-        $account = $accounts->getOrCreate($accounts->ownerForCaptain($c['captains'][0]), $c['currency'], FinancialAccountKind::CaptainCashCustody);
+        $account = $accounts->getOrCreate($accounts->ownerForCaptain($c['captains'][0]), $c['currency'], FinancialAccountKind::CaptainDeposit);
         app(FinancialPostingService::class)->postEvent($c['currency'], 'INVOICE_COLLECTION', $collection->id,
-            FinancialEventType::OrderCashCompanyDeliveryShareHeld->value, 1, CarbonImmutable::parse($assessment['occurred_at']),
-            [['account' => $account, 'direction' => FinancialEntryDirection::Increase, 'amount' => $allocations[0]->company_collectible]],
+            FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value, 1, CarbonImmutable::parse($assessment['occurred_at']),
+            [['account' => $account, 'direction' => FinancialEntryDirection::Decrease, 'amount' => $allocations[0]->company_collectible]],
             $c['branch'], $collection->recordedBy, null, $assessment['notes']);
         app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
         $this->assertSame(2, FinancialTransaction::count());
@@ -444,10 +668,10 @@ class OrderFinancialPostingTest extends TestCase
         $this->markDelivered($wrong);
         $wrongCollection = $this->historicalCollection($wrong, $wrongInvoice, InvoiceCollectionMethod::Cash, $wrongInvoice->grand_total);
         $wrongAssessment = app(CorrectedOrderFinancialService::class)->assess($wrong['order']);
-        $wrongAccount = $accounts->getOrCreate($accounts->ownerForCaptain($wrong['captains'][0]), $wrong['currency'], FinancialAccountKind::CaptainCashCustody);
+        $wrongAccount = $accounts->getOrCreate($accounts->ownerForCaptain($wrong['captains'][0]), $wrong['currency'], FinancialAccountKind::CaptainDeposit);
         app(FinancialPostingService::class)->postEvent($wrong['currency'], 'INVOICE_COLLECTION', $wrongCollection->id,
-            FinancialEventType::OrderCashCompanyDeliveryShareHeld->value, 2, CarbonImmutable::parse($wrongAssessment['occurred_at']),
-            [['account' => $wrongAccount, 'direction' => FinancialEntryDirection::Increase, 'amount' => '1.7500']],
+            FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value, 2, CarbonImmutable::parse($wrongAssessment['occurred_at']),
+            [['account' => $wrongAccount, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '1.7500']],
             $wrong['branch'], $wrongCollection->recordedBy, null, $wrongAssessment['notes']);
         $this->assertSame('conflict', app(CorrectedOrderFinancialService::class)->assess($wrong['order'])['state']);
         $this->assertSame(0, FinancialTransaction::where('source_id', (string) $wrongCollection->id)->where('source_version', 1)->count());
@@ -464,7 +688,7 @@ class OrderFinancialPostingTest extends TestCase
         DB::unprepared(<<<'SQL'
 CREATE FUNCTION reject_test_corrected_event() RETURNS trigger AS $$
 BEGIN
-    IF NEW.event_type = 'ORDER_CASH_COMPANY_DELIVERY_SHARE_HELD' THEN
+    IF NEW.event_type = 'ORDER_CASH_COMPANY_DELIVERY_SHARE_DEPOSIT_DEBIT' THEN
         RAISE EXCEPTION 'Injected late ledger rejection' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
@@ -494,6 +718,22 @@ SQL);
         }
     }
 
+    private function postObsoleteHeld(array $c, $collection): FinancialTransaction
+    {
+        $assessment = app(CorrectedOrderFinancialService::class)->assess($c['order']);
+        $allocation = $c['order']->currentDeliveryPricing->allocations()->sole();
+        $accounts = app(FinancialAccountService::class);
+        $custody = $accounts->getOrCreate($accounts->ownerForCaptain($c['captains'][0]), $c['currency'], FinancialAccountKind::CaptainCashCustody);
+
+        return app(FinancialPostingService::class)->postEvent(
+            $c['currency'], CorrectedOrderFinancialService::SOURCE, $collection->id,
+            FinancialEventType::OrderCashCompanyDeliveryShareHeld->value, 1,
+            CarbonImmutable::parse($assessment['occurred_at']),
+            [['account' => $custody, 'direction' => FinancialEntryDirection::Increase, 'amount' => $allocation->company_collectible]],
+            $c['branch'], $collection->recordedBy, null, $assessment['notes'],
+        );
+    }
+
     private function postLegacyCustody(array $c, $collection): void
     {
         $accountService = app(FinancialAccountService::class);
@@ -501,11 +741,12 @@ SQL);
         app(FinancialPostingService::class)->postEvent($c['currency'], 'INVOICE_COLLECTION', $collection->id, FinancialEventType::InvoiceCashCustodyReceived->value, 1, $collection->collected_at, [['account' => $custody, 'direction' => FinancialEntryDirection::Increase, 'amount' => $collection->amount]], $c['branch'], $collection->recordedBy);
     }
 
-    private function context(int $captainCount = 1, string $itemsSubtotal = '25.00', int $decimalPlaces = 2): array
+    private function context(int $captainCount = 1, string $itemsSubtotal = '25.00', int $decimalPlaces = 2,
+        ?Currency $existingCurrency = null, ?Branch $existingBranch = null, ?Captain $existingCaptain = null): array
     {
         $this->seed(AuthorizationSeeder::class);
-        $currency = Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => $decimalPlaces]);
-        $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
+        $currency = $existingCurrency ?? Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => $decimalPlaces]);
+        $branch = $existingBranch ?? Branch::factory()->create(['default_currency_id' => $currency->id]);
         $from = Area::factory()->for($branch)->create(['name' => 'Origin']);
         $to = Area::factory()->for($branch)->create(['name' => 'Destination']);
         $customer = Customer::create(['name' => 'Financial Customer']);
@@ -523,9 +764,13 @@ SQL);
         app(OrderPricingService::class)->recalculate($order);
         $captains = [];
         for ($index = 0; $index < $captainCount; $index++) {
-            $user = User::factory()->create();
-            $captain = Captain::create(['user_id' => $user->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
-            $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+            if ($index === 0 && $existingCaptain) {
+                $captain = $existingCaptain->fresh();
+            } else {
+                $user = User::factory()->create();
+                $captain = Captain::create(['user_id' => $user->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
+                $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+            }
             app(OrderCaptainService::class)->assign($employee, $order, $captain, $index === 0 ? OrderCaptainRole::PrimaryCollection : OrderCaptainRole::Support);
             $captains[] = $captain;
         }

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\FinancialAccountKind;
+use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\FinancialAccount;
@@ -36,7 +37,7 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
             $service->save($actor, $currency, [...$data, 'decimal_places' => 4]);
             $original = app(FinancialPostingService::class)->postEvent($currency, 'AUDIT', 'precision', 'EVENT', 1, now(), [
                 ['account' => $fixture['deposit'], 'direction' => 'INCREASE', 'amount' => '1.2345'],
-            ]);
+            ], $fixture['branch']);
             $this->assertThrows(fn () => $service->save($actor, $currency, $data), ValidationException::class);
             $this->assertThrows(fn () => DB::transaction(fn () => DB::table('currencies')->where('id', $currency->id)->update(['decimal_places' => 2])), QueryException::class);
             $this->assertSame('Renamed', $service->save($actor, $currency, [...$data, 'decimal_places' => 4, 'name' => 'Renamed'])->name);
@@ -108,6 +109,7 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
             $transaction = app(FinancialPostingService::class)->postEvent(
                 $fixture['currency'], 'DB_AUDIT', str()->uuid()->toString(), 'EXACT_PRECISION', 1, now(),
                 [['account' => $fixture['deposit'], 'direction' => 'INCREASE', 'amount' => '0.1000']],
+                $fixture['branch'],
             );
             $this->assertSame('0.1000', $transaction->entries->sole()->amount);
         });
@@ -142,13 +144,14 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
             $event = $posting->postEvent(
                 $fixture['currency'], 'DB_AUDIT', str()->uuid()->toString(), 'EVENT', 1, now(),
                 [['account' => $fixture['deposit'], 'direction' => 'INCREASE', 'amount' => '10.0000']],
+                $fixture['branch'],
             );
             $transfer = $posting->postTransfer(
                 $fixture['currency'], 'DB_AUDIT', str()->uuid()->toString(), 'TRANSFER', 1, now(),
                 [
                     ['account' => $fixture['deposit'], 'direction' => 'DECREASE', 'amount' => '2.0000'],
                     ['account' => $fixture['receivable'], 'direction' => 'INCREASE', 'amount' => '2.0000'],
-                ],
+                ], $fixture['branch'],
             );
 
             foreach ([$event, $transfer] as $transaction) {
@@ -297,7 +300,7 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
         }
 
         return app(FinancialPostingService::class)->postEvent(
-            $fixture['currency'], 'DB_AUDIT', str()->uuid()->toString(), 'ORIGINAL', 1, now(), $movements,
+            $fixture['currency'], 'DB_AUDIT', str()->uuid()->toString(), 'ORIGINAL', 1, now(), $movements, $fixture['branch'],
         );
     }
 
@@ -310,6 +313,7 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
 
         return [
             'currency' => $currency,
+            'branch' => $captain->homeBranch,
             'captain' => $captain,
             'owner' => $owner,
             'deposit' => $accounts->getOrCreate($owner, $currency, FinancialAccountKind::CaptainDeposit),
@@ -333,6 +337,7 @@ class FinancialLedgerDatabaseIntegrityTest extends TestCase
         return [
             'transaction_kind' => $kind,
             'currency_id' => $currency->id,
+            'branch_id' => Branch::query()->first()?->id,
             'source_type' => 'DIRECT_SQL_AUDIT',
             'source_id' => str()->uuid()->toString(),
             'event_type' => $kind,

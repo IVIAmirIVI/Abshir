@@ -102,6 +102,12 @@ SQL, [$payment->id]);
         $deposit = FinancialAccount::query()->whereHas('owner', fn ($query) => $query->where('captain_id', $c['captain']->id))->where('account_kind', FinancialAccountKind::CaptainDeposit->value)->sole();
         $this->assertSame('0.0000', app(FinancialBalanceQueryService::class)->balance($custody));
         $this->assertSame('-2000.0000', app(FinancialBalanceQueryService::class)->balance($deposit));
+        $this->assertSame('0.0000', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+            $c['captain'], $c['order']->branch, $c['currency'], FinancialAccountKind::CaptainCashCustody,
+        ));
+        $this->assertSame('-2000.0000', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+            $c['captain'], $c['order']->branch, $c['currency'], FinancialAccountKind::CaptainDeposit,
+        ));
         $this->assertSame(0, FinancialAccount::query()->whereHas('owner', fn ($query) => $query->where('captain_id', $c['captain']->id))->where('account_kind', FinancialAccountKind::CaptainCompanyReceivable->value)->count());
 
         try {
@@ -499,6 +505,39 @@ SQL);
         $this->assertSame('0.0001', $payment->service_fee);
         $this->assertSame('1.2346', $payment->total_customer_cash);
         $this->assertSame('1.2345', $payment->handover->principal_amount);
+    }
+
+    public function test_bill_payment_source_branch_guard_rejects_wrong_branch_in_direct_sql(): void
+    {
+        Storage::fake(OrderBillPaymentService::DISK);
+        $c = $this->fixture();
+        app(BillPaymentFeeRuleService::class)->create($c['admin'], $c['currency']->id, '2000', now()->subDay());
+        $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $this->deliver($c);
+        $payment = app(OrderBillPaymentService::class)->complete($c['employee'], $c['order'], $request, $this->paymentData($c), [$this->image()]);
+        $wrongBranch = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        $account = FinancialTransaction::where('event_type', FinancialEventType::BillPaymentServiceFeeRetained->value)
+            ->sole()->entries()->sole()->account;
+        try {
+            DB::transaction(function () use ($c, $payment, $wrongBranch, $account): void {
+                $id = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT', 'currency_id' => $c['currency']->id,
+                    'branch_id' => $wrongBranch->id, 'source_type' => 'ORDER_BILL_PAYMENT',
+                    'source_id' => (string) $payment->id, 'event_type' => FinancialEventType::BillPaymentServiceFeeRetained->value,
+                    'source_version' => 2, 'payload_hash' => str_repeat('a', 64),
+                    'occurred_at' => now(), 'created_at' => now(),
+                ]);
+                DB::table('financial_entries')->insert([
+                    'financial_transaction_id' => $id, 'financial_account_id' => $account->id,
+                    'currency_id' => $c['currency']->id, 'direction' => 'DECREASE', 'amount' => '2000', 'created_at' => now(),
+                ]);
+                DB::select('SELECT validate_captain_financial_transaction_branch(?)', [$id]);
+            });
+            $this->fail('A misbranched bill event passed the PostgreSQL source guard.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('source/reversal Branch mismatch', $exception->getMessage());
+        }
+        $this->assertSame(3, FinancialTransaction::count());
     }
 
     private function fixture(): array

@@ -30,7 +30,7 @@ class FinancialLedgerConcurrencyTest extends TestCase
             $owner = $accounts->ownerForCaptain(Captain::factory()->create());
             $account = $accounts->getOrCreate($owner, $currency, FinancialAccountKind::CaptainDeposit);
             $results = $this->race([
-                ['operation' => 'event', 'currency_id' => $currency->id, 'account_id' => $account->id, 'source_type' => 'RACE', 'source_id' => 'precision', 'event_type' => 'FIRST', 'occurred_at' => now()->toIso8601String(), 'amount' => '1.2345'],
+                ['operation' => 'event', 'currency_id' => $currency->id, 'account_id' => $account->id, 'branch_id' => $owner->captain->home_branch_id, 'source_type' => 'RACE', 'source_id' => 'precision', 'event_type' => 'FIRST', 'occurred_at' => now()->toIso8601String(), 'amount' => '1.2345'],
                 ['operation' => 'precision', 'currency_id' => $currency->id, 'actor_id' => $actor->id],
             ], $currency->id);
             $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
@@ -72,7 +72,7 @@ class FinancialLedgerConcurrencyTest extends TestCase
 
             $token = bin2hex(random_bytes(8));
             $occurredAt = now()->startOfSecond()->toIso8601String();
-            $event = ['operation' => 'event', 'currency_id' => $currency->id, 'account_id' => $account->id, 'source_type' => 'CONCURRENCY_TEST', 'source_id' => $token, 'event_type' => 'IDENTICAL_EVENT', 'occurred_at' => $occurredAt, 'amount' => '15.25'];
+            $event = ['operation' => 'event', 'currency_id' => $currency->id, 'account_id' => $account->id, 'branch_id' => $captain->home_branch_id, 'source_type' => 'CONCURRENCY_TEST', 'source_id' => $token, 'event_type' => 'IDENTICAL_EVENT', 'occurred_at' => $occurredAt, 'amount' => '15.25'];
             $postingResults = $this->race([$event, $event]);
             $this->assertSame(['success' => 2], collect($postingResults)->countBy('status')->all(), json_encode($postingResults));
             $this->assertCount(1, collect($postingResults)->pluck('id')->unique());

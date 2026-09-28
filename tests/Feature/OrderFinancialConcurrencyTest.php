@@ -26,10 +26,12 @@ use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\CaptainBranchService;
 use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
 use App\Services\FinancialAccountService;
+use App\Services\FinancialBalanceQueryService;
 use App\Services\FinancialPostingService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
@@ -94,6 +96,47 @@ class OrderFinancialConcurrencyTest extends TestCase
         });
     }
 
+    public function test_simultaneous_orders_for_same_captain_keep_distinct_branch_debits(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $first = $this->context();
+            $captain = $first['order']->captainAssignments()->sole()->captain;
+            $second = $this->context($first['currency'], $captain);
+            foreach ([$first, $second] as $context) {
+                $invoice = app(InvoiceService::class)->issue(
+                    $context['employee'], $context['order'],
+                    app(InvoiceService::class)->refresh($context['employee'], $context['order'],
+                        app(InvoiceService::class)->createDraft($context['employee'], $context['order'])),
+                );
+                $context['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+                $context['order']->statusHistory()->create([
+                    'previous_status' => OrderOperationalStatus::HeadingToCustomer,
+                    'new_status' => OrderOperationalStatus::Delivered,
+                    'changed_by' => $context['employee']->id, 'changed_at' => now(),
+                ]);
+                $assignment = $context['order']->captainAssignments()->sole();
+                $invoice->collection()->create([
+                    'order_id' => $context['order']->id, 'captain_id' => $captain->id,
+                    'order_captain_id' => $assignment->id, 'collection_method' => 'CASH',
+                    'currency_id' => $context['currency']->id, 'amount' => $invoice->grand_total,
+                    'collected_at' => now(), 'recorded_by' => $context['employee']->id,
+                ]);
+            }
+            $accountService = app(FinancialAccountService::class);
+            $sharedDeposit = $accountService->getOrCreate($accountService->ownerForCaptain($captain),
+                $first['currency'], FinancialAccountKind::CaptainDeposit);
+            $results = $this->race('post', [$first['order']->id, $second['order']->id], null, [], $sharedDeposit->id);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(2, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
+            $balance = app(FinancialBalanceQueryService::class);
+            $this->assertSame('-1.7500', $balance->captainBranchBalance($captain, $first['order']->branch, $first['currency'], FinancialAccountKind::CaptainDeposit));
+            $this->assertSame('-1.7500', $balance->captainBranchBalance($captain, $second['order']->branch, $first['currency'], FinancialAccountKind::CaptainDeposit));
+            $this->assertSame('-3.5000', $balance->captainBalances($captain, $first['currency'])[FinancialAccountKind::CaptainDeposit->value]);
+        });
+    }
+
     public function test_collection_and_delivery_race_crystallizes_exactly_once(): void
     {
         $this->withIsolatedSchema(function (): void {
@@ -114,7 +157,7 @@ class OrderFinancialConcurrencyTest extends TestCase
             ]);
             $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
             $this->assertSame(OrderOperationalStatus::Delivered, $c['order']->fresh()->operational_status);
-            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
         });
     }
 
@@ -137,7 +180,7 @@ class OrderFinancialConcurrencyTest extends TestCase
                 app(InvoiceCollectionService::class)->record($c['employee'], $ready->fresh(), InvoiceCollectionMethod::Cash, $ready->grand_total, $c['currency']->id, now());
             }
             $this->assertSame(1, $ready->collection()->count());
-            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
         });
     }
 
@@ -154,7 +197,7 @@ class OrderFinancialConcurrencyTest extends TestCase
             $invoice->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id, 'order_captain_id' => $assignment->id, 'collection_method' => 'CASH', 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
             $results = $this->race(['post', 'backfill'], $c['order']->id, $c['order']->id);
             $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
-            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
         });
     }
 
@@ -175,7 +218,7 @@ class OrderFinancialConcurrencyTest extends TestCase
             $results = $this->race(['correct', 'post'], $c['order']->id, $c['order']->id);
             $this->assertGreaterThanOrEqual(1, collect($results)->where('status', 'success')->count(), json_encode($results));
             $this->assertSame(1, FinancialTransaction::whereNotNull('reversal_of_transaction_id')->count());
-            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
         });
     }
 
@@ -392,7 +435,7 @@ class OrderFinancialConcurrencyTest extends TestCase
                 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
             $events = app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
             $this->assertCount(1, $events);
-            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareHeld->value)->count());
+            $this->assertSame(1, FinancialTransaction::where('event_type', FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value)->count());
         });
     }
 
@@ -706,9 +749,9 @@ class OrderFinancialConcurrencyTest extends TestCase
         return [[...$payload, 'payload_hash' => $hash], $lines, $invoice];
     }
 
-    private function context(): array
+    private function context(?Currency $existingCurrency = null, ?Captain $existingCaptain = null): array
     {
-        $currency = Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
+        $currency = $existingCurrency ?? Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $from = Area::factory()->for($branch)->create();
         $to = Area::factory()->for($branch)->create();
@@ -725,9 +768,16 @@ class OrderFinancialConcurrencyTest extends TestCase
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1', 'current_quantity' => '1', 'actual_unit_price' => '10', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
         app(OrderPricingService::class)->recalculate($order);
-        $captainUser = User::factory()->create();
-        $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
-        $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+        if ($existingCaptain) {
+            $captain = $existingCaptain;
+            app(CaptainBranchService::class)->assignTemporary($admin, $captain, [
+                'branch_id' => $branch->id, 'starts_at' => now()->subMinute(), 'reason' => 'Concurrent Branch coverage',
+            ]);
+        } else {
+            $captainUser = User::factory()->create();
+            $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
+            $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+        }
         app(OrderCaptainService::class)->assign($employee, $order, $captain, OrderCaptainRole::PrimaryCollection);
         app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id, 'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value, 'delivery_unit_fee' => '5', 'effective_from' => now()->subDay()]);
         app(DeliveryPricingSettings::class)->update($admin, '65', '0');
@@ -736,15 +786,20 @@ class OrderFinancialConcurrencyTest extends TestCase
         return compact('currency', 'employee', 'order', 'admin', 'from');
     }
 
-    private function race(string|array $operation, int|array $id, int $orderId, array $extra = []): array
+    private function race(string|array $operation, int|array $id, ?int $orderId, array $extra = [], ?int $accountId = null): array
     {
         $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'abshir-order-finance-'.bin2hex(random_bytes(8));
         mkdir($directory, 0700, true);
         $goPath = $directory.DIRECTORY_SEPARATOR.'go';
         $tag = 'order-finance-'.bin2hex(random_bytes(6));
         $workers = [];
-        DB::beginTransaction();
-        DB::table('orders')->where('id', $orderId)->lockForUpdate()->firstOrFail();
+        if ($orderId !== null) {
+            DB::beginTransaction();
+            DB::table('orders')->where('id', $orderId)->lockForUpdate()->firstOrFail();
+        } elseif ($accountId !== null) {
+            DB::beginTransaction();
+            DB::table('financial_accounts')->where('id', $accountId)->lockForUpdate()->firstOrFail();
+        }
         try {
             foreach ([0, 1] as $index) {
                 $workerOperation = is_array($operation) ? $operation[$index] : $operation;
@@ -764,16 +819,33 @@ class OrderFinancialConcurrencyTest extends TestCase
                 usleep(25_000);
             }
             touch($goPath);
-            do {
-                DB::select('SELECT pg_stat_clear_snapshot()');
-                $blocked = (int) DB::selectOne("SELECT count(*) total FROM pg_stat_activity WHERE application_name = ? AND wait_event_type = 'Lock'", [$tag])->total;
-                if ($blocked === 2) {
-                    break;
-                }
-                usleep(25_000);
-            } while (microtime(true) < $deadline);
-            $this->assertSame(2, $blocked, 'Both production workers must contend on the Order lock.');
-            DB::commit();
+            if ($orderId !== null) {
+                do {
+                    DB::select('SELECT pg_stat_clear_snapshot()');
+                    $blocked = (int) DB::selectOne("SELECT count(*) total FROM pg_stat_activity WHERE application_name = ? AND wait_event_type = 'Lock'", [$tag])->total;
+                    if ($blocked === 2) {
+                        break;
+                    }
+                    usleep(25_000);
+                } while (microtime(true) < $deadline);
+                $this->assertSame(2, $blocked, 'Both production workers must contend on the Order lock.');
+                DB::commit();
+            } elseif ($accountId !== null) {
+                $parentPid = (int) DB::selectOne('SELECT pg_backend_pid() AS pid')->pid;
+                do {
+                    DB::select('SELECT pg_stat_clear_snapshot()');
+                    $blocked = (int) DB::selectOne(
+                        'SELECT count(*) AS total FROM pg_stat_activity WHERE application_name = ? AND CAST(? AS integer) = ANY(pg_blocking_pids(pid))',
+                        [$tag, $parentPid],
+                    )->total;
+                    if ($blocked >= 1) {
+                        break;
+                    }
+                    usleep(25_000);
+                } while (microtime(true) < $deadline);
+                $this->assertGreaterThanOrEqual(1, $blocked, 'A real posting worker must block on the shared FinancialAccount row.');
+                DB::commit();
+            }
             $results = [];
             foreach ($workers as $worker) {
                 $worker['process']->wait();

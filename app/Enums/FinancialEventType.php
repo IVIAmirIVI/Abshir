@@ -9,6 +9,7 @@ enum FinancialEventType: string
     case OrderCompanyDeliveryShare = 'ORDER_COMPANY_DELIVERY_SHARE';
     case InvoiceCashCustodyReceived = 'INVOICE_CASH_CUSTODY_RECEIVED';
     case OrderCashCompanyDeliveryShareHeld = 'ORDER_CASH_COMPANY_DELIVERY_SHARE_HELD';
+    case OrderCashCompanyDeliveryShareDepositDebit = 'ORDER_CASH_COMPANY_DELIVERY_SHARE_DEPOSIT_DEBIT';
     case OrderCashDeliveryShortfallDue = 'ORDER_CASH_DELIVERY_SHORTFALL_DUE';
     case OrderShamCashProductReimbursementDue = 'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE';
     case OrderShamCashDeliveryEntitlementDue = 'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE';
@@ -29,6 +30,7 @@ enum FinancialEventType: string
     {
         return [
             self::OrderCashCompanyDeliveryShareHeld,
+            self::OrderCashCompanyDeliveryShareDepositDebit,
             self::OrderCashDeliveryShortfallDue,
             self::OrderShamCashProductReimbursementDue,
             self::OrderShamCashDeliveryEntitlementDue,

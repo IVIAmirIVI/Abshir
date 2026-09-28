@@ -99,7 +99,7 @@ class FinancialLedgerCoreTest extends TestCase
                 ['account' => $deposit, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '70.25'],
                 ['account' => $receivable, 'direction' => FinancialEntryDirection::Increase, 'amount' => '300.10'],
                 ['account' => $custody, 'direction' => FinancialEntryDirection::Increase, 'amount' => '1200.00'],
-            ],
+            ], $this->branch(),
         );
 
         $this->assertSame(FinancialTransactionKind::Event, $transaction->transaction_kind);
@@ -130,7 +130,7 @@ class FinancialLedgerCoreTest extends TestCase
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '12.34'],
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '12.34'],
-            ],
+            ], $this->branch(),
         );
 
         $this->assertSame(FinancialTransactionKind::Transfer, $transaction->transaction_kind);
@@ -139,14 +139,14 @@ class FinancialLedgerCoreTest extends TestCase
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '12.34'],
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '12.33'],
-            ],
+            ], $this->branch(),
         ), FinancialLedgerException::class);
         $retry = $posting->postTransfer(
             $currency, 'TEST', 'transfer-2', 'EXPLICIT_TRANSFER', 1, now()->startOfSecond(),
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '12.34'],
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '12.34'],
-            ],
+            ], $this->branch(),
         );
         $this->assertSame(FinancialTransactionStatus::Posted, $retry->status);
 
@@ -157,14 +157,14 @@ class FinancialLedgerCoreTest extends TestCase
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '1.00'],
                 ['account' => $otherAccount, 'direction' => 'INCREASE', 'amount' => '1.00'],
-            ],
+            ], $this->branch(),
         ), FinancialLedgerException::class);
         $afterFailedHeader = $posting->postTransfer(
             $currency, 'TEST', 'transfer-3', 'EXPLICIT_TRANSFER', 1, now()->startOfSecond(),
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '1.00'],
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '1.00'],
-            ],
+            ], $this->branch(),
         );
         $this->assertSame(FinancialTransactionStatus::Posted, $afterFailedHeader->status);
     }
@@ -205,7 +205,7 @@ class FinancialLedgerCoreTest extends TestCase
         $arguments = [$currency, 'TEST', 'same-source', 'DEPOSIT', 1, $occurredAt, [
             ['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '10.00'],
             ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '3.50'],
-        ]];
+        ], $this->branch()];
 
         $first = $posting->postEvent(...$arguments);
         $second = $posting->postEvent(
@@ -213,7 +213,7 @@ class FinancialLedgerCoreTest extends TestCase
             [
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '3.5'],
                 ['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '10'],
-            ],
+            ], $this->branch(),
         );
         $this->assertSame($first->id, $second->id);
         $this->assertDatabaseCount('financial_transactions', 1);
@@ -221,7 +221,7 @@ class FinancialLedgerCoreTest extends TestCase
 
         $this->assertThrows(fn () => $posting->postEvent(
             $currency, 'TEST', 'same-source', 'DEPOSIT', 1, $occurredAt,
-            [['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '11.00']],
+            [['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '11.00']], $this->branch(),
         ), FinancialIdempotencyConflictException::class);
     }
 
@@ -234,7 +234,7 @@ class FinancialLedgerCoreTest extends TestCase
             [
                 ['account' => $deposit, 'direction' => 'DECREASE', 'amount' => '7.25'],
                 ['account' => $receivable, 'direction' => 'INCREASE', 'amount' => '19.50'],
-            ],
+            ], $this->branch(),
         );
         $originalPayload = $original->fresh()->toArray();
 
@@ -257,7 +257,7 @@ class FinancialLedgerCoreTest extends TestCase
         [$currency, $deposit] = $this->captainAccounts('USD', 2);
         $transaction = app(FinancialPostingService::class)->postEvent(
             $currency, 'TEST', 'immutable', 'POST', 1, now()->startOfSecond(),
-            [['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '2.00']],
+            [['account' => $deposit, 'direction' => 'INCREASE', 'amount' => '2.00']], $this->branch(),
         );
         $entry = $transaction->entries->sole();
 
@@ -277,8 +277,8 @@ class FinancialLedgerCoreTest extends TestCase
         $eur = $this->currency('EUR', 2);
         $eurDeposit = app(FinancialAccountService::class)->getOrCreate($usdDeposit->owner, $eur, FinancialAccountKind::CaptainDeposit);
         $posting = app(FinancialPostingService::class);
-        $posting->postEvent($usd, 'TEST', 'usd-event', 'POST', 1, now()->startOfSecond(), [['account' => $usdDeposit, 'direction' => 'INCREASE', 'amount' => '4.25']]);
-        $posting->postEvent($eur, 'TEST', 'eur-event', 'POST', 1, now()->startOfSecond(), [['account' => $eurDeposit, 'direction' => 'INCREASE', 'amount' => '8.50']]);
+        $posting->postEvent($usd, 'TEST', 'usd-event', 'POST', 1, now()->startOfSecond(), [['account' => $usdDeposit, 'direction' => 'INCREASE', 'amount' => '4.25']], $this->branch());
+        $posting->postEvent($eur, 'TEST', 'eur-event', 'POST', 1, now()->startOfSecond(), [['account' => $eurDeposit, 'direction' => 'INCREASE', 'amount' => '8.50']], $this->branch());
 
         $balances = app(FinancialBalanceQueryService::class);
         $this->assertSame('4.2500', $balances->balance($usdDeposit));
@@ -310,6 +310,11 @@ class FinancialLedgerCoreTest extends TestCase
             app(FinancialAccountService::class)->getOrCreate($owner, $currency, FinancialAccountKind::CaptainCompanyReceivable),
             app(FinancialAccountService::class)->getOrCreate($owner, $currency, FinancialAccountKind::CaptainCashCustody),
         ];
+    }
+
+    private function branch(): Branch
+    {
+        return Branch::query()->firstOrFail();
     }
 
     private function currency(string $code, int $decimalPlaces): Currency
