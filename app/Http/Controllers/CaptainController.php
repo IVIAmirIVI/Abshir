@@ -6,9 +6,11 @@ use App\Enums\CaptainOperationalStatus;
 use App\Http\Requests\CaptainRequest;
 use App\Models\Captain;
 use App\Models\CaptainRating;
+use App\Models\Currency;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\CaptainService;
+use App\Services\FinancialBalanceQueryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -50,7 +52,7 @@ class CaptainController extends Controller
         return redirect()->route('captains.show', $captain)->with('status', 'Captain profile created.');
     }
 
-    public function show(Request $request, Captain $captain): View
+    public function show(Request $request, Captain $captain, FinancialBalanceQueryService $balances): View
     {
         Gate::authorize('captains.view');
         abort_unless($request->user()->canAccessCaptain($captain), 403);
@@ -68,6 +70,17 @@ class CaptainController extends Controller
         }
         $ratingSummary = null;
         $recentRatings = collect();
+        $financialRows = collect();
+        if ($request->user()->can('captain_financials.view')) {
+            $accessibleBranches = $request->user()->availableBranches()->get()->keyBy('id');
+            foreach (Currency::query()->orderBy('code')->get() as $currency) {
+                foreach ($balances->captainBalancesByBranch($captain, $currency) as $branchId => $values) {
+                    if ($branch = $accessibleBranches->get((int) $branchId)) {
+                        $financialRows->push(compact('branch', 'currency', 'values'));
+                    }
+                }
+            }
+        }
         if ($request->user()->can('captain_ratings.view_summary')) {
             $ratings = CaptainRating::query()->accessibleTo($request->user())->where('captain_id', $captain->id);
             $ratingSummary = [
@@ -83,6 +96,7 @@ class CaptainController extends Controller
             'activeBranches' => $request->user()->can('captain_branches.view') ? $captain->activeOperationalBranches() : collect(),
             'ratingSummary' => $ratingSummary,
             'recentRatings' => $recentRatings,
+            'financialRows' => $financialRows,
         ]);
     }
 

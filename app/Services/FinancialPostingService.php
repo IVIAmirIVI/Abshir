@@ -177,8 +177,19 @@ class FinancialPostingService
             if ($original->transaction_kind === FinancialTransactionKind::Reversal) {
                 throw new FinancialLedgerException('A reversal transaction cannot itself be reversed.');
             }
+            if (in_array($original->event_type, [
+                FinancialEventType::CaptainDepositReceived->value,
+                FinancialEventType::CaptainReceivablePaid->value,
+            ], true)) {
+                throw new FinancialIdempotencyConflictException('FINANCIAL_SOURCE_REQUIRES_CONTROLLED_CORRECTION: this Captain cash operation cannot be reversed generically.');
+            }
             if (FinancialTransaction::query()->where('reversal_of_transaction_id', $original->id)->exists()) {
                 throw new FinancialLedgerException('This financial transaction has already been reversed.');
+            }
+            if (DB::table('captain_receivable_payout_allocations as a')
+                ->join('financial_entries as e', 'e.id', '=', 'a.financial_entry_id')
+                ->where('e.financial_transaction_id', $original->id)->exists()) {
+                throw new FinancialIdempotencyConflictException('PAYOUT_ALREADY_EXISTS: paid Receivable source requires manual review.');
             }
             if ($branch !== null && $branch->id !== $original->branch_id) {
                 throw new FinancialLedgerException('A reversal must retain the original transaction Branch.');
@@ -266,7 +277,11 @@ class FinancialPostingService
 
         $occurredAt = CarbonImmutable::instance($occurredAt)->utc();
         $payloadHash = $this->payloadHash($kind, $currency, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $normalized, $branch, $recordedBy, $reversalOf, $reason, $notes);
-        $preciseOrderEvent = in_array($eventType, array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()), true);
+        $preciseOrderEvent = in_array($eventType, [
+            ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()),
+            FinancialEventType::CaptainDepositReceived->value,
+            FinancialEventType::CaptainReceivablePaid->value,
+        ], true);
 
         $identity = [
             'source_type' => trim($sourceType),

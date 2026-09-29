@@ -60,6 +60,13 @@ class OrderFinancialSemanticsCorrectionService
                 'reverse_held_ids' => $pendingHeld->pluck('id')->all(),
             ];
             try {
+                $paidEventId = DB::table('captain_receivable_payout_allocations as a')
+                    ->join('financial_entries as e', 'e.id', '=', 'a.financial_entry_id')
+                    ->whereIn('e.financial_transaction_id', $pending->pluck('id'))
+                    ->value('e.financial_transaction_id');
+                if ($paidEventId !== null) {
+                    throw new FinancialIdempotencyConflictException("PAYOUT_ALREADY_EXISTS: Receivable event {$paidEventId} is paid; MANUAL_REVIEW required.");
+                }
                 foreach ($legacy as $event) {
                     $this->validateLegacyEvent($order, $event, $collections);
                     $reversal = $event->reversal()->first();
@@ -137,7 +144,7 @@ class OrderFinancialSemanticsCorrectionService
                     throw $exception;
                 }
 
-                return $details + ['state' => 'conflict', 'reason' => $exception->getMessage()];
+                return $details + ['state' => str_contains($exception->getMessage(), 'PAYOUT_ALREADY_EXISTS') ? 'manual_review' : 'conflict', 'reason' => $exception->getMessage()];
             } catch (FinancialLedgerException $exception) {
                 if ($apply) {
                     throw $exception;

@@ -16,6 +16,8 @@ enum FinancialEventType: string
     case BillPaymentCashCollected = 'BILL_PAYMENT_CASH_COLLECTED';
     case BillPaymentPrincipalHandedOver = 'BILL_PAYMENT_PRINCIPAL_HANDED_OVER';
     case BillPaymentServiceFeeRetained = 'BILL_PAYMENT_SERVICE_FEE_RETAINED';
+    case CaptainDepositReceived = 'CAPTAIN_DEPOSIT_RECEIVED';
+    case CaptainReceivablePaid = 'CAPTAIN_RECEIVABLE_PAID';
 
     public static function orderDerived(): array
     {

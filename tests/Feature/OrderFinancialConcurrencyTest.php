@@ -27,6 +27,7 @@ use App\Models\OrderShop;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\CaptainBranchService;
+use App\Services\CaptainDepositReceiptService;
 use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
@@ -40,12 +41,15 @@ use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderFinancialSourceSnapshotService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PDOException;
 use Symfony\Component\Process\Process;
@@ -53,6 +57,461 @@ use Tests\TestCase;
 
 class OrderFinancialConcurrencyTest extends TestCase
 {
+    public function test_payout_and_official_source_reversal_contend_on_one_account_and_never_both_commit(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            OrderItem::query()->where('order_shop_id', $c['order']->shops()->sole()->id)
+                ->update(['actual_unit_price' => '100']);
+            app(OrderPricingService::class)->recalculate($c['order']);
+            [$captain, $entry, $accountId] = $this->prepareShamReceivable($c);
+            $this->assertSame('100.0000', (string) BigDecimal::of($entry->amount)->toScale(4));
+            $job = ['actor_id' => $c['employee']->id, 'captain_id' => $captain->id,
+                'branch_id' => $c['order']->branch_id, 'currency_id' => $c['currency']->id,
+                'data' => ['request_key' => (string) str()->uuid(), 'amount' => '100',
+                    'occurred_at' => now()->subMinute()->toIso8601String()],
+                'allocations' => [['financial_entry_id' => $entry->financial_entry_id, 'amount' => '100']]];
+            $results = $this->race(['captain_payout', 'reverse_receivable_source'],
+                [$captain->id, $entry->financial_transaction_id], null, [$job, []], $accountId);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(1, collect($results)->where('status', 'error')->count(), json_encode($results));
+            $paid = DB::table('captain_receivable_payout_allocations')->where('financial_entry_id', $entry->financial_entry_id)->exists();
+            $reversed = DB::table('financial_transactions')->where('reversal_of_transaction_id', $entry->financial_transaction_id)->exists();
+            $this->assertNotSame($paid, $reversed, 'Payout and source reversal must be mutually exclusive.');
+            $this->assertSame($paid ? 1 : 0, DB::table('captain_receivable_payouts')->count());
+            $this->assertSame($reversed ? 1 : 0,
+                DB::table('financial_transactions')->where('reversal_of_transaction_id', $entry->financial_transaction_id)->count());
+        });
+    }
+
+    public function test_staggered_captain_upgrade_rejects_preexisting_subcurrency_allocations_without_repair(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateCaptainIntermediateSchema();
+            $c = $this->context();
+            [$captain, $product] = $this->prepareShamReceivable($c);
+            $delivery = app(FinancialBalanceQueryService::class)
+                ->payableReceivableEntries($captain, $c['order']->branch, $c['currency'])
+                ->firstWhere('event_type', FinancialEventType::OrderShamCashDeliveryEntitlementDue->value);
+            $payoutId = $this->insertIntermediatePayout($c, $captain, [
+                [$product->financial_entry_id, '0.001'], [$delivery->financial_entry_id, '0.999'],
+            ]);
+            $allocationIds = DB::table('captain_receivable_payout_allocations')
+                ->where('captain_receivable_payout_id', $payoutId)->orderBy('id')->pluck('id')->all();
+            $this->assertCount(2, $allocationIds);
+            (require database_path('migrations/2026_09_28_120300_validate_captain_payout_allocation_precision.php'))->up();
+            try {
+                (require database_path('migrations/2026_09_28_120400_finalize_captain_financial_operation_integrity.php'))->up();
+                $this->fail('The intermediate sub-Currency-precision allocations passed the final upgrade.');
+            } catch (QueryException|PDOException $exception) {
+                $this->assertStringContainsString("payout_id={$payoutId}", $exception->getMessage());
+                $this->assertStringContainsString('allocation_id=', $exception->getMessage());
+                $this->assertStringContainsString('precision', $exception->getMessage());
+            }
+            $this->assertSame(['0.001', '0.999'], DB::table('captain_receivable_payout_allocations')
+                ->where('captain_receivable_payout_id', $payoutId)->orderBy('id')->pluck('amount')
+                ->map(fn ($amount) => (string) $amount)->all());
+        });
+    }
+
+    public function test_staggered_captain_upgrade_rejects_hidden_extra_entry_without_repair(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateCaptainIntermediateSchema();
+            $currency = Currency::create(['name' => 'Dollar', 'code' => 'USD', 'decimal_places' => 2]);
+            $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
+            $captain = Captain::factory()->create(['home_branch_id' => $branch->id]);
+            $actor = User::factory()->create();
+            $accounts = app(FinancialAccountService::class);
+            $owner = $accounts->ownerForCaptain($captain);
+            $deposit = $accounts->getOrCreate($owner, $currency, FinancialAccountKind::CaptainDeposit);
+            $receivable = $accounts->getOrCreate($owner, $currency, FinancialAccountKind::CaptainCompanyReceivable);
+            // Model a weaker intermediate deployment in this throwaway schema only.
+            // Existing final-state triggers are re-enabled before applying 120400.
+            DB::statement('ALTER TABLE captain_deposit_receipts DISABLE TRIGGER captain_deposit_receipt_complete');
+            DB::statement('ALTER TABLE financial_transactions DISABLE TRIGGER captain_financial_event_complete');
+            DB::statement('ALTER TABLE financial_entries DISABLE TRIGGER captain_financial_entry_complete');
+            $occurredAt = now()->startOfSecond();
+            [$receiptId, $transactionId] = DB::transaction(function () use ($currency, $branch, $captain, $actor, $deposit, $receivable, $occurredAt): array {
+                $receiptId = DB::table('captain_deposit_receipts')->insertGetId([
+                    'captain_id' => $captain->id, 'branch_id' => $branch->id, 'currency_id' => $currency->id,
+                    'received_by' => $actor->id, 'request_key' => (string) str()->uuid(), 'amount' => '100',
+                    'occurred_at' => $occurredAt, 'evidence_path' => 'private/proof.png',
+                    'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png', 'evidence_size' => 100,
+                    'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+                ]);
+                $transactionId = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT', 'currency_id' => $currency->id,
+                    'branch_id' => $branch->id, 'source_type' => 'CAPTAIN_DEPOSIT_RECEIPT',
+                    'source_id' => (string) $receiptId, 'event_type' => 'CAPTAIN_DEPOSIT_RECEIVED',
+                    'source_version' => 1, 'payload_hash' => str_repeat('b', 64),
+                    'occurred_at' => $occurredAt, 'created_at' => now(),
+                ]);
+                foreach ([[$deposit->id, 'INCREASE'], [$receivable->id, 'DECREASE']] as [$accountId, $direction]) {
+                    DB::table('financial_entries')->insert([
+                        'financial_transaction_id' => $transactionId, 'financial_account_id' => $accountId,
+                        'currency_id' => $currency->id, 'direction' => $direction,
+                        'amount' => '100', 'created_at' => now(),
+                    ]);
+                }
+                DB::table('financial_transactions')->where('id', $transactionId)->update(['status' => 'POSTED', 'posted_at' => now()]);
+
+                return [$receiptId, $transactionId];
+            });
+            DB::statement('ALTER TABLE captain_deposit_receipts ENABLE TRIGGER captain_deposit_receipt_complete');
+            DB::statement('ALTER TABLE financial_transactions ENABLE TRIGGER captain_financial_event_complete');
+            DB::statement('ALTER TABLE financial_entries ENABLE TRIGGER captain_financial_entry_complete');
+            (require database_path('migrations/2026_09_28_120300_validate_captain_payout_allocation_precision.php'))->up();
+            try {
+                (require database_path('migrations/2026_09_28_120400_finalize_captain_financial_operation_integrity.php'))->up();
+                $this->fail('The hidden extra entry passed final retrospective validation.');
+            } catch (QueryException|PDOException $exception) {
+                $this->assertStringContainsString("source_id={$receiptId}", $exception->getMessage());
+                $this->assertStringContainsString('wrong account, direction, or exact amount', $exception->getMessage());
+            }
+            $this->assertSame(2, DB::table('financial_entries')->where('financial_transaction_id', $transactionId)->count());
+        });
+    }
+
+    public function test_staggered_valid_captain_history_and_fresh_install_reach_one_final_guard(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            $this->migrateCaptainIntermediateSchema();
+            $c = $this->context();
+            [$captain, $product] = $this->prepareShamReceivable($c);
+            Storage::fake('captain_financial_evidence');
+            $receipt = app(CaptainDepositReceiptService::class)->record(
+                $c['employee'], $captain, $c['order']->branch, $c['currency'],
+                ['request_key' => (string) str()->uuid(), 'amount' => '2.00',
+                    'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP')],
+                UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')),
+            );
+            $delivery = app(FinancialBalanceQueryService::class)
+                ->payableReceivableEntries($captain, $c['order']->branch, $c['currency'])
+                ->firstWhere('event_type', FinancialEventType::OrderShamCashDeliveryEntitlementDue->value);
+            $payoutId = $this->insertIntermediatePayout($c, $captain, [
+                [$product->financial_entry_id, '0.50'], [$delivery->financial_entry_id, '0.50'],
+            ]);
+            (require database_path('migrations/2026_09_28_120300_validate_captain_payout_allocation_precision.php'))->up();
+            (require database_path('migrations/2026_09_28_120400_finalize_captain_financial_operation_integrity.php'))->up();
+            $this->assertSame(2, DB::table('captain_receivable_payout_allocations')
+                ->where('captain_receivable_payout_id', $payoutId)->count());
+            $this->assertDatabaseHas('captain_deposit_receipts', ['id' => $receipt->id]);
+            $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'financial_transactions'::regclass AND tgname = 'captain_paid_source_reversal_guard' AND tgenabled = 'O'")->count);
+        });
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'financial_transactions'::regclass AND tgname = 'captain_paid_source_reversal_guard' AND tgenabled = 'O'")->count);
+            $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'captain_receivable_payout_allocations'::regclass AND tgname = 'captain_payout_allocation_precision' AND tgenabled = 'O'")->count);
+        });
+    }
+
+    public function test_captain_payout_workers_contend_on_one_receivable_account_and_cannot_overallocate_source(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $captain = $c['order']->captainAssignments()->sole()->captain;
+            $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'],
+                app(InvoiceService::class)->refresh($c['employee'], $c['order'],
+                    app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer,
+                'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+                $invoice->grand_total, $c['currency']->id, now());
+            $entry = app(FinancialBalanceQueryService::class)->payableReceivableEntries($captain, $c['order']->branch, $c['currency'])
+                ->firstWhere('event_type', FinancialEventType::OrderShamCashProductReimbursementDue->value);
+            $accountId = DB::table('financial_entries')->where('id', $entry->financial_entry_id)->value('financial_account_id');
+            $common = ['actor_id' => $c['employee']->id, 'captain_id' => $captain->id,
+                'branch_id' => $c['order']->branch_id, 'currency_id' => $c['currency']->id];
+            $results = $this->race('captain_payout', $captain->id, null, [
+                $common + ['data' => ['request_key' => (string) str()->uuid(), 'amount' => '7', 'occurred_at' => now()->subMinute()->toIso8601String()], 'allocations' => [['financial_entry_id' => $entry->financial_entry_id, 'amount' => '7']]],
+                $common + ['data' => ['request_key' => (string) str()->uuid(), 'amount' => '6', 'occurred_at' => now()->subMinute()->toIso8601String()], 'allocations' => [['financial_entry_id' => $entry->financial_entry_id, 'amount' => '6']]],
+            ], $accountId);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(1, collect($results)->where('status', 'error')->count(), json_encode($results));
+            $this->assertSame(1, DB::table('captain_receivable_payouts')->count());
+            $this->assertTrue(BigDecimal::of((string) DB::table('captain_receivable_payout_allocations')->sum('amount'))
+                ->isLessThanOrEqualTo('10'));
+        });
+    }
+
+    public function test_duplicate_deposit_workers_post_one_receipt_and_one_increase(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            $captain = $c['order']->captainAssignments()->sole()->captain;
+            $owner = app(FinancialAccountService::class)->ownerForCaptain($captain);
+            $deposit = app(FinancialAccountService::class)->getOrCreate($owner, $c['currency'], FinancialAccountKind::CaptainDeposit);
+            $job = ['actor_id' => $c['employee']->id, 'captain_id' => $captain->id,
+                'branch_id' => $c['order']->branch_id, 'currency_id' => $c['currency']->id,
+                'data' => ['request_key' => (string) str()->uuid(), 'amount' => '20', 'occurred_at' => now()->subMinute()->toIso8601String()]];
+            $results = $this->race('captain_deposit', $captain->id, null, [$job, $job], $deposit->id);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(1, DB::table('captain_deposit_receipts')->count());
+            $this->assertSame(1, DB::table('financial_transactions')->where('event_type', 'CAPTAIN_DEPOSIT_RECEIVED')->count());
+            $this->assertSame('20.0000', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+                $captain, $c['order']->branch, $c['currency'], FinancialAccountKind::CaptainDeposit));
+        });
+    }
+
+    public function test_duplicate_payout_workers_reuse_one_document_and_one_decrease(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            [$captain, $entry, $accountId] = $this->prepareShamReceivable($c);
+            $job = ['actor_id' => $c['employee']->id, 'captain_id' => $captain->id,
+                'branch_id' => $c['order']->branch_id, 'currency_id' => $c['currency']->id,
+                'data' => ['request_key' => (string) str()->uuid(), 'amount' => '5',
+                    'occurred_at' => now()->subMinute()->toIso8601String()],
+                'allocations' => [['financial_entry_id' => $entry->financial_entry_id, 'amount' => '5']]];
+            $results = $this->race('captain_payout', $captain->id, null, [$job, $job], $accountId);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertCount(1, collect($results)->pluck('result')->unique());
+            $this->assertSame(1, DB::table('captain_receivable_payouts')->count());
+            $this->assertSame(1, DB::table('financial_transactions')->where('event_type', 'CAPTAIN_RECEIVABLE_PAID')->count());
+        });
+    }
+
+    public function test_two_branch_payouts_share_global_account_lock_but_keep_branch_balances_separate(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $a = $this->context();
+            [$captain, $entryA, $accountId] = $this->prepareShamReceivable($a);
+            $b = $this->context($a['currency'], $captain);
+            [, $entryB] = $this->prepareShamReceivable($b);
+            $jobs = [];
+            foreach ([[$a, $entryA, '7'], [$b, $entryB, '6']] as [$context, $entry, $amount]) {
+                $jobs[] = ['actor_id' => $context['employee']->id, 'captain_id' => $captain->id,
+                    'branch_id' => $context['order']->branch_id, 'currency_id' => $context['currency']->id,
+                    'data' => ['request_key' => (string) str()->uuid(), 'amount' => $amount,
+                        'occurred_at' => now()->subMinute()->toIso8601String()],
+                    'allocations' => [['financial_entry_id' => $entry->financial_entry_id, 'amount' => $amount]]];
+            }
+            $results = $this->race('captain_payout', $captain->id, null, $jobs, $accountId);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $balances = app(FinancialBalanceQueryService::class);
+            $this->assertSame('6.2500', $balances->captainBranchBalance($captain, $a['order']->branch, $a['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+            $this->assertSame('7.2500', $balances->captainBranchBalance($captain, $b['order']->branch, $b['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+            $this->assertSame('13.5000', $balances->captainBalances($captain, $a['currency'])[FinancialAccountKind::CaptainCompanyReceivable->value]);
+        });
+    }
+
+    public function test_canonical_direct_sql_payout_commits_and_paid_source_direct_reversal_fails(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            [$captain, $entry, $accountId] = $this->prepareShamReceivable($c);
+            $occurredAt = now()->startOfSecond();
+            DB::transaction(function () use ($c, $captain, $entry, $accountId, $occurredAt): void {
+                $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                    'captain_id' => $captain->id, 'branch_id' => $c['order']->branch_id,
+                    'currency_id' => $c['currency']->id, 'amount' => '5',
+                    'paid_by' => $c['employee']->id, 'request_key' => (string) str()->uuid(),
+                    'occurred_at' => $occurredAt, 'evidence_path' => 'private/evidence.png',
+                    'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png',
+                    'evidence_size' => 100, 'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+                ]);
+                DB::table('captain_receivable_payout_allocations')->insert([
+                    'captain_receivable_payout_id' => $payoutId,
+                    'financial_entry_id' => $entry->financial_entry_id, 'amount' => '5', 'created_at' => now(),
+                ]);
+                $transactionId = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT',
+                    'currency_id' => $c['currency']->id, 'branch_id' => $c['order']->branch_id,
+                    'source_type' => 'CAPTAIN_RECEIVABLE_PAYOUT', 'source_id' => (string) $payoutId,
+                    'event_type' => 'CAPTAIN_RECEIVABLE_PAID', 'source_version' => 1,
+                    'payload_hash' => str_repeat('b', 64), 'occurred_at' => $occurredAt, 'created_at' => now(),
+                ]);
+                DB::table('financial_entries')->insert([
+                    'financial_transaction_id' => $transactionId, 'financial_account_id' => $accountId,
+                    'currency_id' => $c['currency']->id, 'direction' => 'DECREASE', 'amount' => '5', 'created_at' => now(),
+                ]);
+                DB::table('financial_transactions')->where('id', $transactionId)->update(['status' => 'POSTED', 'posted_at' => now()]);
+            });
+            $this->assertSame('8.2500', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+                $captain, $c['order']->branch, $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+            $this->assertSame(1, DB::table('captain_receivable_payouts')->count());
+            $this->assertThrows(fn () => DB::transaction(fn () => DB::table('financial_transactions')->insert([
+                'transaction_kind' => 'REVERSAL', 'status' => 'DRAFT',
+                'currency_id' => $c['currency']->id, 'branch_id' => $c['order']->branch_id,
+                'source_type' => 'DIRECT_SQL', 'source_id' => (string) str()->uuid(),
+                'event_type' => 'REVERSE_PAID', 'source_version' => 1,
+                'payload_hash' => str_repeat('a', 64), 'occurred_at' => now(),
+                'reversal_of_transaction_id' => $entry->financial_transaction_id,
+                'reason' => 'Bypass attempt', 'created_at' => now(),
+            ])), QueryException::class);
+        });
+    }
+
+    public function test_direct_sql_payout_contract_rejects_wrong_owner_branch_currency_kind_direction_amount_and_source(): void
+    {
+        $this->withIsolatedSchema(function (): void {
+            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->context();
+            [$captain, $source, $receivableId] = $this->prepareShamReceivable($c);
+            $other = $this->context($c['currency']);
+            [, $otherSource, $otherReceivableId] = $this->prepareShamReceivable($other);
+            $accounts = app(FinancialAccountService::class);
+            $owner = $accounts->ownerForCaptain($captain);
+            $depositId = $accounts->getOrCreate($owner, $c['currency'], FinancialAccountKind::CaptainDeposit)->id;
+            $euro = Currency::create(['name' => 'Euro', 'code' => 'EUR', 'decimal_places' => 2]);
+            $euroAccountId = $accounts->getOrCreate($owner, $euro, FinancialAccountKind::CaptainCompanyReceivable)->id;
+            $attempt = function (array $change = []) use ($c, $captain, $source, $receivableId): void {
+                $facts = array_replace([
+                    'source_entry_id' => $source->financial_entry_id,
+                    'account_id' => $receivableId,
+                    'transaction_branch_id' => $c['order']->branch_id,
+                    'transaction_currency_id' => $c['currency']->id,
+                    'entry_currency_id' => $c['currency']->id,
+                    'direction' => 'DECREASE', 'amount' => '5', 'source_amount' => '5', 'allocation_amount' => '5',
+                ], $change);
+                DB::transaction(function () use ($c, $captain, $facts): void {
+                    $occurredAt = now()->startOfSecond();
+                    $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                        'captain_id' => $captain->id, 'branch_id' => $c['order']->branch_id,
+                        'currency_id' => $c['currency']->id, 'amount' => $facts['source_amount'],
+                        'paid_by' => $c['employee']->id, 'request_key' => (string) str()->uuid(),
+                        'occurred_at' => $occurredAt, 'evidence_path' => 'private/proof.png',
+                        'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png',
+                        'evidence_size' => 100, 'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+                    ]);
+                    DB::table('captain_receivable_payout_allocations')->insert([
+                        'captain_receivable_payout_id' => $payoutId,
+                        'financial_entry_id' => $facts['source_entry_id'],
+                        'amount' => $facts['allocation_amount'], 'created_at' => now(),
+                    ]);
+                    $transactionId = DB::table('financial_transactions')->insertGetId([
+                        'transaction_kind' => 'EVENT', 'status' => 'DRAFT',
+                        'currency_id' => $facts['transaction_currency_id'],
+                        'branch_id' => $facts['transaction_branch_id'],
+                        'source_type' => 'CAPTAIN_RECEIVABLE_PAYOUT', 'source_id' => (string) $payoutId,
+                        'event_type' => 'CAPTAIN_RECEIVABLE_PAID', 'source_version' => 1,
+                        'payload_hash' => str_repeat('a', 64), 'occurred_at' => $occurredAt, 'created_at' => now(),
+                    ]);
+                    DB::table('financial_entries')->insert([
+                        'financial_transaction_id' => $transactionId,
+                        'financial_account_id' => $facts['account_id'],
+                        'currency_id' => $facts['entry_currency_id'],
+                        'direction' => $facts['direction'], 'amount' => $facts['amount'], 'created_at' => now(),
+                    ]);
+                    DB::table('financial_transactions')->where('id', $transactionId)->update(['status' => 'POSTED', 'posted_at' => now()]);
+                });
+            };
+            foreach ([
+                ['account_id' => $depositId],
+                ['account_id' => $otherReceivableId],
+                ['account_id' => $euroAccountId],
+                ['transaction_branch_id' => $other['order']->branch_id],
+                ['transaction_currency_id' => $euro->id],
+                ['entry_currency_id' => $euro->id],
+                ['direction' => 'INCREASE'],
+                ['source_amount' => '6'],
+                ['allocation_amount' => '4'],
+                ['source_entry_id' => $otherSource->financial_entry_id],
+            ] as $change) {
+                try {
+                    $attempt($change);
+                    $this->fail('Malformed payout was accepted: '.json_encode($change));
+                } catch (QueryException|PDOException) {
+                    $this->assertTrue(true);
+                }
+            }
+            $attempt(['amount' => '7', 'source_amount' => '7', 'allocation_amount' => '7']);
+            try {
+                $attempt(['amount' => '4', 'source_amount' => '4', 'allocation_amount' => '4']);
+                $this->fail('Cumulative Receivable allocation exceeded the source amount.');
+            } catch (QueryException|PDOException) {
+                $this->assertTrue(true);
+            }
+            $this->assertSame('6.2500', app(FinancialBalanceQueryService::class)->captainBranchBalance(
+                $captain, $c['order']->branch, $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+            $this->assertSame(1, DB::table('captain_receivable_payouts')->count());
+        });
+    }
+
+    private function migrateCaptainIntermediateSchema(): void
+    {
+        foreach (glob(database_path('migrations/*.php')) as $path) {
+            if (basename($path) <= '2026_09_28_120200_fix_captain_financial_deferred_trigger.php') {
+                (require $path)->up();
+            }
+        }
+        Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+    }
+
+    /** @param array<int, array{0: int, 1: string}> $lines */
+    private function insertIntermediatePayout(array $c, Captain $captain, array $lines): int
+    {
+        $accounts = app(FinancialAccountService::class);
+        $receivable = $accounts->getOrCreate($accounts->ownerForCaptain($captain), $c['currency'], FinancialAccountKind::CaptainCompanyReceivable);
+
+        return DB::transaction(function () use ($c, $captain, $lines, $receivable): int {
+            $occurredAt = now()->startOfSecond();
+            $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                'captain_id' => $captain->id, 'branch_id' => $c['order']->branch_id,
+                'currency_id' => $c['currency']->id, 'paid_by' => $c['employee']->id,
+                'request_key' => (string) str()->uuid(), 'amount' => '1.00',
+                'occurred_at' => $occurredAt, 'evidence_path' => 'private/proof.png',
+                'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png',
+                'evidence_size' => 100, 'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+            ]);
+            foreach ($lines as [$entryId, $amount]) {
+                DB::table('captain_receivable_payout_allocations')->insert([
+                    'captain_receivable_payout_id' => $payoutId,
+                    'financial_entry_id' => $entryId, 'amount' => $amount, 'created_at' => now(),
+                ]);
+            }
+            $transactionId = DB::table('financial_transactions')->insertGetId([
+                'transaction_kind' => 'EVENT', 'status' => 'DRAFT', 'currency_id' => $c['currency']->id,
+                'branch_id' => $c['order']->branch_id, 'source_type' => 'CAPTAIN_RECEIVABLE_PAYOUT',
+                'source_id' => (string) $payoutId, 'event_type' => 'CAPTAIN_RECEIVABLE_PAID',
+                'source_version' => 1, 'payload_hash' => str_repeat('b', 64),
+                'occurred_at' => $occurredAt, 'created_at' => now(),
+            ]);
+            DB::table('financial_entries')->insert([
+                'financial_transaction_id' => $transactionId, 'financial_account_id' => $receivable->id,
+                'currency_id' => $c['currency']->id, 'direction' => 'DECREASE',
+                'amount' => '1.00', 'created_at' => now(),
+            ]);
+            DB::table('financial_transactions')->where('id', $transactionId)
+                ->update(['status' => 'POSTED', 'posted_at' => now()]);
+
+            return $payoutId;
+        });
+    }
+
+    private function prepareShamReceivable(array $c): array
+    {
+        $captain = $c['order']->captainAssignments()->sole()->captain;
+        $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'],
+            app(InvoiceService::class)->refresh($c['employee'], $c['order'],
+                app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
+        $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+        $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer,
+            'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $entry = app(FinancialBalanceQueryService::class)->payableReceivableEntries($captain, $c['order']->branch, $c['currency'])
+            ->firstWhere('event_type', FinancialEventType::OrderShamCashProductReimbursementDue->value);
+        $accountId = DB::table('financial_entries')->where('id', $entry->financial_entry_id)->value('financial_account_id');
+
+        return [$captain, $entry, $accountId];
+    }
+
     public function test_real_services_serialize_corrected_posting_and_collection(): void
     {
         $this->withIsolatedSchema(function (): void {

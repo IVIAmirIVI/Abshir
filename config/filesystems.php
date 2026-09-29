@@ -53,6 +53,13 @@ return [
             'throw' => true,
         ],
 
+        'captain_financial_evidence' => [
+            'driver' => 'local',
+            'root' => storage_path('app/captain-financial-evidence-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

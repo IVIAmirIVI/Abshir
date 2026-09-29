@@ -15,6 +15,7 @@ use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderPricingClass;
 use App\Enums\OrderShopType;
 use App\Enums\ShopBusinessClassification;
+use App\Exceptions\FinancialIdempotencyConflictException;
 use App\Models\Area;
 use App\Models\Branch;
 use App\Models\Captain;
@@ -28,6 +29,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
 use App\Services\CaptainBranchService;
+use App\Services\CaptainReceivablePayoutService;
 use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
@@ -47,6 +49,7 @@ use App\Services\OrderService;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
@@ -59,6 +62,298 @@ use Tests\TestCase;
 class OrderFinancialPostingTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_completed_payout_cannot_be_reversed_by_service_or_direct_sql(): void
+    {
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $balances = app(FinancialBalanceQueryService::class);
+        $source = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])->first();
+        $payout = app(CaptainReceivablePayoutService::class)->record(
+            $c['employee'], $captain, $c['branch'], $c['currency'],
+            ['request_key' => (string) str()->uuid(), 'amount' => '5',
+                'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP')],
+            [['financial_entry_id' => $source->financial_entry_id, 'amount' => '5']],
+            UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')),
+        );
+        $original = FinancialTransaction::where('source_type', 'CAPTAIN_RECEIVABLE_PAYOUT')->sole();
+        $before = $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable);
+        $count = FinancialTransaction::count();
+        $this->assertThrows(fn () => app(FinancialPostingService::class)->reverse($original,
+            'TEST_REVERSAL', (string) str()->uuid(), 'REVERSE_PAYOUT', 1, now(), 'Attempt'),
+            FinancialIdempotencyConflictException::class);
+        try {
+            DB::transaction(fn () => DB::table('financial_transactions')->insert([
+                'transaction_kind' => 'REVERSAL', 'status' => 'DRAFT', 'currency_id' => $c['currency']->id,
+                'branch_id' => $c['branch']->id, 'source_type' => 'DIRECT_SQL', 'source_id' => (string) str()->uuid(),
+                'event_type' => 'REVERSE_PAYOUT', 'source_version' => 1,
+                'payload_hash' => str_repeat('a', 64), 'occurred_at' => now(),
+                'reversal_of_transaction_id' => $original->id, 'reason' => 'Attempt', 'created_at' => now(),
+            ]));
+            $this->fail('Direct SQL reversed a completed payout.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('FINANCIAL_SOURCE_REQUIRES_CONTROLLED_CORRECTION', $exception->getMessage());
+        }
+        $this->assertSame($count, FinancialTransaction::count());
+        $this->assertSame(0, FinancialTransaction::where('reversal_of_transaction_id', $original->id)->count());
+        $this->assertDatabaseHas('captain_receivable_payouts', ['id' => $payout->id]);
+        $this->assertDatabaseCount('captain_receivable_payout_allocations', 1);
+        $this->assertSame($before, $balances->captainBranchBalance(
+            $captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+    }
+
+    public function test_direct_sql_hidden_deposit_entry_cannot_join_a_receivable_payout(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $source = app(FinancialBalanceQueryService::class)
+            ->payableReceivableEntries($captain, $c['branch'], $c['currency'])->first();
+        $accounts = app(FinancialAccountService::class);
+        $owner = $accounts->ownerForCaptain($captain);
+        $receivable = $accounts->getOrCreate($owner, $c['currency'], FinancialAccountKind::CaptainCompanyReceivable);
+        $deposit = $accounts->getOrCreate($owner, $c['currency'], FinancialAccountKind::CaptainDeposit);
+        $before = FinancialTransaction::count();
+        try {
+            DB::transaction(function () use ($c, $captain, $source, $receivable, $deposit): void {
+                $occurredAt = now()->startOfSecond();
+                $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                    'captain_id' => $captain->id, 'branch_id' => $c['branch']->id,
+                    'currency_id' => $c['currency']->id, 'paid_by' => $c['employee']->id,
+                    'request_key' => (string) str()->uuid(), 'amount' => '5', 'occurred_at' => $occurredAt,
+                    'evidence_path' => 'private/proof.png', 'evidence_name' => 'proof.png',
+                    'evidence_mime' => 'image/png', 'evidence_size' => 100,
+                    'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+                ]);
+                DB::table('captain_receivable_payout_allocations')->insert([
+                    'captain_receivable_payout_id' => $payoutId,
+                    'financial_entry_id' => $source->financial_entry_id, 'amount' => '5', 'created_at' => now(),
+                ]);
+                $id = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT', 'currency_id' => $c['currency']->id,
+                    'branch_id' => $c['branch']->id, 'source_type' => 'CAPTAIN_RECEIVABLE_PAYOUT',
+                    'source_id' => (string) $payoutId, 'event_type' => 'CAPTAIN_RECEIVABLE_PAID',
+                    'source_version' => 1, 'payload_hash' => str_repeat('b', 64),
+                    'occurred_at' => $occurredAt, 'created_at' => now(),
+                ]);
+                foreach ([[$receivable->id, 'DECREASE', '5'], [$deposit->id, 'INCREASE', '5']] as [$accountId, $direction, $amount]) {
+                    DB::table('financial_entries')->insert([
+                        'financial_transaction_id' => $id, 'financial_account_id' => $accountId,
+                        'currency_id' => $c['currency']->id, 'direction' => $direction,
+                        'amount' => $amount, 'created_at' => now(),
+                    ]);
+                }
+                DB::table('financial_transactions')->where('id', $id)->update(['status' => 'POSTED', 'posted_at' => now()]);
+                DB::statement('SET CONSTRAINTS captain_receivable_payout_complete, captain_financial_event_complete, captain_financial_entry_complete IMMEDIATE');
+            });
+            $this->fail('The hidden Deposit entry committed.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('wrong account, direction, or exact amount', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('captain_receivable_payouts', 0);
+        $this->assertSame($before, FinancialTransaction::count());
+    }
+
+    public function test_attributed_payout_reduces_only_selected_final_receivable_and_blocks_reversal(): void
+    {
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $balances = app(FinancialBalanceQueryService::class);
+        $sources = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency']);
+        $this->assertCount(2, $sources);
+        $first = $sources->first();
+        $before = $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable);
+        $key = (string) str()->uuid();
+        $data = ['request_key' => $key, 'amount' => '10.00',
+            'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP'), 'reference' => 'Bank receipt'];
+        $allocations = [['financial_entry_id' => $first->financial_entry_id, 'amount' => '10.00']];
+        $image = fn () => UploadedFile::fake()->createWithContent('payout.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+        $service = app(CaptainReceivablePayoutService::class);
+        $payout = $service->record($c['employee'], $captain, $c['branch'], $c['currency'], $data, $allocations, $image());
+        $this->assertSame($payout->id, $service->record($c['employee'], $captain, $c['branch'], $c['currency'], $data, $allocations, $image())->id);
+        $this->assertThrows(fn () => $service->record($c['employee'], $captain, $c['branch'], $c['currency'],
+            array_replace($data, ['amount' => '11.00']), $allocations, $image()), FinancialIdempotencyConflictException::class);
+        $this->assertThrows(fn () => $service->record($c['employee'], $captain, $c['branch'], $c['currency'],
+            $data, [['financial_entry_id' => $sources->last()->financial_entry_id, 'amount' => '10.00']], $image()),
+            FinancialIdempotencyConflictException::class);
+        $this->assertSame(1, $payout->allocations()->count());
+        $this->assertSame((string) BigDecimal::of($before)->minus('10')->toScale(4),
+            $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertSame('10.0000', $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])
+            ->firstWhere('financial_entry_id', $first->financial_entry_id)->paid_amount);
+        $original = FinancialTransaction::findOrFail($first->financial_transaction_id);
+        $this->assertThrows(fn () => app(FinancialPostingService::class)->reverse($original, 'TEST', str()->uuid(),
+            'REVERSE_PAID', 1, now(), 'Should fail'), FinancialIdempotencyConflictException::class);
+        $this->assertThrows(fn () => DB::transaction(fn () => DB::table('captain_receivable_payout_allocations')
+            ->where('captain_receivable_payout_id', $payout->id)->update(['amount' => '1'])), QueryException::class);
+        $this->actingAs($c['employee'])->get(route('captains.financials.payouts.evidence', [$captain, $payout]))->assertOk();
+        $this->actingAs($captain->user)->get(route('captains.financials.payouts.evidence', [$captain, $payout]))->assertForbidden();
+    }
+
+    public function test_postgresql_rejects_unallocated_and_overallocated_direct_payouts(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $source = app(FinancialBalanceQueryService::class)->payableReceivableEntries($c['captains'][0], $c['branch'], $c['currency'])->first();
+        $accountId = DB::table('financial_entries')->where('id', $source->financial_entry_id)->value('financial_account_id');
+
+        foreach ([[], [['financial_entry_id' => $source->financial_entry_id, 'amount' => '26.00']]] as $allocations) {
+            $this->assertThrows(fn () => DB::transaction(function () use ($c, $accountId, $allocations): void {
+                $occurredAt = now()->startOfSecond();
+                $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                    'captain_id' => $c['captains'][0]->id, 'branch_id' => $c['branch']->id,
+                    'currency_id' => $c['currency']->id, 'paid_by' => $c['employee']->id,
+                    'request_key' => (string) str()->uuid(), 'amount' => '26.00',
+                    'occurred_at' => $occurredAt, 'evidence_path' => 'private/proof.png',
+                    'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png',
+                    'evidence_size' => 100, 'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+                ]);
+                foreach ($allocations as $allocation) {
+                    DB::table('captain_receivable_payout_allocations')->insert($allocation + [
+                        'captain_receivable_payout_id' => $payoutId, 'created_at' => now(),
+                    ]);
+                }
+                $transactionId = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT',
+                    'currency_id' => $c['currency']->id, 'branch_id' => $c['branch']->id,
+                    'source_type' => 'CAPTAIN_RECEIVABLE_PAYOUT', 'source_id' => (string) $payoutId,
+                    'event_type' => 'CAPTAIN_RECEIVABLE_PAID', 'source_version' => 1,
+                    'payload_hash' => str_repeat('a', 64), 'occurred_at' => $occurredAt, 'created_at' => now(),
+                ]);
+                DB::table('financial_entries')->insert([
+                    'financial_transaction_id' => $transactionId, 'financial_account_id' => $accountId,
+                    'currency_id' => $c['currency']->id, 'direction' => 'DECREASE',
+                    'amount' => '26.00', 'created_at' => now(),
+                ]);
+                DB::table('financial_transactions')->where('id', $transactionId)->update(['status' => 'POSTED', 'posted_at' => now()]);
+                DB::statement('SET CONSTRAINTS captain_receivable_payout_complete, captain_financial_event_complete, captain_financial_entry_complete IMMEDIATE');
+            }), QueryException::class);
+        }
+        $this->assertDatabaseCount('captain_receivable_payouts', 0);
+        $this->assertThrows(fn () => DB::transaction(function () use ($c, $source): void {
+            $payoutId = DB::table('captain_receivable_payouts')->insertGetId([
+                'captain_id' => $c['captains'][0]->id, 'branch_id' => $c['branch']->id,
+                'currency_id' => $c['currency']->id, 'paid_by' => $c['employee']->id,
+                'request_key' => (string) str()->uuid(), 'amount' => '1', 'occurred_at' => now(),
+                'evidence_path' => 'private/proof.png', 'evidence_name' => 'proof.png',
+                'evidence_mime' => 'image/png', 'evidence_size' => 100,
+                'evidence_sha256' => str_repeat('a', 64), 'created_at' => now(),
+            ]);
+            DB::table('captain_receivable_payout_allocations')->insert([
+                'captain_receivable_payout_id' => $payoutId,
+                'financial_entry_id' => $source->financial_entry_id,
+                'amount' => '0.001', 'created_at' => now(),
+            ]);
+        }), QueryException::class);
+    }
+
+    public function test_payout_fails_closed_when_branch_receivable_includes_unattributed_history(): void
+    {
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $source = app(FinancialBalanceQueryService::class)->payableReceivableEntries($captain, $c['branch'], $c['currency'])->first();
+        $accounts = app(FinancialAccountService::class);
+        $receivable = $accounts->getOrCreate($accounts->ownerForCaptain($captain), $c['currency'], FinancialAccountKind::CaptainCompanyReceivable);
+        app(FinancialPostingService::class)->postEvent($c['currency'], 'TEST_LEGACY', str()->uuid(), 'UNRESOLVED_RECEIVABLE', 1,
+            now(), [['account' => $receivable, 'direction' => FinancialEntryDirection::Increase, 'amount' => '2']], $c['branch']);
+        $before = DB::table('financial_transactions')->count();
+        $this->assertThrows(fn () => app(CaptainReceivablePayoutService::class)->record(
+            $c['employee'], $captain, $c['branch'], $c['currency'],
+            ['request_key' => (string) str()->uuid(), 'amount' => '5',
+                'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP')],
+            [['financial_entry_id' => $source->financial_entry_id, 'amount' => '5']],
+            UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')),
+        ), FinancialIdempotencyConflictException::class);
+        $this->assertSame($before, DB::table('financial_transactions')->count());
+        $this->assertDatabaseCount('captain_receivable_payouts', 0);
+    }
+
+    public function test_one_payout_spans_two_exact_sources_and_later_payout_partially_settles_one_again(): void
+    {
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $balances = app(FinancialBalanceQueryService::class);
+        $sources = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])->keyBy('event_type');
+        $product = $sources->get(FinancialEventType::OrderShamCashProductReimbursementDue->value);
+        $delivery = $sources->get(FinancialEventType::OrderShamCashDeliveryEntitlementDue->value);
+        $service = app(CaptainReceivablePayoutService::class);
+        $image = fn () => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+        $data = fn (string $amount): array => ['request_key' => (string) str()->uuid(), 'amount' => $amount,
+            'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP')];
+        $first = $service->record($c['employee'], $captain, $c['branch'], $c['currency'], $data('12'), [
+            ['financial_entry_id' => $product->financial_entry_id, 'amount' => '10'],
+            ['financial_entry_id' => $delivery->financial_entry_id, 'amount' => '2'],
+        ], $image());
+        $second = $service->record($c['employee'], $captain, $c['branch'], $c['currency'], $data('5'), [
+            ['financial_entry_id' => $product->financial_entry_id, 'amount' => '5'],
+        ], $image());
+        $this->assertSame(2, $first->allocations()->count());
+        $this->assertSame(1, $second->allocations()->count());
+        $remaining = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])->keyBy('financial_entry_id');
+        $this->assertSame('15.0000', $remaining->get($product->financial_entry_id)->paid_amount);
+        $this->assertSame('2.0000', $remaining->get($delivery->financial_entry_id)->paid_amount);
+        $this->assertSame('11.2500', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainDeposit));
+        $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCashCustody));
+    }
+
+    public function test_reversed_receivable_is_not_payable_and_full_remaining_source_can_be_settled(): void
+    {
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $captain = $c['captains'][0];
+        $balances = app(FinancialBalanceQueryService::class);
+        $sources = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])->keyBy('event_type');
+        $product = $sources->get(FinancialEventType::OrderShamCashProductReimbursementDue->value);
+        $delivery = $sources->get(FinancialEventType::OrderShamCashDeliveryEntitlementDue->value);
+        app(FinancialPostingService::class)->reverse(FinancialTransaction::findOrFail($product->financial_transaction_id),
+            'TEST_CORRECTION', (string) str()->uuid(), 'REVERSE_UNPAID_SOURCE', 1, now(), 'Verified source correction');
+        $this->assertSame('3.2500', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertNull($balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])
+            ->firstWhere('financial_entry_id', $product->financial_entry_id));
+        $service = app(CaptainReceivablePayoutService::class);
+        $image = fn () => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+        $data = fn (string $amount): array => ['request_key' => (string) str()->uuid(), 'amount' => $amount,
+            'occurred_at' => now()->subMinute()->format('Y-m-d H:i:s.uP')];
+        $this->assertThrows(fn () => $service->record($c['employee'], $captain, $c['branch'], $c['currency'],
+            $data('4'), [['financial_entry_id' => $delivery->financial_entry_id, 'amount' => '4']], $image()), ValidationException::class);
+        $this->assertThrows(fn () => $service->record($c['employee'], $captain, $c['branch'], $c['currency'],
+            $data('1'), [['financial_entry_id' => $product->financial_entry_id, 'amount' => '1']], $image()), ValidationException::class);
+        $payout = $service->record($c['employee'], $captain, $c['branch'], $c['currency'],
+            $data('3.25'), [['financial_entry_id' => $delivery->financial_entry_id, 'amount' => '3.25']], $image());
+        $this->assertSame('3.2500', $payout->amount);
+        $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+    }
 
     public function test_cash_waits_for_delivery_then_debits_primary_deposit_without_custody(): void
     {

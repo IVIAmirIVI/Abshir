@@ -31,6 +31,9 @@
                     @can('captains.view')
                         <x-nav-link :href="route('captains.index')" :active="request()->routeIs('captains.*')">Captains</x-nav-link>
                     @endcan
+                    @can('captain_financials.view')
+                        <x-nav-link :href="route('captain-financials.index')" :active="request()->routeIs('captain-financials.*')">Captain financials</x-nav-link>
+                    @endcan
                     @can('captain_groups.view')
                         <x-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-nav-link>
                     @endcan
@@ -143,6 +146,9 @@
             @endcan
             @can('captains.view')
                 <x-responsive-nav-link :href="route('captains.index')" :active="request()->routeIs('captains.*')">Captains</x-responsive-nav-link>
+            @endcan
+            @can('captain_financials.view')
+                <x-responsive-nav-link :href="route('captain-financials.index')" :active="request()->routeIs('captain-financials.*')">Captain financials</x-responsive-nav-link>
             @endcan
             @can('captain_groups.view')
                 <x-responsive-nav-link :href="route('captain-groups.index')" :active="request()->routeIs('captain-groups.*')">Captain groups</x-responsive-nav-link>

@@ -45,6 +45,10 @@ class AuthorizationSeeder extends Seeder
                 'invoice_collections' => ['view', 'create', 'sham_cash.view'],
                 'system_settings' => ['view', 'update'],
                 'company_financials' => ['view'],
+                'captain_financials' => ['view'],
+                'captain_deposits' => ['view', 'create'],
+                'captain_receivable_payouts' => ['view', 'create'],
+                'captain_financial_evidence' => ['download'],
                 'bill_payments' => ['record', 'view'],
                 'bill_payment_fees' => ['manage'],
             ];
@@ -110,6 +114,12 @@ class AuthorizationSeeder extends Seeder
                         'invoice_collections.create',
                         'bill_payments.record',
                         'bill_payments.view',
+                        'captain_financials.view',
+                        'captain_deposits.view',
+                        'captain_deposits.create',
+                        'captain_receivable_payouts.view',
+                        'captain_receivable_payouts.create',
+                        'captain_financial_evidence.download',
                     ])->pluck('id'));
                 }
             }

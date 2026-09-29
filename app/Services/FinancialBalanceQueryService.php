@@ -66,16 +66,24 @@ class FinancialBalanceQueryService
     }
 
     /** @return array<int, array<string, string>> Branch ID => account-kind balances. */
-    public function captainBalancesByBranch(Captain $captain, Currency $currency): array
+    /** @param array<int, int>|null $branchIds Null permits all Branches for an authorized Super Admin. */
+    public function captainBalancesByBranch(Captain $captain, Currency $currency, ?array $branchIds = null): array
     {
-        $rows = DB::table('financial_entries as e')
+        if ($branchIds === []) {
+            return [];
+        }
+        $query = DB::table('financial_entries as e')
             ->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
             ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
             ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
             ->where('o.owner_type', FinancialOwnerType::Captain->value)
             ->where('o.captain_id', $captain->id)
             ->where('a.currency_id', $currency->id)
-            ->whereNotNull('t.branch_id')
+            ->whereNotNull('t.branch_id');
+        if ($branchIds !== null) {
+            $query->whereIn('t.branch_id', $branchIds);
+        }
+        $rows = $query
             ->groupBy('t.branch_id', 'a.account_kind')
             ->selectRaw('t.branch_id, a.account_kind, SUM(CASE WHEN e.direction = ? THEN e.amount ELSE -e.amount END) AS balance', [FinancialEntryDirection::Increase->value])
             ->get();
@@ -98,5 +106,33 @@ class FinancialBalanceQueryService
             ->latest('id')
             ->limit(max(1, min($limit, 100)))
             ->get();
+    }
+
+    /** @return Collection<int, object> Exact, attributable and unreversed Receivable increases. */
+    public function payableReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
+    {
+        return DB::table('financial_entries as e')
+            ->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
+            ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
+            ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
+            ->leftJoin('captain_receivable_payout_allocations as p', 'p.financial_entry_id', '=', 'e.id')
+            ->where('o.owner_type', FinancialOwnerType::Captain->value)
+            ->where('o.captain_id', $captain->id)
+            ->where('a.currency_id', $currency->id)
+            ->where('a.account_kind', FinancialAccountKind::CaptainCompanyReceivable->value)
+            ->where('t.branch_id', $branch->id)
+            ->where('t.transaction_kind', 'EVENT')->where('t.status', 'POSTED')
+            ->where('e.direction', FinancialEntryDirection::Increase->value)
+            ->whereIn('t.event_type', [
+                'ORDER_CASH_DELIVERY_SHORTFALL_DUE',
+                'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE',
+                'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE',
+            ])
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('financial_transactions as r')
+                ->whereColumn('r.reversal_of_transaction_id', 't.id'))
+            ->groupBy('e.id', 't.id')
+            ->selectRaw("e.id AS financial_entry_id, t.id AS financial_transaction_id, t.event_type, t.source_type, t.source_id, t.occurred_at, e.amount, COALESCE(SUM(p.amount), 0) AS paid_amount, e.amount - COALESCE(SUM(p.amount), 0) AS remaining_amount, (SELECT o.order_number FROM invoice_collections ic JOIN orders o ON o.id = ic.order_id WHERE t.source_type = 'INVOICE_COLLECTION' AND ic.id::text = t.source_id LIMIT 1) AS order_number")
+            ->havingRaw('e.amount - COALESCE(SUM(p.amount), 0) > 0')
+            ->orderBy('t.occurred_at')->orderBy('e.id')->get();
     }
 }
