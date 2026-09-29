@@ -32,6 +32,7 @@ use App\Services\DeliveryPricingSettings;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderBillPaymentService;
+use App\Services\OrderCancellationIntentService;
 use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
@@ -50,6 +51,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -392,6 +394,14 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertNotNull($collection->collected_at);
         $this->assertTrue($c['order']->isFinanciallyComplete());
         $this->assertDatabaseCount('financial_transactions', 0);
+        try {
+            app(OrderCancellationIntentService::class)->create($c['employee'], $c['order'],
+                OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+            $this->fail('A collected Invoice allowed cancellation intent.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('FINANCIAL_CORRECTION_REQUIRED', $exception->errors()['order'][0]);
+        }
+        $this->assertDatabaseMissing('order_cancellation_intents', ['order_id' => $c['order']->id]);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
     }
 

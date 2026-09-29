@@ -237,41 +237,20 @@ class Phase85OrderExceptionsTest extends TestCase
         $this->actingAs($other['actor'])->post(route('orders.shops.receipts.store', [$other['order'], $otherShop]), ['receipt' => UploadedFile::fake()->create('fake.jpg', 1, 'text/plain')])->assertSessionHasErrors('receipt');
     }
 
-    public function test_cancellation_is_immutable_blocks_normal_mutation_and_allows_after_purchase_evidence(): void
+    public function test_legacy_pickup_without_purchase_confirmation_cannot_be_cancelled_as_after_purchase(): void
     {
         Storage::fake('order_receipts');
         $context = $this->context();
         $shop = app(OrderShopService::class)->add($context['actor'], $context['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Purchased Shop']);
         app(OrderShopProgressService::class)->record($context['actor'], $context['order'], $shop, 'picked_up_at');
-        $draft = app(InvoiceService::class)->createDraft($context['actor'], $context['order']);
-        $cancellation = app(OrderCancellationService::class)->cancel($context['actor'], $context['order'], OrderCancellationClassification::AfterPurchase, OrderCancellationReason::CustomerCancelled, 'Customer changed mind');
-        $this->assertTrue($cancellation->requiresFinancialResolution());
-        $this->assertSame(OrderOperationalStatus::Cancelled, $context['order']->fresh()->operational_status);
-        $this->assertDatabaseHas('order_status_history', ['order_id' => $context['order']->id, 'new_status' => 'CANCELLED']);
-
-        $receipt = app(OrderShopReceiptService::class)->upload($context['actor'], $context['order']->fresh(), $shop, UploadedFile::fake()->createWithContent('late.png', base64_decode(self::PNG)), 'Late evidence');
-        Storage::disk('order_receipts')->assertExists($receipt->storage_path);
         try {
-            app(OrderShopService::class)->add($context['actor'], $context['order']->fresh(), ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Forbidden']);
-            $this->fail('Cancelled Order accepted a normal mutation.');
+            app(OrderCancellationService::class)->cancel($context['actor'], $context['order'], OrderCancellationClassification::AfterPurchase, OrderCancellationReason::CustomerCancelled, 'Customer changed mind');
+            $this->fail('Legacy pickup was cancelled without authoritative purchase and return.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('order', $exception->errors());
+            $this->assertArrayHasKey('classification', $exception->errors());
         }
-        try {
-            app(OrderShopProgressService::class)->record($context['actor'], $context['order']->fresh(), $shop, 'ready_at');
-            $this->fail('Cancelled Order accepted a progress mutation.');
-        } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('order', $exception->errors());
-        }
-        try {
-            app(InvoiceService::class)->issue($context['actor'], $context['order']->fresh(), $draft);
-            $this->fail('A cancelled Order Invoice was issued.');
-        } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('invoice', $exception->errors());
-        }
-        $this->assertDatabaseHas('invoices', ['id' => $draft->id, 'status' => 'DRAFT', 'superseded_at' => null]);
-        $this->expectException(ValidationException::class);
-        app(InvoiceService::class)->createDraft($context['actor'], $context['order']->fresh());
+        $this->assertDatabaseMissing('order_cancellations', ['order_id' => $context['order']->id]);
+        $this->assertNotSame(OrderOperationalStatus::Cancelled, $context['order']->fresh()->operational_status);
     }
 
     public function test_before_purchase_conflicts_with_evidence_and_captain_ratings_are_per_participant(): void
@@ -363,7 +342,7 @@ class Phase85OrderExceptionsTest extends TestCase
             app(OrderCancellationService::class)->cancel($context['actor'], $context['order'], OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, null);
             $this->fail('Order with an issued Invoice was cancelled.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('invoice', $exception->errors());
+            $this->assertArrayHasKey('order', $exception->errors());
         }
         $this->assertDatabaseHas('invoices', ['id' => $invoice->id, 'status' => 'ISSUED', 'superseded_at' => null]);
         $this->assertDatabaseMissing('order_cancellations', ['order_id' => $context['order']->id]);

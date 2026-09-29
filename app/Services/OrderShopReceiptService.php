@@ -42,7 +42,7 @@ class OrderShopReceiptService
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $order->load('cancellation');
             if ($order->operational_status === OrderOperationalStatus::Cancelled) {
-                if ($order->cancellation?->classification !== OrderCancellationClassification::AfterPurchase) {
+                if ($order->cancellationIntent()->exists() || $order->cancellation?->classification !== OrderCancellationClassification::AfterPurchase) {
                     throw ValidationException::withMessages(['receipt' => 'Receipt evidence may only be added after an AFTER_PURCHASE cancellation.']);
                 }
             } else {

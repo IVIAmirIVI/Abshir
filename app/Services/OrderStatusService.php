@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderStatusService
 {
-    public function __construct(private readonly CorrectedOrderFinancialService $financials) {}
+    public function __construct(private readonly CorrectedOrderFinancialService $financials, private readonly OrderMutationGuard $mutationGuard) {}
 
     public function transition(User $actor, Order $order, OrderOperationalStatus $target, ?string $reason): void
     {
@@ -19,6 +19,7 @@ class OrderStatusService
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
         DB::transaction(function () use ($actor, $order, $target, $reason): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertNoCancellationIntentLocked($order);
             $previous = $order->operational_status;
             if ($previous->next() !== $target) {
                 throw ValidationException::withMessages(['operational_status' => 'This operational status transition is not allowed.']);

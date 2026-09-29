@@ -60,6 +60,13 @@ return [
             'throw' => true,
         ],
 
+        'order_returns' => [
+            'driver' => 'local',
+            'root' => storage_path('app/order-returns-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

@@ -6,6 +6,7 @@ use App\Enums\CaptainOperationalStatus;
 use App\Enums\FinancialAccountKind;
 use App\Enums\FinancialEntryDirection;
 use App\Enums\FinancialEventType;
+use App\Enums\OrderCancellationReason;
 use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderShopType;
 use App\Models\Branch;
@@ -22,6 +23,7 @@ use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
 use App\Services\FinancialBalanceQueryService;
 use App\Services\OrderBillPaymentService;
+use App\Services\OrderCancellationIntentService;
 use App\Services\OrderStatusService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
@@ -29,6 +31,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -55,6 +58,14 @@ class OrderBillPaymentTest extends TestCase
         $this->assertSame('DELIVERED', $c['order']->fresh()->operational_status->value);
 
         $payment = app(OrderBillPaymentService::class)->complete($c['employee'], $c['order'], $request, $this->paymentData($c), [$this->image()]);
+        try {
+            app(OrderCancellationIntentService::class)->create($c['employee'], $c['order'],
+                OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+            $this->fail('Completed bill-payment history allowed cancellation intent.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('FINANCIAL_CORRECTION_REQUIRED', $exception->errors()['order'][0]);
+        }
+        $this->assertDatabaseMissing('order_cancellation_intents', ['order_id' => $c['order']->id]);
         $handoverFacts = DB::selectOne(<<<'SQL'
 SELECT t.occurred_at::text AS event_time, h.occurred_at::text AS handover_time,
        t.branch_id AS event_branch, o.branch_id AS order_branch,

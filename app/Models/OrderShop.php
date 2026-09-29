@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['order_id', 'shop_type', 'business_classification_snapshot', 'shop_id', 'shop_name_snapshot', 'shop_phone_snapshot', 'shop_address_snapshot', 'area_name_snapshot', 'notes', 'sort_order', 'contacted_at', 'confirmed_at', 'ready_at', 'picked_up_at'])]
 class OrderShop extends Model
@@ -35,5 +36,15 @@ class OrderShop extends Model
     public function receipts(): HasMany
     {
         return $this->hasMany(OrderShopReceipt::class)->orderBy('uploaded_at')->orderBy('id');
+    }
+
+    public function purchaseConfirmation(): HasOne
+    {
+        return $this->hasOne(OrderShopPurchaseConfirmation::class);
+    }
+
+    public function shopReturn(): HasOne
+    {
+        return $this->hasOne(OrderShopReturn::class);
     }
 }

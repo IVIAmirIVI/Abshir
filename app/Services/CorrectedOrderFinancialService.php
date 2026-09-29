@@ -22,6 +22,7 @@ use App\Models\Order;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CorrectedOrderFinancialService
 {
@@ -48,6 +49,9 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
+                throw new FinancialLedgerException('Order financial posting is blocked by an AFTER_PURCHASE cancellation intent.');
+            }
             $assessment = $this->assessLocked($order, false);
             if (str_starts_with($assessment['state'], 'waiting_') || $assessment['state'] === 'complete') {
                 return [];

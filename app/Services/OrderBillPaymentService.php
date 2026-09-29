@@ -18,6 +18,7 @@ use Brick\Math\BigDecimal;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -43,6 +44,9 @@ class OrderBillPaymentService
 
         return DB::transaction(function () use ($actor, $order, $currencyId): OrderBillPaymentRequest {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
+                throw ValidationException::withMessages(['order' => 'Bill payment is blocked by a cancellation intent.']);
+            }
             if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
                 throw ValidationException::withMessages(['order' => 'New additional-service requests require an open Order.']);
             }
@@ -122,6 +126,9 @@ class OrderBillPaymentService
             return DB::transaction(function () use ($actor, $order, $request, $data, $images, $extensions, $mimes, $digests, &$storedPaths): OrderBillPayment {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
+                if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
+                    throw ValidationException::withMessages(['order' => 'Bill payment is blocked by a cancellation intent.']);
+                }
                 if ($request->status !== OrderBillPaymentRequestStatus::Requested) {
                     throw ValidationException::withMessages(['request' => 'This bill-payment request has already been resolved.']);
                 }

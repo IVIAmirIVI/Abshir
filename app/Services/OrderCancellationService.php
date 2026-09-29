@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\InvoiceStatus;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderOperationalStatus;
@@ -15,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderCancellationService
 {
+    public function __construct(private readonly OrderCancellationSafetyService $safety) {}
+
     public function cancel(User $actor, Order $order, OrderCancellationClassification $classification, OrderCancellationReason $reason, ?string $notes): OrderCancellation
     {
         Gate::forUser($actor)->authorize('orders.cancel');
@@ -25,15 +26,14 @@ class OrderCancellationService
             if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
                 throw ValidationException::withMessages(['order' => 'Delivered or already cancelled Orders cannot be cancelled.']);
             }
-            if ($order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->lockForUpdate()->first() || $order->invoices()->whereHas('collection')->lockForUpdate()->first()) {
-                throw ValidationException::withMessages(['invoice' => 'An issued or collected Invoice requires a future reversal workflow before cancellation.']);
+            if ($classification !== OrderCancellationClassification::BeforePurchase) {
+                throw ValidationException::withMessages(['classification' => 'AFTER_PURCHASE requires cancellation intent and completed Shop returns.']);
             }
+            $this->safety->assertNoIntentLocked($order);
+            $this->safety->assertNoFinancialCorrectionRequiredLocked($order);
             $hasPurchaseEvidence = $order->shops()->whereNotNull('picked_up_at')->exists() || $order->shops()->whereHas('receipts')->exists();
-            if ($classification === OrderCancellationClassification::BeforePurchase && $hasPurchaseEvidence) {
+            if ($hasPurchaseEvidence || $order->purchaseConfirmations()->exists()) {
                 throw ValidationException::withMessages(['classification' => 'BEFORE_PURCHASE conflicts with existing pickup or receipt evidence.']);
-            }
-            if ($classification === OrderCancellationClassification::AfterPurchase && ! $hasPurchaseEvidence) {
-                throw ValidationException::withMessages(['classification' => 'AFTER_PURCHASE requires pickup or receipt evidence.']);
             }
             $previous = $order->operational_status;
             $cancellation = $order->cancellation()->create(['classification' => $classification, 'reason' => $reason, 'notes' => $notes, 'cancelled_by' => $actor->id, 'cancelled_at' => now()]);

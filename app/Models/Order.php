@@ -96,6 +96,21 @@ class Order extends Model
         return $this->hasOne(OrderCancellation::class);
     }
 
+    public function cancellationIntent(): HasOne
+    {
+        return $this->hasOne(OrderCancellationIntent::class);
+    }
+
+    public function purchaseConfirmations(): HasMany
+    {
+        return $this->hasMany(OrderShopPurchaseConfirmation::class);
+    }
+
+    public function shopReturns(): HasMany
+    {
+        return $this->hasMany(OrderShopReturn::class);
+    }
+
     public function captainRatings(): HasMany
     {
         return $this->hasMany(CaptainRating::class);

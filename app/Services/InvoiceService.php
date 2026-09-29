@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -173,7 +174,8 @@ class InvoiceService
 
     private function assertNotCancelled(Order $order): void
     {
-        if ($order->operational_status === OrderOperationalStatus::Cancelled) {
+        if ($order->operational_status === OrderOperationalStatus::Cancelled
+            || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())) {
             throw ValidationException::withMessages(['invoice' => 'Cancelled Orders cannot create, refresh, or issue Invoices.']);
         }
     }

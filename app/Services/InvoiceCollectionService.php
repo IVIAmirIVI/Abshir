@@ -13,6 +13,7 @@ use Brick\Math\BigDecimal;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class InvoiceCollectionService
@@ -26,6 +27,9 @@ class InvoiceCollectionService
 
         return DB::transaction(function () use ($actor, $invoice, $method, $amount, $currencyId, $collectedAt, $notes, $paymentReference): InvoiceCollection {
             $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
+            if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
+                throw ValidationException::withMessages(['order' => 'Collection is blocked by an AFTER_PURCHASE cancellation intent.']);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Collection requires the current ISSUED Invoice.']);

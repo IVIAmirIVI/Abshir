@@ -7,6 +7,7 @@ use App\Models\FinancialTransaction;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class CurrencyService
@@ -21,9 +22,11 @@ class CurrencyService
                 $currency = Currency::query()->lockForUpdate()->findOrFail($currency->id);
                 if (array_key_exists('decimal_places', $data)
                     && (int) $data['decimal_places'] !== (int) $currency->decimal_places
-                    && FinancialTransaction::query()->where('currency_id', $currency->id)->exists()) {
+                    && (FinancialTransaction::query()->where('currency_id', $currency->id)->exists()
+                        || (Schema::hasTable('order_shop_purchase_confirmations')
+                            && DB::table('order_shop_purchase_confirmations')->where('currency_id', $currency->id)->exists()))) {
                     throw ValidationException::withMessages([
-                        'decimal_places' => 'Currency decimal precision cannot change after financial ledger use.',
+                        'decimal_places' => 'Currency decimal precision cannot change after financial ledger or verified Shop purchase use.',
                     ]);
                 }
             }

@@ -10,8 +10,12 @@ use App\Models\OrderShop;
 use App\Models\User;
 use App\Services\CaptainRatingService;
 use App\Services\InvoiceService;
+use App\Services\OrderCancellationFinalizationService;
+use App\Services\OrderCancellationIntentService;
 use App\Services\OrderCancellationService;
+use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
+use App\Services\OrderShopReturnService;
 use App\Services\OrderStatusService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\UploadedFile;
@@ -44,7 +48,18 @@ try {
 
     match ($payload['operation']) {
         'cancel_before' => app(OrderCancellationService::class)->cancel($actor, $order, OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, 'Concurrent cancellation'),
-        'cancel_after' => app(OrderCancellationService::class)->cancel($actor, $order, OrderCancellationClassification::AfterPurchase, OrderCancellationReason::CustomerCancelled, 'Concurrent cancellation'),
+        'cancel_after' => app(OrderCancellationIntentService::class)->create($actor, $order, OrderCancellationReason::CustomerCancelled, 'Concurrent cancellation', $payload['request_key']),
+        'purchase' => app(OrderShopPurchaseConfirmationService::class)->record($actor, $order, OrderShop::findOrFail($payload['order_shop_id']), [
+            'order_captain_id' => $payload['order_captain_id'], 'currency_id' => $payload['currency_id'],
+            'amount' => '10.00', 'purchased_at' => now()->subMinute()->toIso8601String(),
+            'request_key' => $payload['request_key'],
+        ], receiptUpload($temporaryUpload)),
+        'return' => app(OrderShopReturnService::class)->record($actor, $order, OrderShop::findOrFail($payload['order_shop_id']), [
+            'returning_order_captain_id' => $payload['order_captain_id'], 'refund_amount' => '10.00',
+            'returned_at' => now()->subSeconds(2)->toIso8601String(), 'refunded_at' => now()->toIso8601String(),
+            'refund_method' => 'CASH', 'request_key' => $payload['request_key'],
+        ], ['RETURN_AND_REFUND_PROOF' => receiptUpload($temporaryUpload)]),
+        'finalize' => app(OrderCancellationFinalizationService::class)->finalize($actor, $order),
         'deliver' => app(OrderStatusService::class)->transition($actor, $order, OrderOperationalStatus::Delivered, 'Concurrent delivery'),
         'issue' => app(InvoiceService::class)->issue($actor, $order, Invoice::query()->findOrFail($payload['invoice_id'])),
         'receipt' => app(OrderShopReceiptService::class)->upload($actor, $order, OrderShop::query()->findOrFail($payload['order_shop_id']), receiptUpload($temporaryUpload), 'Concurrent receipt'),

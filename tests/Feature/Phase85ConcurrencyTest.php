@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\ActualPriceSource;
 use App\Enums\CaptainOperationalStatus;
 use App\Enums\InvoiceStatus;
+use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderItemType;
 use App\Enums\OrderOperationalStatus;
@@ -21,15 +22,19 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
+use App\Models\OrderShopPurchaseConfirmation;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\InvoiceService;
+use App\Services\OrderCancellationFinalizationService;
+use App\Services\OrderCancellationIntentService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -64,28 +69,31 @@ class Phase85ConcurrencyTest extends TestCase
     public function test_real_cancellation_and_delivery_services_cannot_both_finalize_the_order(): void
     {
         $this->requirePostgresConcurrency();
-        $fixture = $this->fixture();
-        $shop = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Purchased', 'sort_order' => 1, 'picked_up_at' => now()]);
-        $receiptId = DB::table('order_shop_receipts')->insertGetId(['order_shop_id' => $shop->id, 'storage_path' => 'concurrency/'.$fixture['order']->id.'/receipt.png', 'original_filename' => 'receipt.png', 'mime_type' => 'image/png', 'file_size' => 68, 'uploaded_by' => $fixture['actor']->id, 'uploaded_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
-        $fixture['order']->forceFill(['operational_status' => OrderOperationalStatus::HeadingToCustomer])->save();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $shop = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Purchased', 'sort_order' => 1, 'picked_up_at' => now()]);
+            DB::table('order_shop_receipts')->insert(['order_shop_id' => $shop->id, 'storage_path' => 'concurrency/'.$fixture['order']->id.'/receipt.png', 'original_filename' => 'receipt.png', 'mime_type' => 'image/png', 'file_size' => 68, 'uploaded_by' => $fixture['actor']->id, 'uploaded_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            $currency = Currency::create(['name' => 'Purchase currency', 'code' => 'PCR', 'decimal_places' => 2]);
+            $captain = $this->captain($fixture['branch']);
+            $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+            OrderShopPurchaseConfirmation::create(['order_id' => $fixture['order']->id, 'order_shop_id' => $shop->id,
+                'order_captain_id' => $assignment->id, 'branch_id' => $fixture['branch']->id, 'currency_id' => $currency->id,
+                'amount' => '10.00', 'purchased_at' => now()->subMinute(), 'recorded_by' => $fixture['actor']->id,
+                'request_key' => (string) Str::uuid(), 'evidence_path' => 'test/purchase.png', 'evidence_name' => 'purchase.png',
+                'evidence_mime' => 'image/png', 'evidence_size' => 68, 'evidence_sha256' => str_repeat('a', 64)]);
+            $fixture['order']->forceFill(['operational_status' => OrderOperationalStatus::HeadingToCustomer])->save();
 
-        try {
             $results = $this->raceServices($fixture['order'], [
-                ['operation' => 'cancel_after', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id],
+                ['operation' => 'cancel_after', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id, 'request_key' => (string) Str::uuid()],
                 ['operation' => 'deliver', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id],
             ]);
 
             $this->assertOneSuccessAndOneValidation($results);
             $status = $fixture['order']->fresh()->operational_status;
-            $cancelled = DB::table('order_cancellations')->where('order_id', $fixture['order']->id)->exists();
-            $this->assertContains($status, [OrderOperationalStatus::Cancelled, OrderOperationalStatus::Delivered]);
-            $this->assertSame($status === OrderOperationalStatus::Cancelled, $cancelled);
-        } finally {
-            DB::table('order_cancellations')->where('order_id', $fixture['order']->id)->delete();
-            DB::table('order_shop_receipts')->where('id', $receiptId)->delete();
-            DB::table('order_shops')->where('id', $shop->id)->delete();
-            $this->cleanup($fixture);
-        }
+            $intent = DB::table('order_cancellation_intents')->where('order_id', $fixture['order']->id)->exists();
+            $this->assertContains($status, [OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered]);
+            $this->assertSame($status !== OrderOperationalStatus::Delivered, $intent);
+        });
     }
 
     public function test_real_cancellation_and_invoice_issue_services_cannot_both_succeed(): void
@@ -131,6 +139,158 @@ class Phase85ConcurrencyTest extends TestCase
             DB::table('order_shops')->where('id', $shop->id)->delete();
             $this->cleanup($fixture);
         }
+    }
+
+    public function test_purchase_vs_intent_freezes_the_exact_committed_purchase_set(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $currency = Currency::create(['name' => 'Return currency', 'code' => 'RTC', 'decimal_places' => 2]);
+            $captain = $this->captain($fixture['branch']);
+            $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+            $first = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime,
+                'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'First', 'sort_order' => 1]);
+            $second = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime,
+                'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Second', 'sort_order' => 2]);
+            $this->confirmedPurchase($fixture, $first, $assignment->id, $currency->id);
+
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'purchase', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id,
+                    'order_shop_id' => $second->id, 'order_captain_id' => $assignment->id, 'currency_id' => $currency->id,
+                    'request_key' => (string) Str::uuid()],
+                ['operation' => 'cancel_after', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id,
+                    'request_key' => (string) Str::uuid()],
+            ]);
+            $this->assertNotContains('error', array_column($results, 'status'), json_encode($results));
+            $this->assertSame('success', $results[1]['status']);
+            $intent = DB::table('order_cancellation_intents')->where('order_id', $fixture['order']->id)->first();
+            $this->assertNotNull($intent);
+            $purchases = DB::table('order_shop_purchase_confirmations')->where('order_id', $fixture['order']->id)->pluck('id')->sort()->values()->all();
+            $required = DB::table('order_cancellation_intent_shops')->where('order_cancellation_intent_id', $intent->id)
+                ->pluck('purchase_confirmation_id')->sort()->values()->all();
+            $this->assertSame($purchases, $required);
+            $this->assertSame($results[0]['status'] === 'success' ? 2 : 1, count($purchases));
+            foreach (DB::table('order_shop_purchase_confirmations')->where('order_shop_id', $second->id)->pluck('evidence_path') as $path) {
+                Storage::disk('order_returns')->delete($path);
+            }
+        });
+    }
+
+    public function test_duplicate_purchase_confirmation_uses_one_authoritative_source(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $currency = Currency::create(['name' => 'Purchase currency', 'code' => 'PCD', 'decimal_places' => 2]);
+            $captain = $this->captain($fixture['branch']);
+            $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+            $shop = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime,
+                'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'One purchase', 'sort_order' => 1]);
+            $job = fn (): array => ['operation' => 'purchase', 'actor_id' => $fixture['actor']->id,
+                'order_id' => $fixture['order']->id, 'order_shop_id' => $shop->id,
+                'order_captain_id' => $assignment->id, 'currency_id' => $currency->id,
+                'request_key' => (string) Str::uuid()];
+            $results = $this->raceServices($fixture['order'], [$job(), $job()]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $this->assertSame(1, DB::table('order_shop_purchase_confirmations')->where('order_shop_id', $shop->id)->count());
+            foreach (DB::table('order_shop_purchase_confirmations')->where('order_shop_id', $shop->id)->pluck('evidence_path') as $path) {
+                Storage::disk('order_returns')->delete($path);
+            }
+        });
+    }
+
+    public function test_real_after_purchase_intent_and_invoice_issue_cannot_both_succeed(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $assignmentId = $fixture['order']->captainAssignments()->value('id');
+            $this->confirmedPurchase($fixture, $ready['shop'], $assignmentId, $ready['currency']->id);
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'cancel_after', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id,
+                    'request_key' => (string) Str::uuid()],
+                ['operation' => 'issue', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id,
+                    'invoice_id' => $ready['invoice']->id],
+            ]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $intent = DB::table('order_cancellation_intents')->where('order_id', $fixture['order']->id)->exists();
+            $issued = $ready['invoice']->fresh()->status === InvoiceStatus::Issued;
+            $this->assertNotSame($intent, $issued);
+        });
+    }
+
+    public function test_duplicate_return_and_last_return_vs_finalization_use_real_services(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $currency = Currency::create(['name' => 'Return currency', 'code' => 'RTD', 'decimal_places' => 2]);
+            $captain = $this->captain($fixture['branch']);
+            $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+            $shop = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime,
+                'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Purchased', 'sort_order' => 1]);
+            $this->confirmedPurchase($fixture, $shop, $assignment->id, $currency->id);
+            app(OrderCancellationIntentService::class)->create($fixture['actor'], $fixture['order'],
+                OrderCancellationReason::CustomerCancelled, 'Concurrent cancellation', (string) Str::uuid());
+
+            $returnJob = fn (): array => ['operation' => 'return', 'actor_id' => $fixture['actor']->id,
+                'order_id' => $fixture['order']->id, 'order_shop_id' => $shop->id,
+                'order_captain_id' => $assignment->id, 'request_key' => (string) Str::uuid()];
+            $results = $this->raceServices($fixture['order'], [$returnJob(), $returnJob()]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $this->assertSame(1, DB::table('order_shop_returns')->where('order_id', $fixture['order']->id)->count());
+            app(OrderCancellationFinalizationService::class)->finalize($fixture['actor'], $fixture['order']);
+            $this->assertSame(OrderOperationalStatus::Cancelled, $fixture['order']->fresh()->operational_status);
+            $this->deleteReturnEvidence($fixture['order']);
+        });
+
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $currency = Currency::create(['name' => 'Return currency', 'code' => 'RTL', 'decimal_places' => 2]);
+            $captain = $this->captain($fixture['branch']);
+            $assignment = app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
+            $shop = OrderShop::create(['order_id' => $fixture['order']->id, 'shop_type' => OrderShopType::OneTime,
+                'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Purchased', 'sort_order' => 1]);
+            $this->confirmedPurchase($fixture, $shop, $assignment->id, $currency->id);
+            app(OrderCancellationIntentService::class)->create($fixture['actor'], $fixture['order'],
+                OrderCancellationReason::CustomerCancelled, 'Concurrent cancellation', (string) Str::uuid());
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'return', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id,
+                    'order_shop_id' => $shop->id, 'order_captain_id' => $assignment->id, 'request_key' => (string) Str::uuid()],
+                ['operation' => 'finalize', 'actor_id' => $fixture['actor']->id, 'order_id' => $fixture['order']->id],
+            ]);
+            $this->assertSame('success', $results[0]['status'], json_encode($results));
+            $this->assertContains($results[1]['status'], ['success', 'validation'], json_encode($results));
+            $this->assertSame(1, DB::table('order_shop_returns')->where('order_id', $fixture['order']->id)->count());
+            if ($results[1]['status'] === 'validation') {
+                app(OrderCancellationFinalizationService::class)->finalize($fixture['actor'], $fixture['order']);
+            }
+            $this->assertSame(OrderOperationalStatus::Cancelled, $fixture['order']->fresh()->operational_status);
+            $this->deleteReturnEvidence($fixture['order']);
+        });
+    }
+
+    private function deleteReturnEvidence(Order $order): void
+    {
+        foreach (DB::table('order_shop_return_evidence as e')->join('order_shop_returns as r', 'r.id', '=', 'e.order_shop_return_id')
+            ->where('r.order_id', $order->id)->pluck('e.storage_path') as $path) {
+            Storage::disk('order_returns')->delete($path);
+        }
+    }
+
+    private function confirmedPurchase(array $fixture, OrderShop $shop, int $assignmentId, int $currencyId): void
+    {
+        DB::table('order_shop_purchase_confirmations')->insert([
+            'order_id' => $fixture['order']->id, 'order_shop_id' => $shop->id, 'order_captain_id' => $assignmentId,
+            'branch_id' => $fixture['branch']->id, 'currency_id' => $currencyId, 'amount' => '10.00',
+            'purchased_at' => DB::raw("clock_timestamp() - interval '5 minutes'"), 'recorded_by' => $fixture['actor']->id,
+            'request_key' => (string) Str::uuid(), 'evidence_path' => 'test/'.Str::uuid().'.png',
+            'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png', 'evidence_size' => 68,
+            'evidence_sha256' => str_repeat('a', 64), 'created_at' => DB::raw('clock_timestamp()'),
+            'updated_at' => DB::raw('clock_timestamp()'),
+        ]);
     }
 
     private function raceServices(Order $order, array $jobs): array
