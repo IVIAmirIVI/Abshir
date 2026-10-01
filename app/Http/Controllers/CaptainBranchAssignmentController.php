@@ -29,14 +29,14 @@ class CaptainBranchAssignmentController extends Controller
     {
         $service->assignTemporary($request->user(), $captain, $request->validated());
 
-        return redirect()->route('captains.show', $captain)->with('status', 'Temporary assignment created.');
+        return redirect()->route('captains.show', $captain)->with('status', __('captains.flash_temporary_assignment_created'));
     }
 
     public function end(Request $request, Captain $captain, CaptainBranchAssignment $assignment, CaptainBranchService $service): RedirectResponse
     {
         $service->endTemporary($request->user(), $captain, $assignment);
 
-        return back()->with('status', 'Temporary assignment ended; its history was preserved.');
+        return back()->with('status', __('captains.flash_temporary_assignment_ended_its_history_was_preserved'));
     }
 
     public function transferForm(Request $request, Captain $captain): View
@@ -54,7 +54,7 @@ class CaptainBranchAssignmentController extends Controller
     {
         $service->transfer($request->user(), $captain, $request->validated());
 
-        return redirect()->route('captains.show', $captain)->with('status', 'Permanent transfer recorded and home branch updated.');
+        return redirect()->route('captains.show', $captain)->with('status', __('captains.flash_permanent_transfer_recorded_and_home_branch_updated'));
     }
 
     private function authorizeCaptain(Request $request, Captain $captain): void

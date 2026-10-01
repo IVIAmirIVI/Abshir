@@ -28,7 +28,7 @@ class ShopProductController extends Controller
     {
         $service->save($request->user(), $shop, new ShopProduct, $request->validated());
 
-        return redirect()->route('shops.show', $shop)->with('status', 'Shop Product added.');
+        return redirect()->route('shops.show', $shop)->with('status', __('shops.flash_shop_product_added'));
     }
 
     public function edit(Request $request, Shop $shop, ShopProduct $shopProduct): View
@@ -44,7 +44,7 @@ class ShopProductController extends Controller
     {
         $service->save($request->user(), $shop, $shopProduct, $request->validated());
 
-        return redirect()->route('shops.show', $shop)->with('status', 'Shop Product updated.');
+        return redirect()->route('shops.show', $shop)->with('status', __('shops.flash_shop_product_updated'));
     }
 
     public function status(Request $request, Shop $shop, ShopProduct $shopProduct, ShopProductService $service): RedirectResponse
@@ -52,7 +52,7 @@ class ShopProductController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $shop, $shopProduct, (bool) $data['is_active']);
 
-        return back()->with('status', 'Shop Product status updated.');
+        return back()->with('status', __('shops.flash_shop_product_status_updated'));
     }
 
     private function form(Shop $shop, ShopProduct $listing): View

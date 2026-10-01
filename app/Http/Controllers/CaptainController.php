@@ -49,7 +49,7 @@ class CaptainController extends Controller
     {
         $captain = $service->save($request->user(), new Captain, $request->validated());
 
-        return redirect()->route('captains.show', $captain)->with('status', 'Captain profile created.');
+        return redirect()->route('captains.show', $captain)->with('status', __('captains.flash_captain_profile_created'));
     }
 
     public function show(Request $request, Captain $captain, FinancialBalanceQueryService $balances): View
@@ -112,7 +112,7 @@ class CaptainController extends Controller
     {
         $service->save($request->user(), $captain, $request->validated());
 
-        return redirect()->route('captains.show', $captain)->with('status', 'Captain profile updated.');
+        return redirect()->route('captains.show', $captain)->with('status', __('captains.flash_captain_profile_updated'));
     }
 
     private function form(Request $request, Captain $captain): View

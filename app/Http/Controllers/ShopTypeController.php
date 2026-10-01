@@ -30,7 +30,7 @@ class ShopTypeController extends Controller
     {
         $service->save($request->user(), new ShopType, $request->validated());
 
-        return redirect()->route('shop-types.index')->with('status', 'Shop Type created.');
+        return redirect()->route('shop-types.index')->with('status', __('shops.flash_shop_type_created'));
     }
 
     public function edit(ShopType $shopType): View
@@ -44,7 +44,7 @@ class ShopTypeController extends Controller
     {
         $service->save($request->user(), $shopType, $request->validated());
 
-        return redirect()->route('shop-types.index')->with('status', 'Shop Type updated.');
+        return redirect()->route('shop-types.index')->with('status', __('shops.flash_shop_type_updated'));
     }
 
     public function status(Request $request, ShopType $shopType, ShopTypeService $service): RedirectResponse
@@ -52,6 +52,6 @@ class ShopTypeController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $shopType, (bool) $data['is_active']);
 
-        return back()->with('status', 'Shop Type status updated.');
+        return back()->with('status', __('shops.flash_shop_type_status_updated'));
     }
 }

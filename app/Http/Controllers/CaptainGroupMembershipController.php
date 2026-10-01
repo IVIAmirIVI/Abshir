@@ -30,13 +30,13 @@ class CaptainGroupMembershipController extends Controller
         $group = CaptainGroup::findOrFail($request->validated('captain_group_id'));
         $service->join($request->user(), $captain, $group, $request->validated());
 
-        return redirect()->route('captains.show', $captain)->with('status', 'Captain group membership created.');
+        return redirect()->route('captains.show', $captain)->with('status', __('captains.flash_captain_group_membership_created'));
     }
 
     public function end(Request $request, Captain $captain, CaptainGroupMember $membership, CaptainGroupMembershipService $service): RedirectResponse
     {
         $service->end($request->user(), $captain, $membership);
 
-        return back()->with('status', 'Group membership ended; its history was preserved.');
+        return back()->with('status', __('captains.flash_group_membership_ended_its_history_was_preserved'));
     }
 }

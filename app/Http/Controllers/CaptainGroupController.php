@@ -30,7 +30,7 @@ class CaptainGroupController extends Controller
     {
         $service->save($request->user(), new CaptainGroup, $request->validated());
 
-        return redirect()->route('captain-groups.index')->with('status', 'Captain group created.');
+        return redirect()->route('captain-groups.index')->with('status', __('captains.flash_captain_group_created'));
     }
 
     public function edit(CaptainGroup $captainGroup): View
@@ -44,7 +44,7 @@ class CaptainGroupController extends Controller
     {
         $service->save($request->user(), $captainGroup, $request->validated());
 
-        return redirect()->route('captain-groups.index')->with('status', 'Captain group updated.');
+        return redirect()->route('captain-groups.index')->with('status', __('captains.flash_captain_group_updated'));
     }
 
     public function status(Request $request, CaptainGroup $captainGroup, CaptainGroupService $service): RedirectResponse
@@ -52,6 +52,6 @@ class CaptainGroupController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $captainGroup, (bool) $data['is_active']);
 
-        return back()->with('status', 'Captain group status updated.');
+        return back()->with('status', __('captains.flash_captain_group_status_updated'));
     }
 }

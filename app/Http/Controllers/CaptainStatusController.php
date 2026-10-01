@@ -19,6 +19,6 @@ class CaptainStatusController extends Controller
             $request->validated('reason'),
         );
 
-        return back()->with('status', 'Captain operational status updated.');
+        return back()->with('status', __('captains.flash_captain_operational_status_updated'));
     }
 }

@@ -15,13 +15,13 @@ class ShopPartnershipController extends Controller
     {
         $service->start($request->user(), $shop, $request->validated());
 
-        return back()->with('status', 'Shop partnership added.');
+        return back()->with('status', __('shops.flash_shop_partnership_added'));
     }
 
     public function end(Request $request, Shop $shop, ShopPartnership $partnership, ShopPartnershipService $service): RedirectResponse
     {
         $service->end($request->user(), $shop, $partnership);
 
-        return back()->with('status', 'Shop partnership ended.');
+        return back()->with('status', __('shops.flash_shop_partnership_ended'));
     }
 }

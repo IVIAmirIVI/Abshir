@@ -291,8 +291,8 @@ class Phase85OrderExceptionsTest extends TestCase
         $ratings->recordManual($context['actor'], $secondOrder->fresh(), $first, 3);
         $admin = User::factory()->create();
         $admin->roles()->attach(Role::where('code', Role::SUPER_ADMIN)->sole());
-        $this->actingAs($admin)->get(route('captains.index'))->assertOk()->assertSee('Ratings: 2')->assertSee('4.00');
-        $this->get(route('captains.show', $first))->assertOk()->assertSee('2 ratings')->assertSee('4.00')->assertSee('5 stars: 1')->assertSee('3 stars: 1');
+        $this->actingAs($admin)->get(route('captains.index'))->assertOk()->assertSee(__('captains.ui_ratings').' 2')->assertSee('4.00');
+        $this->get(route('captains.show', $first))->assertOk()->assertSee('2 '.__('captains.ui_ratings_average'))->assertSee('4.00')->assertSee('5 '.__('captains.ui_stars').' 1')->assertSee('3 '.__('captains.ui_stars').' 1')->assertSee(__('orders.rating_sources.WHATSAPP_MANUAL'));
 
         $this->expectException(ValidationException::class);
         $ratings->recordManual($context['actor'], $context['order']->fresh(), $first, 4);
@@ -373,8 +373,8 @@ class Phase85OrderExceptionsTest extends TestCase
     {
         $context = $this->context();
         $captain = $this->captain($context['branch']);
-        $this->actingAs($context['actor'])->get(route('captains.index'))->assertOk()->assertDontSee('Ratings:');
-        $this->get(route('captains.show', $captain))->assertOk()->assertDontSee('Rating summary');
+        $this->actingAs($context['actor'])->get(route('captains.index'))->assertOk()->assertDontSee(__('captains.ui_ratings'));
+        $this->get(route('captains.show', $captain))->assertOk()->assertDontSee(__('captains.ui_rating_summary'));
     }
 
     public function test_receipt_http_and_service_ingestion_reject_unsafe_content_and_alternate_serving(): void

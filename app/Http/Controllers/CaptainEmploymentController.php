@@ -14,7 +14,7 @@ class CaptainEmploymentController extends Controller
     {
         $service->terminate($request->user(), $captain, $request->validated('ended_at'), $request->validated('reason'));
 
-        return back()->with('status', 'Captain employment terminated.');
+        return back()->with('status', __('captains.flash_captain_employment_terminated'));
     }
 
     public function rehire(RehireCaptainRequest $request, Captain $captain, CaptainEmploymentService $service): RedirectResponse
@@ -26,6 +26,6 @@ class CaptainEmploymentController extends Controller
             $request->boolean('reactivate_account'),
         );
 
-        return back()->with('status', 'Captain rehired.');
+        return back()->with('status', __('captains.flash_captain_rehired'));
     }
 }
