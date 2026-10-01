@@ -4,13 +4,26 @@ namespace App\Services;
 
 use App\Enums\InvoiceStatus;
 use App\Models\Order;
+use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderCancellationSafetyService
 {
-    public function assertNoFinancialCorrectionRequiredLocked(Order $order): void
+    public function assertNoFinancialCorrectionRequiredLocked(Order $order, bool $forIntent = false): void
     {
+        $correction = Schema::hasTable('invoice_financial_corrections') ? DB::table('invoice_financial_corrections')
+            ->where('order_id', $order->id)->where('kind', 'CANCEL_AND_REFUND')
+            ->whereIn('state', $forIntent ? ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE'] : ['COMPLETED'])
+            ->orderByDesc('id')->first() : null;
+        if ($correction && ! $order->billPayments()->exists()) {
+            if ($forIntent || (BigDecimal::of((string) $correction->corrected_amount)->isZero()
+                && DB::table('customer_refunds')->where('invoice_financial_correction_id', $correction->id)
+                    ->where('amount', $correction->original_amount)->exists())) {
+                return;
+            }
+        }
         $invoiceIds = $order->invoices()->pluck('id')->map(fn ($id) => (string) $id)->all();
         $collectionIds = DB::table('invoice_collections')->where('order_id', $order->id)->pluck('id')->map(fn ($id) => (string) $id)->all();
         if ($order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->lockForUpdate()->exists()

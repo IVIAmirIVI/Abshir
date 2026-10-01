@@ -1,14 +1,21 @@
 <?php
 
+use App\Enums\InvoiceFinancialCorrectionKind;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderOperationalStatus;
+use App\Models\Branch;
 use App\Models\Captain;
+use App\Models\Currency;
 use App\Models\Invoice;
+use App\Models\InvoiceFinancialCorrection;
 use App\Models\Order;
 use App\Models\OrderShop;
 use App\Models\User;
 use App\Services\CaptainRatingService;
+use App\Services\CaptainReceivablePayoutService;
+use App\Services\CustomerRefundService;
+use App\Services\InvoiceFinancialCorrectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderCancellationFinalizationService;
 use App\Services\OrderCancellationIntentService;
@@ -62,8 +69,27 @@ try {
         'finalize' => app(OrderCancellationFinalizationService::class)->finalize($actor, $order),
         'deliver' => app(OrderStatusService::class)->transition($actor, $order, OrderOperationalStatus::Delivered, 'Concurrent delivery'),
         'issue' => app(InvoiceService::class)->issue($actor, $order, Invoice::query()->findOrFail($payload['invoice_id'])),
+        'invoice_replace' => app(InvoiceService::class)->replace($actor, $order,
+            Invoice::query()->findOrFail($payload['invoice_id']), $payload['reason']),
         'receipt' => app(OrderShopReceiptService::class)->upload($actor, $order, OrderShop::query()->findOrFail($payload['order_shop_id']), receiptUpload($temporaryUpload), 'Concurrent receipt'),
         'rating' => app(CaptainRatingService::class)->recordManual($actor, $order, Captain::query()->findOrFail($payload['captain_id']), $payload['rating']),
+        'correction_request' => app(InvoiceFinancialCorrectionService::class)->request($actor,
+            Invoice::query()->findOrFail($payload['invoice_id']), InvoiceFinancialCorrectionKind::from($payload['kind']),
+            $payload['proposal'], $payload['reason'], $payload['explanation'], $payload['request_key']),
+        'correction_prepare' => app(InvoiceFinancialCorrectionService::class)->prepare($actor,
+            InvoiceFinancialCorrection::query()->findOrFail($payload['correction_id'])),
+        'correction_finalize' => app(InvoiceFinancialCorrectionService::class)->finalize($actor,
+            InvoiceFinancialCorrection::query()->findOrFail($payload['correction_id'])),
+        'correction_refund' => app(CustomerRefundService::class)->record($actor,
+            InvoiceFinancialCorrection::query()->findOrFail($payload['correction_id']),
+            $payload['request_key'], $payload['refunded_at'] ?? now(), $payload['reference'], receiptUpload($temporaryUpload)),
+        'receivable_payout' => app(CaptainReceivablePayoutService::class)->record($actor,
+            Captain::query()->findOrFail($payload['captain_id']), Branch::query()->findOrFail($payload['branch_id']),
+            Currency::query()->findOrFail($payload['currency_id']),
+            ['request_key' => $payload['request_key'], 'amount' => $payload['amount'],
+                'occurred_at' => $payload['occurred_at'], 'reference' => $payload['reference']],
+            [['financial_entry_id' => $payload['financial_entry_id'], 'amount' => $payload['amount']]],
+            receiptUpload($temporaryUpload)),
         default => throw new InvalidArgumentException('Unknown Phase 8.5 concurrency operation.'),
     };
 

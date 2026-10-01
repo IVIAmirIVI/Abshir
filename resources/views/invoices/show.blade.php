@@ -44,7 +44,7 @@
 
             @if($invoice->status === \App\Enums\InvoiceStatus::Issued)
                 @can('invoice_collections.create')
-                    @if(!$invoice->collection)
+                    @if(!$invoice->collection && !$settledCorrection)
                         <form method="POST" action="{{ route('invoices.collection.store', $invoice) }}" class="grid w-full gap-3 sm:grid-cols-2" x-data="{ method: '{{ old('collection_method', 'CASH') }}' }">
                             @csrf
                             <p class="sm:col-span-2">Full collection: <strong>{{ $invoice->grand_total }} {{ $invoice->currency->code }}</strong></p>
@@ -62,7 +62,7 @@
                         </form>
                     @endif
                 @endcan
-                @if(!$invoice->collection)
+                @if(!$invoice->collection && !$settledCorrection)
                     @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="Required void reason"/><button class="rounded bg-red-700 px-3 py-2 text-white">Void</button></form>@endcan
                     @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="Required replacement reason"/><button class="rounded bg-amber-700 px-3 py-2 text-white">Create replacement</button></form>@endcan
                 @endif
@@ -78,6 +78,79 @@
                 @elseif($invoice->collection->collection_method === \App\Enums\InvoiceCollectionMethod::ShamCash)
                     <p>Direct to company Sham Cash</p>
                     @if($invoice->collection->payment_reference)<p>Reference: {{ $invoice->collection->payment_reference }}</p>@endif
+                @endif
+            </section>
+        @endif
+        @if($settledCorrection)
+            <section class="rounded bg-blue-50 p-5">Payment satisfied by original Collection {{ $settledCorrection->original_collection_id }} and its completed financial correction. No second customer payment is due.</section>
+        @endif
+
+        @if($invoice->collection && auth()->user()->can('invoice_corrections.view'))
+            <section class="space-y-4 rounded bg-white p-5 shadow">
+                <h3 class="font-semibold">Collected Invoice financial correction</h3>
+                <p>Original Collection: {{ $invoice->collection->amount }} {{ $invoice->currency->code }} via {{ $invoice->collection->collection_method->value }}. The original receipt and Invoice remain historical facts.</p>
+                @foreach($corrections as $correction)
+                    <article class="space-y-2 rounded border p-4">
+                        <p><strong>{{ $correction->kind->value }}</strong> · {{ $correction->state->value }} · {{ $correction->reason }}</p>
+                        <p>Original {{ $correction->original_amount }} · Corrected {{ $correction->corrected_amount ?? 'Pending approval' }} · Customer delta {{ $correction->customer_delta ?? 'Pending approval' }} {{ $invoice->currency->code }}</p>
+                        @if($correction->kind === \App\Enums\InvoiceFinancialCorrectionKind::CancelAndRefund)
+                            <p>Shop returns and cancellation intent must be completed before finalization. <a class="underline" href="{{ route('orders.show', $invoice->order) }}">View Order progress</a></p>
+                        @endif
+                        @if($correction->refund)
+                            <p>Customer refund completed: {{ $correction->refund->amount }} via {{ $correction->refund->method->value }}.
+                                @if($correction->refund->refunding_captain_id) Historical refunding Captain #{{ $correction->refund->refunding_captain_id }}. @else Company Sham Cash refund. @endif
+                                @can('customer_refunds.view_evidence')<a class="underline" href="{{ route('customer-refunds.evidence', $correction->refund) }}">Private evidence</a>@endcan
+                            </p>
+                        @elseif($correction->state === \App\Enums\InvoiceFinancialCorrectionState::Prepared)
+                            <p>Required customer refund: {{ \Brick\Math\BigDecimal::of($correction->customer_delta)->negated() }} via original {{ $invoice->collection->collection_method->value }}.
+                                @if($invoice->collection->captain_id) Historical refunding Captain #{{ $invoice->collection->captain_id }}. @endif
+                            </p>
+                            @can('customer_refunds.record')
+                                <form method="POST" enctype="multipart/form-data" action="{{ route('invoice-corrections.refund', $correction) }}" class="grid gap-2 sm:grid-cols-2">
+                                    @csrf
+                                    <input type="hidden" name="request_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                                    <label>Refunded at <x-text-input name="refunded_at" type="datetime-local" step="1" :value="now()->format('Y-m-d\TH:i:s')" required/></label>
+                                    <label>Reference <x-text-input name="reference" required/></label>
+                                    <label class="sm:col-span-2">JPEG, PNG or WebP proof, at most 5 MB <input type="file" name="evidence" accept="image/jpeg,image/png,image/webp" required></label>
+                                    <x-primary-button>Record actual refund</x-primary-button>
+                                </form>
+                            @endcan
+                        @endif
+                        @if($correction->state === \App\Enums\InvoiceFinancialCorrectionState::Requested)
+                            @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.prepare', $correction) }}">@csrf<x-primary-button>Prepare financial correction</x-primary-button></form>@endcan
+                        @endif
+                        @if(in_array($correction->state, [\App\Enums\InvoiceFinancialCorrectionState::Requested, \App\Enums\InvoiceFinancialCorrectionState::Prepared], true) && !$correction->refund)
+                            @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.abandon', $correction) }}">@csrf<button class="rounded bg-gray-700 px-3 py-2 text-white">Abandon unfunded request</button></form>@endcan
+                        @endif
+                        @if($correction->state === \App\Enums\InvoiceFinancialCorrectionState::ReadyToFinalize)
+                            @can('invoice_corrections.finalize')<form method="POST" action="{{ route('invoice-corrections.finalize', $correction) }}">@csrf<x-primary-button>Finalize correction</x-primary-button></form>@endcan
+                        @endif
+                    </article>
+                @endforeach
+                @if($correctionSource && !$corrections->contains(fn ($correction) => in_array($correction->state->value, ['REQUESTED','PREPARED','READY_TO_FINALIZE'], true)))
+                    @can('invoice_corrections.request')
+                        <form method="POST" action="{{ route('invoices.corrections.request', $invoice) }}" class="space-y-3 rounded border p-4">
+                            @csrf
+                            <input type="hidden" name="request_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                            <p>Request a corrected price or cancellation. Amounts below are editable for REPRICE; cancellation ignores them.</p>
+                            <label>Kind <select name="kind" class="rounded border-gray-300"><option value="REPRICE">REPRICE</option><option value="CANCEL_AND_REFUND">CANCEL_AND_REFUND</option></select></label>
+                            @foreach($invoice->items as $index => $item)
+                                <label class="block">{{ $item->description }} · corrected unit price
+                                    <input type="hidden" name="items[{{ $index }}][invoice_item_id]" value="{{ $item->id }}">
+                                    <x-text-input name="items[{{ $index }}][unit_price]" :value="$item->unit_price" required/>
+                                </label>
+                            @endforeach
+                            @foreach($correctionSource['captain_allocations'] as $index => $allocation)
+                                <label class="block">Captain #{{ $allocation['captain_id'] }} · corrected customer delivery allocation
+                                    <input type="hidden" name="delivery[{{ $index }}][order_captain_id]" value="{{ $allocation['order_captain_id'] }}">
+                                    <x-text-input name="delivery[{{ $index }}][customer_amount]" :value="$allocation['customer_delivery_amount_allocated']" required/>
+                                </label>
+                            @endforeach
+                            <label class="block">Reason <x-text-input name="reason" required class="w-full"/></label>
+                            <label class="block">Supporting explanation <textarea name="explanation" required class="w-full rounded border-gray-300"></textarea></label>
+                            <x-primary-button>Request financial correction</x-primary-button>
+                        </form>
+                    @endcan
                 @endif
             </section>
         @endif

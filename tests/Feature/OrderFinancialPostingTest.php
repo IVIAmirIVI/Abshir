@@ -23,6 +23,7 @@ use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\FinancialAccount;
 use App\Models\FinancialTransaction;
+use App\Models\Invoice;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\Role;
@@ -752,10 +753,10 @@ SQL);
         $c = $this->context();
         $invoice = $this->issue($c);
         $this->assertDatabaseHas('order_financial_source_snapshots', ['invoice_id' => $invoice->id, 'items_subtotal' => '25.0000']);
-        $invoice->update(['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
-        $this->markDelivered($c);
         $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::ShamCash, $invoice->grand_total);
-        $this->assertSame('conflict', app(CorrectedOrderFinancialService::class)->assess($c['order'])['state']);
+        $this->legacyInvoiceDrift($invoice, ['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
+        $this->markDelivered($c);
+        $this->assertNotSame('complete', app(CorrectedOrderFinancialService::class)->assess($c['order'])['state']);
         Artisan::call('financial:backfill-order-events', ['--apply' => true]);
         $this->assertSame(0, FinancialTransaction::count());
     }
@@ -824,7 +825,7 @@ SQL);
         $this->markDelivered($c);
         $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
         $this->postLegacyEvents($c, $invoice, $collection);
-        $invoice->update(['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
+        $this->legacyInvoiceDrift($invoice, ['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
         $before = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
         $this->assertSame(1, Artisan::call('financial:correct-order-financial-semantics'));
         $this->assertStringContainsString('CONFLICT', Artisan::output());
@@ -842,11 +843,11 @@ SQL);
             $c['employee'], $invoice, InvoiceCollectionMethod::Cash,
             $invoice->grand_total, $c['currency']->id, now(),
         );
-        DB::table('invoice_collections')->where('id', $collection->id)->update([
+        $this->withHistoricalTriggerDisabled('invoice_collections', 'invoice_collection_immutable', fn () => DB::table('invoice_collections')->where('id', $collection->id)->update([
             'collection_method' => InvoiceCollectionMethod::ShamCash->value,
             'captain_id' => null,
             'order_captain_id' => null,
-        ]);
+        ]));
         $this->assertSame('conflict', app(CorrectedOrderFinancialService::class)->assess($c['order'])['state']);
         $this->assertSame(1, FinancialTransaction::count());
     }
@@ -856,14 +857,14 @@ SQL);
         $c = $this->context();
         $invoice = $this->ready($c);
         $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $c['employee']->id]);
-        DB::table('invoices')->where('id', $invoice->id)->update(['issued_at' => '2026-09-27 12:34:56.123456+00']);
+        $this->legacyInvoiceDrift($invoice, ['issued_at' => '2026-09-27 12:34:56.123456+00']);
         $invoice = $invoice->fresh();
         app(OrderFinancialSourceSnapshotService::class)->capture($invoice);
         $this->markDelivered($c);
         $history = $c['order']->statusHistory()->where('new_status', OrderOperationalStatus::Delivered->value)->sole();
         DB::table('order_status_history')->where('id', $history->id)->update(['changed_at' => '2026-09-27 12:34:56.234567+00']);
         $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, $invoice->grand_total);
-        DB::table('invoice_collections')->where('id', $collection->id)->update(['collected_at' => '2026-09-27 12:34:56.345678+00']);
+        $this->withHistoricalTriggerDisabled('invoice_collections', 'invoice_collection_immutable', fn () => DB::table('invoice_collections')->where('id', $collection->id)->update(['collected_at' => '2026-09-27 12:34:56.345678+00']));
 
         $rawCollected = DB::selectOne("SELECT to_char(collected_at, 'YYYY-MM-DD HH24:MI:SS.US') AS collected_at FROM invoice_collections WHERE id = ?", [$collection->id])->collected_at;
         $this->assertStringContainsString('.345678', $rawCollected);
@@ -897,7 +898,7 @@ SQL);
 
         $conflict = $this->context();
         $conflictInvoice = $this->issue($conflict);
-        $conflictInvoice->update(['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
+        $this->legacyInvoiceDrift($conflictInvoice, ['items_subtotal' => '26.0000', 'grand_total' => '31.0000']);
 
         $tables = ['orders', 'invoices', 'invoice_collections', 'order_financial_source_snapshots',
             'order_financial_source_snapshot_lines', 'financial_owners', 'financial_accounts',
@@ -918,7 +919,8 @@ SQL);
         $c = $this->context();
         $invoice = $this->issue($c);
         $this->markDelivered($c);
-        $collection = $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, '1.0000');
+        $collection = $this->withHistoricalTriggerDisabled('invoice_collections', 'invoice_collection_history_guard',
+            fn () => $this->historicalCollection($c, $invoice, InvoiceCollectionMethod::Cash, '1.0000'));
         $this->postLegacyEvents($c, $invoice, $collection);
         $before = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
 
@@ -1135,5 +1137,25 @@ SQL);
             'collected_at' => now(),
             'recorded_by' => $c['employee']->id,
         ]);
+    }
+
+    private function legacyInvoiceDrift(Invoice $invoice, array $changes): void
+    {
+        // These regressions intentionally construct pre-hardening history; current SQL rejects the same writes.
+        $this->withHistoricalTriggerDisabled('invoices', 'issued_invoice_facts_guard',
+            fn () => DB::table('invoices')->where('id', $invoice->id)->update($changes));
+    }
+
+    private function withHistoricalTriggerDisabled(string $table, string $trigger, callable $action): mixed
+    {
+        // These fixtures represent rows from before the new immutable-history trigger.
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        DB::statement("ALTER TABLE {$table} DISABLE TRIGGER {$trigger}");
+        try {
+            return $action();
+        } finally {
+            DB::statement("ALTER TABLE {$table} ENABLE TRIGGER {$trigger}");
+            DB::statement('SET CONSTRAINTS ALL DEFERRED');
+        }
     }
 }

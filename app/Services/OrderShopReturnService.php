@@ -114,7 +114,7 @@ class OrderShopReturnService
                 if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
                     throw ValidationException::withMessages(['order' => 'A finalized Order cannot record a new return.']);
                 }
-                $this->safety->assertNoFinancialCorrectionRequiredLocked($order);
+                $this->safety->assertNoFinancialCorrectionRequiredLocked($order, true);
                 if ($shop->shopReturn()->exists()) {
                     throw ValidationException::withMessages(['return' => 'A completed return already exists for this purchased Shop.']);
                 }

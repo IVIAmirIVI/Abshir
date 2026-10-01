@@ -60,6 +60,13 @@ return [
             'throw' => true,
         ],
 
+        'customer_refunds' => [
+            'driver' => 'local',
+            'root' => storage_path('app/customer-refunds-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'order_returns' => [
             'driver' => 'local',
             'root' => storage_path('app/order-returns-private'),

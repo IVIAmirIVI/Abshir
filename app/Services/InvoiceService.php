@@ -92,6 +92,11 @@ class InvoiceService
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Only the current ISSUED Invoice may be voided.']);
             }
+            if (Schema::hasTable('invoice_financial_corrections')
+                && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
+                    ->where('state', 'COMPLETED')->exists()) {
+                throw ValidationException::withMessages(['invoice' => 'A financially corrected replacement Invoice is immutable.']);
+            }
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be voided until a financial reversal workflow exists.']);
             }
@@ -113,6 +118,11 @@ class InvoiceService
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Only the current ISSUED Invoice may be replaced.']);
+            }
+            if (Schema::hasTable('invoice_financial_corrections')
+                && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
+                    ->where('state', 'COMPLETED')->exists()) {
+                throw ValidationException::withMessages(['invoice' => 'A financially corrected replacement Invoice is immutable.']);
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be replaced until a financial reversal workflow exists.']);

@@ -25,6 +25,7 @@ use App\Http\Controllers\DeliveryOverrideController;
 use App\Http\Controllers\DeliveryPricingRuleController;
 use App\Http\Controllers\InvoiceCollectionController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\InvoiceFinancialCorrectionController;
 use App\Http\Controllers\OrderBillPaymentController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderDeliveryPricingController;
@@ -185,4 +186,10 @@ Route::middleware('auth')->group(function () {
     Route::get('invoice-collections', [InvoiceCollectionController::class, 'index'])->name('invoice-collections.index');
     Route::get('invoice-collections/sham-cash', [InvoiceCollectionController::class, 'shamCash'])->name('invoice-collections.sham-cash');
     Route::post('invoices/{invoice}/collection', [InvoiceCollectionController::class, 'store'])->name('invoices.collection.store');
+    Route::post('invoices/{invoice}/financial-corrections', [InvoiceFinancialCorrectionController::class, 'request'])->name('invoices.corrections.request');
+    Route::post('invoice-financial-corrections/{correction}/prepare', [InvoiceFinancialCorrectionController::class, 'prepare'])->name('invoice-corrections.prepare');
+    Route::post('invoice-financial-corrections/{correction}/abandon', [InvoiceFinancialCorrectionController::class, 'abandon'])->name('invoice-corrections.abandon');
+    Route::post('invoice-financial-corrections/{correction}/refund', [InvoiceFinancialCorrectionController::class, 'refund'])->name('invoice-corrections.refund');
+    Route::post('invoice-financial-corrections/{correction}/finalize', [InvoiceFinancialCorrectionController::class, 'finalize'])->name('invoice-corrections.finalize');
+    Route::get('customer-refunds/{refund}/evidence', [InvoiceFinancialCorrectionController::class, 'evidence'])->name('customer-refunds.evidence');
 });

@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\ActualPriceSource;
 use App\Enums\CaptainOperationalStatus;
+use App\Enums\FinancialAccountKind;
 use App\Enums\InvoiceCollectionMethod;
+use App\Enums\InvoiceFinancialCorrectionKind;
+use App\Enums\InvoiceFinancialCorrectionState;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
@@ -20,6 +23,7 @@ use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\InvoiceFinancialCorrection;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\Product;
@@ -27,9 +31,15 @@ use App\Models\Role;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
+use App\Services\CaptainReceivablePayoutService;
+use App\Services\CustomerRefundEvidenceService;
+use App\Services\CustomerRefundService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
+use App\Services\FinancialAccountService;
+use App\Services\FinancialBalanceQueryService;
 use App\Services\InvoiceCollectionService;
+use App\Services\InvoiceFinancialCorrectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderBillPaymentService;
 use App\Services\OrderCancellationIntentService;
@@ -40,7 +50,9 @@ use App\Services\OrderItemService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
 use App\Services\OrderShopProgressService;
+use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
+use App\Services\OrderShopReturnService;
 use App\Services\OrderShopService;
 use App\Services\OrderStatusService;
 use Database\Seeders\AuthorizationSeeder;
@@ -547,6 +559,601 @@ class InvoiceAndCollectionTest extends TestCase
         foreach (['captain_deposits', 'captain_receivables', 'cash_handovers', 'settlement_sessions', 'commissions', 'incentives', 'salaries'] as $table) {
             $this->assertFalse(Schema::hasTable($table));
         }
+    }
+
+    public function test_phase_9c3a_collected_invoice_cannot_be_voided_or_arbitrarily_replaced_by_sql(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        $collection = app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        foreach (['VOIDED', 'DRAFT', 'READY', 'REPLACED'] as $status) {
+            try {
+                DB::transaction(function () use ($invoice, $c, $status): void {
+                    DB::table('invoices')->where('id', $invoice->id)->update([
+                        'status' => $status, 'voided_at' => now(), 'voided_by' => $c['admin']->id,
+                        'void_reason' => 'SQL bypass', 'replaced_at' => now(), 'replaced_by' => $c['admin']->id,
+                        'replacement_reason' => 'SQL bypass', 'superseded_at' => now(),
+                    ]);
+                    DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+                });
+                $this->fail('Direct SQL changed collected Invoice status to '.$status);
+            } catch (QueryException $exception) {
+                $this->assertStringContainsString($status === 'REPLACED'
+                    ? 'requires completed financial correction' : 'cannot transition', $exception->getMessage());
+            }
+        }
+        $this->assertSame(InvoiceStatus::Issued, $invoice->fresh()->status);
+        $this->assertNull($invoice->fresh()->superseded_at);
+        $this->assertDatabaseHas('invoice_collections', ['id' => $collection->id, 'amount' => '30.0000']);
+    }
+
+    public function test_phase_9c3a_committed_refund_cannot_be_stranded_by_direct_invoice_void(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        $service = app(InvoiceFinancialCorrectionService::class);
+        $source = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                'delivery' => [['order_captain_id' => $c['order']->captainAssignments()->sole()->id, 'customer_amount' => '5.00']]],
+            'Wrong price', 'Refund must remain finalizable', (string) Str::uuid());
+        $service->prepare($c['admin'], $source);
+        $refund = app(CustomerRefundService::class)->record($c['admin'], $source, (string) Str::uuid(), now(),
+            'REFUND-BEFORE-VOID', UploadedFile::fake()->createWithContent('proof.png', base64_decode(self::PNG)));
+        try {
+            DB::transaction(fn () => DB::table('invoices')->where('id', $invoice->id)->update([
+                'status' => 'VOIDED', 'voided_at' => now(), 'voided_by' => $c['admin']->id,
+                'void_reason' => 'Attempt to strand refund', 'superseded_at' => now(),
+            ]));
+            $this->fail('A collected Invoice was voided after its real refund.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('cannot transition to VOIDED', $exception->getMessage());
+        }
+        $this->assertSame(InvoiceStatus::Issued, $invoice->fresh()->status);
+        $this->assertDatabaseHas('customer_refunds', ['id' => $refund->id, 'amount' => '5.0000']);
+        $completed = $service->finalize($c['admin'], $source);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        $this->assertSame(InvoiceFinancialCorrectionState::Completed, $completed->state);
+        $this->assertSame(InvoiceStatus::Replaced, $invoice->fresh()->status);
+        $this->assertSame('25.0000', Invoice::findOrFail($completed->replacement_invoice_id)->grand_total);
+    }
+
+    public function test_phase_9c3a_uncollected_invoice_normal_void_remains_valid(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        // RefreshDatabase keeps one outer transaction; first validate the already-issued snapshot as a real issue commit does.
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        DB::statement('SET CONSTRAINTS ALL DEFERRED');
+        app(InvoiceService::class)->void($c['admin'], $c['order'], $invoice, 'Uncollected correction');
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        $this->assertSame(InvoiceStatus::Voided, $invoice->fresh()->status);
+        $this->assertDatabaseCount('invoice_collections', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_phase_9c3a_new_correction_rejects_non_current_or_uncollected_invoice_sources(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::ShamCash, '30', $c['currency']->id, now());
+        $service = app(InvoiceFinancialCorrectionService::class);
+        $source = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '10.00']],
+                'delivery' => [['order_captain_id' => $c['order']->captainAssignments()->sole()->id, 'customer_amount' => '5.00']]],
+            'Source matrix', 'Only authoritative collected issued sources', (string) Str::uuid());
+        $base = (array) DB::table('invoice_financial_corrections')->where('id', $source->id)->sole();
+        unset($base['id']);
+        $service->abandon($c['admin'], $source);
+        foreach (['DRAFT', 'READY', 'VOIDED', 'REPLACED', 'ISSUED'] as $index => $status) {
+            $facts = (array) DB::table('invoices')->where('id', $invoice->id)->sole();
+            unset($facts['id']);
+            $facts['invoice_number'] = 'INVALID-'.Str::uuid();
+            $facts['version'] = $index + 2;
+            $facts['status'] = $status;
+            $facts['superseded_at'] = now();
+            $invalidId = DB::table('invoices')->insertGetId($facts);
+            try {
+                DB::transaction(fn () => DB::table('invoice_financial_corrections')->insert(array_replace($base, [
+                    'request_key' => (string) Str::uuid(), 'original_invoice_id' => $invalidId,
+                ])));
+                $this->fail('New correction accepted '.$status.' / uncollected Invoice.');
+            } catch (QueryException $exception) {
+                $this->assertStringContainsString('authoritative collected ISSUED Invoice', $exception->getMessage());
+            }
+        }
+        $other = $this->context('EUR');
+        $uncollected = $this->issued($other);
+        try {
+            DB::transaction(fn () => DB::table('invoice_financial_corrections')->insert(array_replace($base, [
+                'request_key' => (string) Str::uuid(), 'order_id' => $other['order']->id,
+                'original_invoice_id' => $uncollected->id, 'branch_id' => $other['branch']->id,
+                'currency_id' => $other['currency']->id,
+            ])));
+            $this->fail('New correction accepted a current uncollected ISSUED Invoice with an unrelated Collection.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('authoritative collected ISSUED Invoice', $exception->getMessage());
+        }
+        $prepared = $service->prepare($c['admin'], $service->request($c['employee'], $invoice,
+            InvoiceFinancialCorrectionKind::Reprice, $source->proposal_payload,
+            'Valid source', 'Zero delta replacement', (string) Str::uuid()));
+        $service->finalize($c['admin'], $prepared);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        try {
+            DB::transaction(fn () => DB::table('invoice_financial_corrections')->insert(array_replace($base, [
+                'request_key' => (string) Str::uuid(),
+            ])));
+            $this->fail('New correction reused an already REPLACED historical original.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('authoritative collected ISSUED Invoice', $exception->getMessage());
+        }
+    }
+
+    public function test_phase_9c3a_request_prepare_and_historical_cash_refund_source(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        Storage::fake('order_receipts');
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        $collection = app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now(), 'Original', 'CASH-REF');
+        $assignment = $c['order']->captainAssignments()->sole();
+        $proposal = ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+            'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]];
+        $corrections = app(InvoiceFinancialCorrectionService::class);
+        $correctionKey = (string) Str::uuid();
+        $source = $corrections->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice, $proposal, 'Wrong product price', 'Corrected proof', $correctionKey);
+        $this->assertSame(InvoiceFinancialCorrectionState::Requested, $source->state);
+        try {
+            $corrections->prepare($c['employee'], $source);
+            $this->fail('ORDER_EMPLOYEE prepared a financial correction.');
+        } catch (AuthorizationException) {
+            $this->addToAssertionCount(1);
+        }
+        $prepared = $corrections->prepare($c['admin'], $source);
+        $this->assertSame(InvoiceFinancialCorrectionState::Prepared, $prepared->state);
+        $this->assertSame('25.0000', $prepared->corrected_amount);
+        $this->assertSame('-5.0000', $prepared->customer_delta);
+        $refundKey = (string) Str::uuid();
+        $refundAt = now();
+        $refund = app(CustomerRefundService::class)->record($c['admin'], $prepared, $refundKey, $refundAt, 'CASH-REFUND-1',
+            UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
+        $this->assertSame($collection->captain_id, $refund->refunding_captain_id);
+        $this->assertSame($collection->order_captain_id, $refund->refunding_order_captain_id);
+        $this->assertSame(InvoiceFinancialCorrectionState::ReadyToFinalize, $source->fresh()->state);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        try {
+            DB::transaction(function () use ($source, $c): void {
+                DB::table('invoice_financial_corrections')->where('id', $source->id)->update([
+                    'state' => 'COMPLETED', 'finalized_by' => $c['admin']->id, 'finalized_at' => now(),
+                ]);
+                DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+            });
+            $this->fail('Direct SQL completed a correction without the replacement and snapshot.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('lacks exact immutable financial disposition', $exception->getMessage());
+        }
+        foreach ([
+            fn () => DB::table('invoice_collections')->where('id', $collection->id)->update(['amount' => 29]),
+            fn () => DB::table('invoices')->where('id', $invoice->id)->update(['grand_total' => 29]),
+            fn () => DB::table('customer_refunds')->where('id', $refund->id)->update(['amount' => 4]),
+        ] as $tamper) {
+            try {
+                DB::transaction($tamper);
+                $this->fail('Historical financial fact was mutable through SQL.');
+            } catch (QueryException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $completed = $corrections->finalize($c['admin'], $prepared);
+        $this->assertSame(InvoiceFinancialCorrectionState::Completed, $completed->state);
+        $this->assertSame($source->id, $corrections->request($c['employee'], $invoice,
+            InvoiceFinancialCorrectionKind::Reprice, $proposal, 'Wrong product price', 'Corrected proof', $correctionKey)->id);
+        $this->assertSame($refund->id, app(CustomerRefundService::class)->record($c['admin'], $prepared,
+            $refundKey, $refundAt, 'CASH-REFUND-1',
+            UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)))->id);
+        $this->assertSame(InvoiceStatus::Replaced, $invoice->fresh()->status);
+        $replacement = Invoice::findOrFail($completed->replacement_invoice_id);
+        $this->assertSame('25.0000', $replacement->grand_total);
+        $this->assertSame(InvoiceStatus::Issued, $replacement->status);
+        $this->assertDatabaseCount('invoice_collections', 1);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+            OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+            OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'],
+            UploadedFile::fake()->createWithContent('proof.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $this->assertDatabaseHas('financial_transactions', ['source_type' => 'INVOICE_FINANCIAL_CORRECTION',
+            'source_id' => (string) $completed->id, 'event_type' => 'INVOICE_CORRECTION_CASH_DEPOSIT_DEBIT']);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_phase_9c3a_collected_cancellation_requires_real_refund_and_shop_return(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        Storage::fake('order_returns');
+        $c = $this->context();
+        $assignment = $c['order']->captainAssignments()->sole();
+        $purchase = app(OrderShopPurchaseConfirmationService::class)->record($c['employee'], $c['order'], $c['shop'], [
+            'order_captain_id' => $assignment->id, 'currency_id' => $c['currency']->id,
+            'amount' => '25.00', 'purchased_at' => now()->subMinutes(5)->toIso8601String(),
+            'request_key' => (string) Str::uuid(),
+        ], UploadedFile::fake()->createWithContent('purchase.png', base64_decode(self::PNG)));
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash,
+            '30', $c['currency']->id, now(), null, 'CASH-CANCEL');
+        $corrections = app(InvoiceFinancialCorrectionService::class);
+        $source = $corrections->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::CancelAndRefund,
+            [], 'Customer cancelled', 'Full refund after Shop return', (string) Str::uuid());
+        $intent = app(OrderCancellationIntentService::class)->create($c['employee'], $c['order'],
+            OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+        $this->assertNotNull($intent->frozen_at);
+        $prepared = $corrections->prepare($c['admin'], $source);
+        $this->assertSame('0.0000', $prepared->corrected_amount);
+        $this->expectValidation(fn () => $corrections->finalize($c['admin'], $prepared));
+        app(OrderShopReturnService::class)->record($c['employee'], $c['order'], $c['shop'], [
+            'returning_order_captain_id' => $assignment->id,
+            'refund_amount' => '25.00',
+            'returned_at' => now()->subMinutes(2)->toIso8601String(),
+            'refunded_at' => now()->subMinute()->toIso8601String(),
+            'refund_method' => 'CASH',
+            'request_key' => (string) Str::uuid(),
+        ], ['RETURN_AND_REFUND_PROOF' => UploadedFile::fake()->createWithContent('return.png', base64_decode(self::PNG))]);
+        app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
+            'CASH-FULL-REFUND', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
+        $completed = $corrections->finalize($c['admin'], $prepared);
+        $this->assertSame(InvoiceFinancialCorrectionState::Completed, $completed->state);
+        $this->assertNull($completed->replacement_invoice_id);
+        $this->assertSame(OrderOperationalStatus::Cancelled, $c['order']->fresh()->operational_status);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_phase_9c3a_delivered_cash_correction_reverses_original_and_posts_replacement(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        Storage::fake('order_receipts');
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash,
+            '30', $c['currency']->id, now(), null, 'CASH-DELIVERED');
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+            OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+            OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'],
+            UploadedFile::fake()->createWithContent('delivered.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $this->assertDatabaseHas('financial_transactions', ['event_type' => 'ORDER_CASH_COMPANY_DELIVERY_SHARE_DEPOSIT_DEBIT']);
+        $assignment = $c['order']->captainAssignments()->sole();
+        $source = app(InvoiceFinancialCorrectionService::class)->request($c['employee'], $invoice,
+            InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
+            'Wrong price', 'Corrected invoice proof', (string) Str::uuid());
+        $prepared = app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+        app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
+            'CASH-REFUND-DELIVERED', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
+        $completed = app(InvoiceFinancialCorrectionService::class)->finalize($c['admin'], $prepared);
+        $this->assertSame(InvoiceFinancialCorrectionState::Completed, $completed->state);
+        $this->assertDatabaseHas('financial_transactions', ['source_type' => 'INVOICE_FINANCIAL_CORRECTION',
+            'source_id' => (string) $completed->id, 'event_type' => 'INVOICE_CORRECTION_CASH_DEPOSIT_DEBIT']);
+        $this->assertDatabaseHas('financial_transactions', ['source_type' => 'INVOICE_FINANCIAL_CORRECTION_REVERSAL',
+            'event_type' => 'INVOICE_CORRECTION_REVERSE_ORIGINAL']);
+        $event = DB::table('financial_transactions')->where('source_type', 'INVOICE_FINANCIAL_CORRECTION')
+            ->where('source_id', (string) $completed->id)->where('event_type', 'INVOICE_CORRECTION_CASH_DEPOSIT_DEBIT')->sole();
+        $accounts = app(FinancialAccountService::class);
+        $extraAccount = $accounts->getOrCreate($accounts->ownerForCaptain($c['captain']), $c['currency'],
+            FinancialAccountKind::CaptainCompanyReceivable);
+        try {
+            DB::transaction(function () use ($event, $extraAccount, $c): void {
+                DB::table('financial_entries')->insert([
+                    'financial_transaction_id' => $event->id,
+                    'financial_account_id' => $extraAccount->id,
+                    'currency_id' => $c['currency']->id,
+                    'direction' => 'INCREASE', 'amount' => '1.0000',
+                ]);
+                DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+            });
+            $this->fail('A hidden extra correction FinancialEntry was accepted.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Entries may only be added to a DRAFT financial transaction', $exception->getMessage());
+        }
+        try {
+            DB::transaction(function () use ($completed, $extraAccount, $c): void {
+                $id = DB::table('financial_transactions')->insertGetId([
+                    'transaction_kind' => 'EVENT', 'status' => 'DRAFT',
+                    'source_type' => 'INVOICE_FINANCIAL_CORRECTION', 'source_id' => (string) $completed->id,
+                    'event_type' => 'INVOICE_CORRECTION_CASH_SHORTFALL_DUE', 'source_version' => 1,
+                    'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id,
+                    'payload_hash' => str_repeat('a', 64), 'occurred_at' => now(),
+                ]);
+                DB::table('financial_entries')->insert([
+                    'financial_transaction_id' => $id, 'financial_account_id' => $extraAccount->id,
+                    'currency_id' => $c['currency']->id, 'direction' => 'INCREASE', 'amount' => '1.0000',
+                ]);
+                DB::table('financial_transactions')->where('id', $id)->update(['status' => 'POSTED', 'posted_at' => now()]);
+                DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+            });
+            $this->fail('A correction event with no expected movement was accepted.');
+        } catch (QueryException $exception) {
+            $this->assertTrue(
+                str_contains($exception->getMessage(), 'incomplete or extra FinancialEntry set')
+                    || str_contains($exception->getMessage(), 'Completed correction'),
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    public function test_phase_9c3a_http_request_refund_evidence_and_replacement_payment_satisfaction(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            '30', $c['currency']->id, now());
+        $assignment = $c['order']->captainAssignments()->sole();
+        $otherBranch = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        $otherEmployee = User::factory()->create();
+        $otherEmployee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
+        $otherEmployee->branches()->attach($otherBranch);
+        $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $invoice]))
+            ->assertOk()->assertSee('Request financial correction');
+        $request = [
+            'kind' => 'REPRICE', 'request_key' => (string) Str::uuid(),
+            'reason' => 'Wrong unit price', 'explanation' => 'Verified replacement price',
+            'items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+            'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']],
+        ];
+        $this->actingAs($otherEmployee)->post(route('invoices.corrections.request', $invoice), $request)->assertForbidden();
+        $this->actingAs($c['employee'])->post(route('invoices.corrections.request', $invoice), $request)->assertSessionHasNoErrors();
+        $source = InvoiceFinancialCorrection::query()->sole();
+        $this->actingAs($c['employee'])->post(route('invoice-corrections.prepare', $source))->assertForbidden();
+        $this->actingAs($c['admin'])->post(route('invoice-corrections.prepare', $source))->assertSessionHasNoErrors();
+        $this->actingAs($c['employee'])->post(route('invoice-corrections.refund', $source), [
+            'request_key' => (string) Str::uuid(), 'refunded_at' => now()->format('Y-m-d H:i:s'),
+            'reference' => 'EMPLOYEE-CANNOT-REFUND',
+            'evidence' => UploadedFile::fake()->createWithContent('proof.png', base64_decode(self::PNG)),
+        ])->assertForbidden();
+        $this->actingAs($c['admin'])->post(route('invoice-corrections.refund', $source), [
+            'request_key' => (string) Str::uuid(), 'refunded_at' => now()->format('Y-m-d H:i:s'),
+            'reference' => 'SHAM-REFUND-1',
+            'evidence' => UploadedFile::fake()->createWithContent('proof.png', base64_decode(self::PNG)),
+        ])->assertSessionHasNoErrors();
+        $refund = $source->refund()->sole();
+        $this->assertSame(InvoiceCollectionMethod::ShamCash, $refund->method);
+        $this->assertNull($refund->refunding_captain_id);
+        $this->actingAs($c['employee'])->get(route('customer-refunds.evidence', $refund))->assertOk();
+        $this->actingAs($otherEmployee)->get(route('customer-refunds.evidence', $refund))->assertForbidden();
+        $c['captain']->user->roles()->attach(Role::where('code', 'CAPTAIN')->sole());
+        $this->actingAs($c['captain']->user)->get(route('customer-refunds.evidence', $refund))->assertForbidden();
+        $this->actingAs($c['admin'])->get(route('customer-refunds.evidence', $refund))->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+        $this->actingAs($c['employee'])->post(route('invoice-corrections.finalize', $source))->assertForbidden();
+        $this->actingAs($c['admin'])->post(route('invoice-corrections.finalize', $source))->assertSessionHasNoErrors();
+        $replacement = Invoice::findOrFail($source->fresh()->replacement_invoice_id);
+        $this->actingAs($c['employee'])->post(route('invoices.collection.store', $replacement), [
+            'collection_method' => 'SHAM_CASH', 'collected_at' => now()->format('Y-m-d H:i:s'),
+        ])->assertSessionHasErrors('invoice');
+        $this->assertDatabaseMissing('invoice_collections', ['invoice_id' => $replacement->id]);
+    }
+
+    public function test_phase_9c3a_corrected_sham_receivable_remains_payable_and_paid_original_blocks_correction(): void
+    {
+        Storage::fake(CustomerRefundEvidenceService::DISK);
+        Storage::fake('order_receipts');
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            '30', $c['currency']->id, now());
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+            OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+            OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'],
+            UploadedFile::fake()->createWithContent('delivered.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $assignment = $c['order']->captainAssignments()->sole();
+        $proposal = ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+            'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]];
+        $corrections = app(InvoiceFinancialCorrectionService::class);
+        $source = $corrections->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
+            $proposal, 'Wrong price', 'Correct SHAM price', (string) Str::uuid());
+        $prepared = $corrections->prepare($c['admin'], $source);
+        app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
+            'SHAM-REFUND', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
+        $completed = $corrections->finalize($c['admin'], $prepared);
+        $payable = app(FinancialBalanceQueryService::class)->payableReceivableEntries($c['captain'], $c['branch'], $c['currency']);
+        $this->assertCount(2, $payable);
+        $this->assertTrue($payable->every(fn ($row) => $row->source_type === 'INVOICE_FINANCIAL_CORRECTION'
+            && $row->source_id === (string) $completed->id));
+        $first = $payable->first();
+        $payout = app(CaptainReceivablePayoutService::class)->record($c['admin'], $c['captain'], $c['branch'],
+            $c['currency'], ['request_key' => (string) Str::uuid(), 'amount' => (string) $first->remaining_amount,
+                'occurred_at' => now()->subSecond()->toIso8601String(), 'reference' => 'CORRECTED-PAYOUT'],
+            [['financial_entry_id' => $first->financial_entry_id, 'amount' => (string) $first->remaining_amount]],
+            UploadedFile::fake()->createWithContent('payout.png', base64_decode(self::PNG)));
+        $this->assertDatabaseHas('captain_receivable_payout_allocations', [
+            'captain_receivable_payout_id' => $payout->id, 'financial_entry_id' => $first->financial_entry_id]);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_phase_9c3a_paid_original_receivable_requires_explicit_captain_recovery(): void
+    {
+        Storage::fake('order_receipts');
+        Storage::fake('captain_financial_evidence');
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            '30', $c['currency']->id, now());
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+            OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+            OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'],
+            UploadedFile::fake()->createWithContent('delivered.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $productDue = app(FinancialBalanceQueryService::class)
+            ->payableReceivableEntries($c['captain'], $c['branch'], $c['currency'])
+            ->firstWhere('event_type', 'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE');
+        $this->assertNotNull($productDue);
+        $payout = app(CaptainReceivablePayoutService::class)->record($c['admin'], $c['captain'], $c['branch'],
+            $c['currency'], ['request_key' => (string) Str::uuid(), 'amount' => (string) $productDue->amount,
+                'occurred_at' => now()->subSecond()->toIso8601String(), 'reference' => 'ORIGINAL-PAYOUT'],
+            [['financial_entry_id' => $productDue->financial_entry_id, 'amount' => (string) $productDue->amount]],
+            UploadedFile::fake()->createWithContent('payout.png', base64_decode(self::PNG)));
+        $assignment = $c['order']->captainAssignments()->sole();
+        $source = app(InvoiceFinancialCorrectionService::class)->request($c['employee'], $invoice,
+            InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
+            'Product price correction', 'Captain has already received original amount', (string) Str::uuid());
+        try {
+            app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+            $this->fail('An overpaid historical Receivable was silently reversed.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('CAPTAIN_RECOVERY_REQUIRED', $exception->errors()['correction'][0]);
+            $this->assertStringContainsString('financial_entry_id='.$productDue->financial_entry_id, $exception->errors()['correction'][0]);
+        }
+        $this->assertDatabaseHas('captain_receivable_payout_allocations', [
+            'captain_receivable_payout_id' => $payout->id, 'financial_entry_id' => $productDue->financial_entry_id]);
+        $this->assertDatabaseCount('invoice_correction_reversals', 0);
+        $this->assertSame(InvoiceFinancialCorrectionState::Requested, $source->fresh()->state);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_phase_9c3a_postgresql_rejects_invalid_refund_money_method_and_collector(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        $collection = app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        $assignment = $c['order']->captainAssignments()->sole();
+        $source = app(InvoiceFinancialCorrectionService::class)->request($c['employee'], $invoice,
+            InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
+            'Wrong price', 'Direct SQL refund protection', (string) Str::uuid());
+        app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+        $base = [
+            'invoice_financial_correction_id' => $source->id,
+            'original_invoice_id' => $invoice->id, 'original_collection_id' => $collection->id,
+            'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id,
+            'amount' => '5.00', 'method' => 'CASH',
+            'refunding_captain_id' => $collection->captain_id,
+            'refunding_order_captain_id' => $collection->order_captain_id,
+            'authorized_by' => $c['admin']->id, 'request_key' => (string) Str::uuid(),
+            'refunded_at' => now(), 'reference' => 'SQL-TAMPER',
+            'evidence_path' => 'proof/tamper.png', 'evidence_name' => 'tamper.png',
+            'evidence_mime' => 'image/png', 'evidence_size' => 68,
+            'evidence_sha256' => str_repeat('a', 64), 'payload_hash' => str_repeat('b', 64),
+        ];
+        $otherCaptain = $this->captain($c['branch']);
+        foreach ([
+            ['method' => 'SHAM_CASH'],
+            ['refunding_captain_id' => $otherCaptain->id],
+            ['amount' => '4.00'],
+            ['amount' => 'NaN'],
+            ['amount' => 'Infinity'],
+            ['amount' => '-Infinity'],
+            ['amount' => '5.0001'],
+            ['evidence_path' => null],
+        ] as $tamper) {
+            try {
+                DB::transaction(fn () => DB::table('customer_refunds')->insert(array_replace($base, $tamper)));
+                $this->fail('PostgreSQL accepted invalid direct CustomerRefund money or identity.');
+            } catch (QueryException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertDatabaseCount('customer_refunds', 0);
+    }
+
+    public function test_phase_9c3a_additional_collection_is_rejected_and_zero_delta_needs_no_refund(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::ShamCash, '30', $c['currency']->id, now());
+        $assignment = $c['order']->captainAssignments()->sole();
+        $service = app(InvoiceFinancialCorrectionService::class);
+        $higher = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '12.00']],
+                'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
+            'Higher amount', 'Requires additional collection outside this phase', (string) Str::uuid());
+        try {
+            $service->prepare($c['admin'], $higher);
+            $this->fail('A higher corrected customer obligation was prepared.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('ADDITIONAL_COLLECTION_REQUIRED', $exception->errors()['correction'][0]);
+        }
+        $service->abandon($c['admin'], $higher);
+        $equal = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
+            ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '10.00']],
+                'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
+            'Description correction', 'Customer total remains the same', (string) Str::uuid());
+        $prepared = $service->prepare($c['admin'], $equal);
+        $this->assertSame('0.0000', $prepared->customer_delta);
+        $this->assertSame(InvoiceFinancialCorrectionState::ReadyToFinalize, $prepared->state);
+        $completed = $service->finalize($c['admin'], $prepared);
+        $this->assertSame(InvoiceFinancialCorrectionState::Completed, $completed->state);
+        $this->assertDatabaseCount('customer_refunds', 0);
+        $this->assertSame('30.0000', Invoice::findOrFail($completed->replacement_invoice_id)->grand_total);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_phase_9c3a_completed_external_bill_payment_forbids_cancellation_correction(): void
+    {
+        Storage::fake('order_receipts');
+        Storage::fake(OrderBillPaymentService::DISK);
+        $c = $this->context();
+        app(BillPaymentFeeRuleService::class)->create($c['admin'], $c['currency']->id, '2', now()->subDays(2));
+        $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice,
+            InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+            OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+            OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), $status, null);
+        }
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order']->fresh(), $c['shop'], 'picked_up_at');
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order']->fresh(), $c['shop'],
+            UploadedFile::fake()->createWithContent('delivered.png', base64_decode(self::PNG)), null);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order']->fresh(), OrderOperationalStatus::Delivered, null);
+        $assignment = $c['order']->captainAssignments()->sole();
+        app(OrderBillPaymentService::class)->complete($c['employee'], $c['order'], $request, [
+            'order_captain_id' => $assignment->id, 'currency_id' => $c['currency']->id,
+            'bill_number' => 'EXTERNAL-PAID', 'bill_date' => today()->toDateString(),
+            'principal_amount' => '100', 'payment_reference' => 'SHAM-EXTERNAL-PAID',
+        ], [UploadedFile::fake()->createWithContent('external.png', base64_decode(self::PNG))]);
+        try {
+            app(InvoiceFinancialCorrectionService::class)->request($c['employee'], $invoice,
+                InvoiceFinancialCorrectionKind::CancelAndRefund, [], 'Customer cancellation',
+                'Cannot unwind completed external bill payment', (string) Str::uuid());
+            $this->fail('A completed external bill payment entered cancellation correction.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE', $exception->errors()['correction'][0]);
+        }
+        $this->assertDatabaseCount('invoice_financial_corrections', 0);
+        $this->assertDatabaseCount('customer_refunds', 0);
+        $this->assertDatabaseCount('order_cancellations', 0);
+        $this->assertDatabaseHas('order_bill_payments', ['order_id' => $c['order']->id]);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
     }
 
     private function expectValidation(callable $callback): void

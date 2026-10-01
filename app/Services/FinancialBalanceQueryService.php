@@ -5,14 +5,17 @@ namespace App\Services;
 use App\Enums\FinancialAccountKind;
 use App\Enums\FinancialEntryDirection;
 use App\Enums\FinancialOwnerType;
+use App\Exceptions\FinancialIdempotencyConflictException;
 use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\FinancialAccount;
 use App\Models\FinancialEntry;
 use Brick\Math\BigDecimal;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class FinancialBalanceQueryService
 {
@@ -111,6 +114,66 @@ class FinancialBalanceQueryService
     /** @return Collection<int, object> Exact, attributable and unreversed Receivable increases. */
     public function payableReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
     {
+        $eventTypes = [
+            'ORDER_CASH_DELIVERY_SHORTFALL_DUE',
+            'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE',
+            'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE',
+        ];
+        if (DB::scalar("SELECT to_regprocedure('corrected_receivable_payouts_active()') IS NOT NULL")
+            && DB::scalar('SELECT corrected_receivable_payouts_active()')) {
+            $eventTypes = array_merge($eventTypes, [
+                'INVOICE_CORRECTION_CASH_SHORTFALL_DUE',
+                'INVOICE_CORRECTION_SHAM_PRODUCT_DUE',
+                'INVOICE_CORRECTION_SHAM_DELIVERY_DUE',
+            ]);
+        }
+
+        return $this->receivableSourceEntries($captain, $branch, $currency, $eventTypes);
+    }
+
+    /** Known immutable sources explain the economic balance while deployment keeps them non-allocatable. */
+    public function gatedCorrectedReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
+    {
+        if (! DB::scalar("SELECT to_regprocedure('corrected_receivable_payouts_active()') IS NOT NULL")
+            || DB::scalar('SELECT corrected_receivable_payouts_active()')) {
+            return collect();
+        }
+        $sources = $this->receivableSourceEntries($captain, $branch, $currency, [
+            'INVOICE_CORRECTION_CASH_SHORTFALL_DUE',
+            'INVOICE_CORRECTION_SHAM_PRODUCT_DUE',
+            'INVOICE_CORRECTION_SHAM_DELIVERY_DUE',
+        ]);
+        foreach ($sources->unique('financial_transaction_id') as $source) {
+            $correction = $source->source_type === 'INVOICE_FINANCIAL_CORRECTION'
+                ? DB::table('invoice_financial_corrections')->whereRaw('id::text = ?', [$source->source_id])->first()
+                : null;
+            $snapshotId = $correction ? DB::table('invoice_correction_financial_snapshots')
+                ->where('invoice_financial_correction_id', $correction->id)->value('id') : null;
+            if (! $correction || $correction->state !== 'COMPLETED' || ! $snapshotId) {
+                throw new FinancialIdempotencyConflictException('FINANCIAL_CORRECTION_REQUIRED: Invalid gated corrected Receivable source.');
+            }
+            try {
+                DB::select('SELECT validate_invoice_correction_snapshot_facts(?)', [$snapshotId]);
+                DB::select('SELECT validate_invoice_correction_ledger_transaction(?)', [$source->financial_transaction_id]);
+                foreach (['validate_completed_invoice_correction', 'validate_complete_correction_financial_set'] as $validator) {
+                    if (DB::scalar('SELECT to_regprocedure(?) IS NOT NULL', [$validator.'(bigint)'])) {
+                        DB::select('SELECT '.$validator.'(?)', [$correction->id]);
+                    }
+                }
+            } catch (QueryException $exception) {
+                throw new FinancialIdempotencyConflictException('FINANCIAL_CORRECTION_REQUIRED: Invalid gated corrected Receivable source_entry_id='.$source->financial_entry_id, previous: $exception);
+            }
+        }
+
+        return $sources;
+    }
+
+    private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes): Collection
+    {
+        $orderLookup = Schema::hasTable('invoice_financial_corrections')
+            ? "CASE WHEN t.source_type = 'INVOICE_COLLECTION' THEN (SELECT ic.order_id FROM invoice_collections ic WHERE ic.id::text = t.source_id) WHEN t.source_type = 'INVOICE_FINANCIAL_CORRECTION' THEN (SELECT c.order_id FROM invoice_financial_corrections c WHERE c.id::text = t.source_id) END"
+            : '(SELECT ic.order_id FROM invoice_collections ic WHERE ic.id::text = t.source_id)';
+
         return DB::table('financial_entries as e')
             ->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
             ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
@@ -123,15 +186,11 @@ class FinancialBalanceQueryService
             ->where('t.branch_id', $branch->id)
             ->where('t.transaction_kind', 'EVENT')->where('t.status', 'POSTED')
             ->where('e.direction', FinancialEntryDirection::Increase->value)
-            ->whereIn('t.event_type', [
-                'ORDER_CASH_DELIVERY_SHORTFALL_DUE',
-                'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE',
-                'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE',
-            ])
+            ->whereIn('t.event_type', $eventTypes)
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('financial_transactions as r')
                 ->whereColumn('r.reversal_of_transaction_id', 't.id'))
             ->groupBy('e.id', 't.id')
-            ->selectRaw("e.id AS financial_entry_id, t.id AS financial_transaction_id, t.event_type, t.source_type, t.source_id, t.occurred_at, e.amount, COALESCE(SUM(p.amount), 0) AS paid_amount, e.amount - COALESCE(SUM(p.amount), 0) AS remaining_amount, (SELECT o.order_number FROM invoice_collections ic JOIN orders o ON o.id = ic.order_id WHERE t.source_type = 'INVOICE_COLLECTION' AND ic.id::text = t.source_id LIMIT 1) AS order_number")
+            ->selectRaw("e.id AS financial_entry_id, t.id AS financial_transaction_id, t.event_type, t.source_type, t.source_id, t.occurred_at, e.amount, COALESCE(SUM(p.amount), 0) AS paid_amount, e.amount - COALESCE(SUM(p.amount), 0) AS remaining_amount, (SELECT o.order_number FROM orders o WHERE o.id = {$orderLookup} LIMIT 1) AS order_number")
             ->havingRaw('e.amount - COALESCE(SUM(p.amount), 0) > 0')
             ->orderBy('t.occurred_at')->orderBy('e.id')->get();
     }

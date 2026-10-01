@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Enums\ActualPriceSource;
 use App\Enums\CaptainOperationalStatus;
+use App\Enums\InvoiceCollectionMethod;
+use App\Enums\InvoiceFinancialCorrectionKind;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
@@ -19,18 +21,29 @@ use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\InvoiceFinancialCorrection;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
 use App\Models\OrderShopPurchaseConfirmation;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\CustomerRefundService;
+use App\Services\FinancialBalanceQueryService;
+use App\Services\InvoiceCollectionService;
+use App\Services\InvoiceFinancialCorrectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderCancellationFinalizationService;
 use App\Services\OrderCancellationIntentService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderService;
+use App\Services\OrderShopProgressService;
+use App\Services\OrderShopPurchaseConfirmationService;
+use App\Services\OrderShopReceiptService;
+use App\Services\OrderShopReturnService;
+use App\Services\OrderStatusService;
 use Database\Seeders\AuthorizationSeeder;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -40,6 +53,304 @@ use Tests\TestCase;
 
 class Phase85ConcurrencyTest extends TestCase
 {
+    public function test_phase_9c3a_refunded_cancellation_and_legacy_finalizer_cannot_both_create_cancellation(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            Storage::fake('order_purchases');
+            Storage::fake('order_returns');
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $assignment = $fixture['order']->captainAssignments()->sole();
+            app(OrderShopPurchaseConfirmationService::class)->record($fixture['actor'], $fixture['order'], $ready['shop'], [
+                'order_captain_id' => $assignment->id, 'currency_id' => $ready['currency']->id,
+                'amount' => '10.00', 'purchased_at' => now()->subMinutes(5)->toIso8601String(),
+                'request_key' => (string) Str::uuid(),
+            ], UploadedFile::fake()->createWithContent('purchase.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')));
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::Cash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            $source = app(InvoiceFinancialCorrectionService::class)->request($fixture['actor'], $invoice,
+                InvoiceFinancialCorrectionKind::CancelAndRefund, [], 'Customer cancellation',
+                'Full return and customer refund', (string) Str::uuid());
+            app(OrderCancellationIntentService::class)->create($fixture['actor'], $fixture['order'],
+                OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+            app(InvoiceFinancialCorrectionService::class)->prepare($admin, $source);
+            app(OrderShopReturnService::class)->record($fixture['actor'], $fixture['order'], $ready['shop'], [
+                'returning_order_captain_id' => $assignment->id, 'refund_amount' => '10.00',
+                'returned_at' => now()->subMinutes(2)->toIso8601String(),
+                'refunded_at' => now()->subMinute()->toIso8601String(),
+                'refund_method' => 'CASH', 'request_key' => (string) Str::uuid(),
+            ], ['RETURN_AND_REFUND_PROOF' => UploadedFile::fake()->createWithContent('return.png',
+                base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))]);
+            app(CustomerRefundService::class)->record($admin, $source, (string) Str::uuid(), now(), 'FINAL-CANCEL-REFUND',
+                UploadedFile::fake()->createWithContent('refund.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')));
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'correction_finalize', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'correction_id' => $source->id],
+                ['operation' => 'finalize', 'actor_id' => $fixture['actor']->id,
+                    'order_id' => $fixture['order']->id],
+            ]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $this->assertSame('COMPLETED', $source->fresh()->state->value);
+            $this->assertSame('CANCELLED', $fixture['order']->fresh()->operational_status->value);
+            $this->assertSame(1, DB::table('order_cancellations')->where('order_id', $fixture['order']->id)->count());
+            foreach (DB::table('customer_refunds')->where('invoice_financial_correction_id', $source->id)->pluck('evidence_path') as $path) {
+                Storage::disk('customer_refunds')->delete($path);
+            }
+        });
+    }
+
+    public function test_phase_9c3a_collected_invoice_replace_cannot_race_past_correction_request(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::Cash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'correction_request', 'actor_id' => $fixture['actor']->id,
+                    'order_id' => $fixture['order']->id, 'invoice_id' => $invoice->id,
+                    'kind' => InvoiceFinancialCorrectionKind::Reprice->value,
+                    'proposal' => ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                        'delivery' => [['order_captain_id' => $fixture['order']->captainAssignments()->sole()->id,
+                            'customer_amount' => '5.00']]],
+                    'reason' => 'Correct price', 'explanation' => 'Verified customer amount',
+                    'request_key' => (string) Str::uuid()],
+                ['operation' => 'invoice_replace', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'invoice_id' => $invoice->id,
+                    'reason' => 'Racing replacement'],
+            ]);
+            $this->assertSame(['success' => 1, 'validation' => 1],
+                collect($results)->countBy('status')->sortKeys()->all(), json_encode($results));
+            $this->assertSame('ISSUED', $invoice->fresh()->status->value);
+            $this->assertDatabaseCount('invoice_financial_corrections', 1);
+            $this->assertDatabaseCount('invoice_collections', 1);
+        });
+    }
+
+    public function test_phase_9c3a_prepare_vs_receivable_payout_rechecks_paid_dependency(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            Storage::fake('order_receipts');
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::ShamCash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+                OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+                OrderOperationalStatus::HeadingToCustomer] as $status) {
+                app(OrderStatusService::class)->transition($fixture['actor'], $fixture['order']->fresh(), $status, null);
+            }
+            app(OrderShopProgressService::class)->record($fixture['actor'], $fixture['order']->fresh(), $ready['shop'], 'picked_up_at');
+            app(OrderShopReceiptService::class)->upload($fixture['actor'], $fixture['order']->fresh(), $ready['shop'],
+                UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')), null);
+            app(OrderStatusService::class)->transition($fixture['actor'], $fixture['order']->fresh(), OrderOperationalStatus::Delivered, null);
+            $due = app(FinancialBalanceQueryService::class)
+                ->payableReceivableEntries($ready['captain'], $fixture['branch'], $ready['currency'])
+                ->firstWhere('event_type', 'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE');
+            $this->assertNotNull($due);
+            $source = app(InvoiceFinancialCorrectionService::class)->request($fixture['actor'], $invoice,
+                InvoiceFinancialCorrectionKind::Reprice,
+                ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                    'delivery' => [['order_captain_id' => $fixture['order']->captainAssignments()->sole()->id,
+                        'customer_amount' => '5.00']]],
+                'Concurrent payout', 'Product subtotal must decrease', (string) Str::uuid());
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'correction_prepare', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'correction_id' => $source->id],
+                ['operation' => 'receivable_payout', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'captain_id' => $ready['captain']->id,
+                    'branch_id' => $fixture['branch']->id, 'currency_id' => $ready['currency']->id,
+                    'request_key' => (string) Str::uuid(), 'amount' => (string) $due->amount,
+                    'occurred_at' => now()->subSecond()->toIso8601String(), 'reference' => 'RACE-PREPARE-PAYOUT',
+                    'financial_entry_id' => $due->financial_entry_id],
+            ], $ready['currency']);
+            $this->assertSame('success', $results[1]['status'], json_encode($results));
+            $this->assertContains($results[0]['status'], ['success', 'validation'], json_encode($results));
+            if ($results[0]['status'] === 'validation') {
+                $this->assertStringContainsString('CAPTAIN_RECOVERY_REQUIRED',
+                    $results[0]['errors']['correction'][0]);
+            }
+            $this->assertDatabaseCount('captain_receivable_payout_allocations', 1);
+            $this->assertDatabaseCount('invoice_correction_reversals', 0);
+            $this->assertContains($source->fresh()->state->value, ['REQUESTED', 'PREPARED']);
+            foreach (DB::table('captain_receivable_payouts')->pluck('evidence_path') as $path) {
+                Storage::disk('captain_financial_evidence')->delete($path);
+            }
+        });
+    }
+
+    public function test_phase_9c3a_finalize_vs_original_receivable_payout_has_one_financial_winner(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            Storage::fake('order_receipts');
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::ShamCash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+                OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+                OrderOperationalStatus::HeadingToCustomer] as $status) {
+                app(OrderStatusService::class)->transition($fixture['actor'], $fixture['order']->fresh(), $status, null);
+            }
+            app(OrderShopProgressService::class)->record($fixture['actor'], $fixture['order']->fresh(), $ready['shop'], 'picked_up_at');
+            app(OrderShopReceiptService::class)->upload($fixture['actor'], $fixture['order']->fresh(), $ready['shop'],
+                UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')), null);
+            app(OrderStatusService::class)->transition($fixture['actor'], $fixture['order']->fresh(), OrderOperationalStatus::Delivered, null);
+            $due = app(FinancialBalanceQueryService::class)
+                ->payableReceivableEntries($ready['captain'], $fixture['branch'], $ready['currency'])
+                ->firstWhere('event_type', 'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE');
+            $this->assertNotNull($due);
+            $source = app(InvoiceFinancialCorrectionService::class)->request($fixture['actor'], $invoice,
+                InvoiceFinancialCorrectionKind::Reprice,
+                ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                    'delivery' => [['order_captain_id' => $fixture['order']->captainAssignments()->sole()->id,
+                        'customer_amount' => '5.00']]],
+                'Concurrent payout', 'Product subtotal must decrease', (string) Str::uuid());
+            app(InvoiceFinancialCorrectionService::class)->prepare($admin, $source);
+            app(CustomerRefundService::class)->record($admin, $source, (string) Str::uuid(), now(), 'RACE-REFUND',
+                UploadedFile::fake()->createWithContent('refund.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')));
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'correction_finalize', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'correction_id' => $source->id],
+                ['operation' => 'receivable_payout', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'captain_id' => $ready['captain']->id,
+                    'branch_id' => $fixture['branch']->id, 'currency_id' => $ready['currency']->id,
+                    'request_key' => (string) Str::uuid(), 'amount' => (string) $due->amount,
+                    'occurred_at' => now()->subSecond()->toIso8601String(), 'reference' => 'RACE-PAYOUT',
+                    'financial_entry_id' => $due->financial_entry_id],
+            ], $ready['currency']);
+            $this->assertOneSuccessAndOneValidation($results);
+            $completed = $source->fresh()->state->value === 'COMPLETED';
+            $paid = DB::table('captain_receivable_payout_allocations')
+                ->where('financial_entry_id', $due->financial_entry_id)->exists();
+            $this->assertNotSame($completed, $paid);
+            $this->assertSame($completed ? 1 : 0,
+                DB::table('invoice_correction_reversals')->where('invoice_financial_correction_id', $source->id)->count() > 0 ? 1 : 0);
+            foreach (DB::table('customer_refunds')->where('invoice_financial_correction_id', $source->id)->pluck('evidence_path') as $path) {
+                Storage::disk('customer_refunds')->delete($path);
+            }
+            foreach (DB::table('captain_receivable_payouts')->pluck('evidence_path') as $path) {
+                Storage::disk('captain_financial_evidence')->delete($path);
+            }
+        });
+    }
+
+    public function test_phase_9c3a_correction_prepare_and_delivery_never_leave_unposted_delivered_finances(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::Cash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
+                OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
+                OrderOperationalStatus::HeadingToCustomer] as $status) {
+                app(OrderStatusService::class)->transition($fixture['actor'], $fixture['order']->fresh(), $status, null);
+            }
+            app(OrderShopProgressService::class)->record($fixture['actor'], $fixture['order']->fresh(), $ready['shop'], 'picked_up_at');
+            app(OrderShopReceiptService::class)->upload($fixture['actor'], $fixture['order']->fresh(), $ready['shop'],
+                UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')), null);
+            $source = app(InvoiceFinancialCorrectionService::class)->request($fixture['actor'], $invoice,
+                InvoiceFinancialCorrectionKind::Reprice,
+                ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                    'delivery' => [['order_captain_id' => $fixture['order']->captainAssignments()->sole()->id,
+                        'customer_amount' => '5.00']]],
+                'Concurrent delivery', 'Correct historical price', (string) Str::uuid());
+            $results = $this->raceServices($fixture['order'], [
+                ['operation' => 'correction_prepare', 'actor_id' => $admin->id,
+                    'order_id' => $fixture['order']->id, 'correction_id' => $source->id],
+                ['operation' => 'deliver', 'actor_id' => $fixture['actor']->id,
+                    'order_id' => $fixture['order']->id],
+            ]);
+            $this->assertSame('success', $results[0]['status'], json_encode($results));
+            $this->assertContains($results[1]['status'], ['success', 'validation'], json_encode($results));
+            $delivered = $fixture['order']->fresh()->operational_status === OrderOperationalStatus::Delivered;
+            $originalEvents = DB::table('financial_transactions')->where('source_type', 'INVOICE_COLLECTION')->count();
+            $this->assertSame($delivered, $originalEvents > 0);
+            $this->assertSame('PREPARED', $source->fresh()->state->value);
+        });
+    }
+
+    public function test_phase_9c3a_real_request_refund_and_finalization_workers_keep_one_canonical_history(): void
+    {
+        $this->requirePostgresConcurrency();
+        $this->withIsolatedSchema(function (): void {
+            $fixture = $this->fixture();
+            $ready = $this->readyInvoice($fixture);
+            $invoice = app(InvoiceService::class)->issue($fixture['actor'], $fixture['order'], $ready['invoice']);
+            app(InvoiceCollectionService::class)->record($fixture['actor'], $invoice,
+                InvoiceCollectionMethod::Cash, $invoice->grand_total, $ready['currency']->id, now());
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+            $proposal = [
+                'items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
+                'delivery' => [['order_captain_id' => $fixture['order']->captainAssignments()->sole()->id,
+                    'customer_amount' => '5.00']],
+            ];
+            $job = fn (): array => [
+                'operation' => 'correction_request', 'actor_id' => $fixture['actor']->id,
+                'order_id' => $fixture['order']->id, 'invoice_id' => $invoice->id,
+                'kind' => InvoiceFinancialCorrectionKind::Reprice->value, 'proposal' => $proposal,
+                'reason' => 'Concurrent correction', 'explanation' => 'Verified customer amount',
+                'request_key' => (string) Str::uuid(),
+            ];
+            $results = $this->raceServices($fixture['order'], [$job(), $job()]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $correction = InvoiceFinancialCorrection::query()->sole();
+            app(InvoiceFinancialCorrectionService::class)->prepare($admin, $correction);
+
+            $refundAt = now()->format('Y-m-d H:i:s.uP');
+            $refundJob = fn (): array => [
+                'operation' => 'correction_refund', 'actor_id' => $admin->id,
+                'order_id' => $fixture['order']->id, 'correction_id' => $correction->id,
+                'request_key' => (string) Str::uuid(), 'reference' => 'ONE-REAL-REFUND',
+                'refunded_at' => $refundAt,
+            ];
+            $results = $this->raceServices($fixture['order'], [$refundJob(), $refundJob()]);
+            $this->assertOneSuccessAndOneValidation($results);
+            $this->assertSame(1, DB::table('customer_refunds')->where('invoice_financial_correction_id', $correction->id)->count());
+
+            $finalize = ['operation' => 'correction_finalize', 'actor_id' => $admin->id,
+                'order_id' => $fixture['order']->id, 'correction_id' => $correction->id];
+            $recordedRefund = DB::table('customer_refunds')->where('invoice_financial_correction_id', $correction->id)->sole();
+            $retry = ['operation' => 'correction_refund', 'actor_id' => $admin->id,
+                'order_id' => $fixture['order']->id, 'correction_id' => $correction->id,
+                'request_key' => $recordedRefund->request_key, 'reference' => $recordedRefund->reference,
+                'refunded_at' => $refundAt];
+            $results = $this->raceServices($fixture['order'], [$retry, $finalize]);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(1, DB::table('customer_refunds')->where('invoice_financial_correction_id', $correction->id)->count());
+            $results = $this->raceServices($fixture['order'], [$finalize, $finalize]);
+            $this->assertSame(['success' => 2], collect($results)->countBy('status')->all(), json_encode($results));
+            $this->assertSame(1, DB::table('invoices')->where('order_id', $fixture['order']->id)->where('version', 2)->count());
+            $this->assertSame('COMPLETED', DB::table('invoice_financial_corrections')->where('id', $correction->id)->value('state'));
+
+            foreach (DB::table('customer_refunds')->where('invoice_financial_correction_id', $correction->id)->pluck('evidence_path') as $path) {
+                Storage::disk('customer_refunds')->delete($path);
+            }
+        });
+    }
+
     public function test_two_real_captain_rating_services_serialize_and_return_a_controlled_conflict(): void
     {
         $this->requirePostgresConcurrency();
@@ -293,7 +604,7 @@ class Phase85ConcurrencyTest extends TestCase
         ]);
     }
 
-    private function raceServices(Order $order, array $jobs): array
+    private function raceServices(Order $order, array $jobs, ?Currency $lockedCurrency = null): array
     {
         $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'abshir-phase85-race-'.bin2hex(random_bytes(8));
         mkdir($directory, 0700, true);
@@ -303,7 +614,11 @@ class Phase85ConcurrencyTest extends TestCase
         DB::beginTransaction();
 
         try {
-            DB::table('orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
+            if ($lockedCurrency) {
+                DB::table('currencies')->where('id', $lockedCurrency->id)->lockForUpdate()->firstOrFail();
+            } else {
+                DB::table('orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
+            }
 
             foreach ($jobs as $index => $job) {
                 $payloadPath = $directory.DIRECTORY_SEPARATOR."payload-{$index}.json";
@@ -320,7 +635,7 @@ class Phase85ConcurrencyTest extends TestCase
             touch($goPath);
             usleep(500_000);
             foreach ($processes as $worker) {
-                $this->assertTrue($worker['process']->isRunning(), 'A service worker did not wait for the locked Order. '.$worker['process']->getErrorOutput());
+                $this->assertTrue($worker['process']->isRunning(), 'A service worker did not wait for the locked Order or Currency. '.$worker['process']->getErrorOutput());
             }
 
             DB::commit();

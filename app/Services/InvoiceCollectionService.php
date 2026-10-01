@@ -31,6 +31,11 @@ class InvoiceCollectionService
                 throw ValidationException::withMessages(['order' => 'Collection is blocked by an AFTER_PURCHASE cancellation intent.']);
             }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            if (Schema::hasTable('invoice_financial_corrections')
+                && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
+                    ->where('state', 'COMPLETED')->exists()) {
+                throw ValidationException::withMessages(['invoice' => 'Corrected Invoice payment is satisfied by the original Collection and CustomerRefund.']);
+            }
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
                 throw ValidationException::withMessages(['invoice' => 'Collection requires the current ISSUED Invoice.']);
             }

@@ -18,6 +18,11 @@ enum FinancialEventType: string
     case BillPaymentServiceFeeRetained = 'BILL_PAYMENT_SERVICE_FEE_RETAINED';
     case CaptainDepositReceived = 'CAPTAIN_DEPOSIT_RECEIVED';
     case CaptainReceivablePaid = 'CAPTAIN_RECEIVABLE_PAID';
+    case InvoiceCorrectionReverseOriginal = 'INVOICE_CORRECTION_REVERSE_ORIGINAL';
+    case InvoiceCorrectionCashDepositDebit = 'INVOICE_CORRECTION_CASH_DEPOSIT_DEBIT';
+    case InvoiceCorrectionCashShortfallDue = 'INVOICE_CORRECTION_CASH_SHORTFALL_DUE';
+    case InvoiceCorrectionShamProductDue = 'INVOICE_CORRECTION_SHAM_PRODUCT_DUE';
+    case InvoiceCorrectionShamDeliveryDue = 'INVOICE_CORRECTION_SHAM_DELIVERY_DUE';
 
     public static function orderDerived(): array
     {

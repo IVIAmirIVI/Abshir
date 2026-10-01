@@ -6,6 +6,7 @@ use App\Enums\FinancialAccountKind;
 use App\Enums\FinancialEntryDirection;
 use App\Enums\FinancialEventType;
 use App\Enums\InvoiceCollectionMethod;
+use App\Enums\InvoiceFinancialCorrectionState;
 use App\Enums\InvoiceStatus;
 use App\Enums\OrderOperationalStatus;
 use App\Exceptions\FinancialIdempotencyConflictException;
@@ -18,11 +19,13 @@ use App\Models\FinancialOwner;
 use App\Models\FinancialTransaction;
 use App\Models\Invoice;
 use App\Models\InvoiceCollection;
+use App\Models\InvoiceFinancialCorrection;
 use App\Models\Order;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class CorrectedOrderFinancialService
 {
@@ -32,6 +35,7 @@ class CorrectedOrderFinancialService
         private readonly OrderFinancialSourceSnapshotService $snapshots,
         private readonly FinancialPostingService $posting,
         private readonly FinancialAccountService $accounts,
+        private readonly InvoiceCorrectionFinancialPostingService $correctionPosting,
     ) {}
 
     /** Read-only assessment, including strict checks against any posted corrected events. */
@@ -49,6 +53,18 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $correction = Schema::hasTable('invoice_financial_corrections')
+                ? InvoiceFinancialCorrection::query()->where('order_id', $order->id)
+                    ->whereIn('state', ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE', 'COMPLETED'])
+                    ->orderByDesc('id')->first()
+                : null;
+            if ($correction) {
+                if ($correction->state !== InvoiceFinancialCorrectionState::Completed) {
+                    throw ValidationException::withMessages(['order' => 'An unresolved Invoice financial correction blocks original Order posting.']);
+                }
+
+                return $this->correctionPosting->postIfDeliveredLocked($order, $correction);
+            }
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                 throw new FinancialLedgerException('Order financial posting is blocked by an AFTER_PURCHASE cancellation intent.');
             }

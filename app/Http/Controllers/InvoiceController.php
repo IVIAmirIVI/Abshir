@@ -6,8 +6,10 @@ use App\Enums\InvoiceStatus;
 use App\Enums\OrderCaptainRole;
 use App\Http\Requests\InvoiceReasonRequest;
 use App\Models\Invoice;
+use App\Models\InvoiceFinancialCorrection;
 use App\Models\Order;
 use App\Services\InvoiceService;
+use App\Services\OrderFinancialSourceSnapshotService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,15 +27,21 @@ class InvoiceController extends Controller
         return view('invoices.index', ['invoices' => $invoices, 'branches' => $request->user()->availableBranches()->orderBy('name')->get(), 'statuses' => InvoiceStatus::cases()]);
     }
 
-    public function show(Request $request, Order $order, Invoice $invoice): View
+    public function show(Request $request, Order $order, Invoice $invoice, OrderFinancialSourceSnapshotService $snapshots): View
     {
         Gate::authorize('invoices.view');
         $this->ownership($request, $order, $invoice);
 
         $invoice->load(['order.branch', 'order.captainAssignments.captain.user', 'currency', 'items', 'collection.captain.user', 'issuer', 'voider', 'replacer', 'replacementInvoice']);
         $primaryCollector = $invoice->order->captainAssignments->first(fn ($assignment) => $assignment->removed_at === null && $assignment->assignment_role === OrderCaptainRole::PrimaryCollection);
+        $corrections = InvoiceFinancialCorrection::query()->where('original_invoice_id', $invoice->id)
+            ->with('refund')->latest('id')->get();
+        $settledCorrection = InvoiceFinancialCorrection::query()->where('replacement_invoice_id', $invoice->id)
+            ->where('state', 'COMPLETED')->first();
+        $correctionSource = $invoice->collection && $invoice->status === InvoiceStatus::Issued
+            && $request->user()->can('invoice_corrections.request') ? $snapshots->read($invoice) : null;
 
-        return view('invoices.show', compact('invoice', 'primaryCollector'));
+        return view('invoices.show', compact('invoice', 'primaryCollector', 'corrections', 'settledCorrection', 'correctionSource'));
     }
 
     public function print(Request $request, Order $order, Invoice $invoice): View

@@ -95,10 +95,13 @@ class CaptainReceivablePayoutService
                 $branchBalance = BigDecimal::of($this->balances->captainBranchBalance($captain, $branch, $currency, FinancialAccountKind::CaptainCompanyReceivable));
                 $payable = $this->balances->payableReceivableEntries($captain, $branch, $currency)->keyBy('financial_entry_id');
                 $payableTotal = $payable->reduce(fn (BigDecimal $sum, $row): BigDecimal => $sum->plus((string) $row->remaining_amount), BigDecimal::zero());
-                if (! $branchBalance->isEqualTo($payableTotal)) {
+                $gated = $this->balances->gatedCorrectedReceivableEntries($captain, $branch, $currency);
+                $gatedTotal = $gated->reduce(fn (BigDecimal $sum, $row): BigDecimal => $sum->plus((string) $row->remaining_amount), BigDecimal::zero());
+                if (! $branchBalance->isEqualTo($payableTotal->plus($gatedTotal))) {
                     throw new FinancialIdempotencyConflictException('FINANCIAL_CORRECTION_REQUIRED: Branch Receivable includes unresolved or unattributed history.');
                 }
-                if (! $branchBalance->isGreaterThan(0) || $branchBalance->isLessThan(BigDecimal::of($amount))) {
+                if (! $payableTotal->isGreaterThan(0) || $payableTotal->isLessThan(BigDecimal::of($amount))
+                    || $branchBalance->isLessThan(BigDecimal::of($amount))) {
                     throw ValidationException::withMessages(['amount' => 'Payout exceeds the payable Receivable in this Branch and Currency.']);
                 }
                 foreach ($allocationMap as $entryId => $value) {
