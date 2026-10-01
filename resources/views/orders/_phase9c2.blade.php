@@ -68,7 +68,7 @@
         @endforeach
     </div>
 
-    @if(!$order->cancellationIntent && !$order->cancellation && $order->purchaseConfirmations->isNotEmpty() && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true))
+    @if(!$order->cancellationIntent && !$order->cancellation && $order->purchaseConfirmations->isNotEmpty() && (!in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true) || ($recoveredCancellationAvailable ?? false)))
         @can('order_cancellation_intents.create')
             <form method="POST" action="{{ route('orders.cancellation-intent.store', $order) }}" class="grid gap-2 max-w-xl text-sm">@csrf
                 <input type="hidden" name="request_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">

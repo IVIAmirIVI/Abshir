@@ -11,6 +11,12 @@ use Illuminate\Validation\ValidationException;
 
 class OrderCancellationSafetyService
 {
+    public function allowsRecoveredDeliveredCancellation(Order $order, bool $forIntent): bool
+    {
+        return DB::scalar("SELECT to_regprocedure('captain_recovery_cancellation_allowed(bigint,boolean)') IS NOT NULL")
+            && DB::scalar('SELECT captain_recovery_cancellation_allowed(?,?)', [$order->id, $forIntent]);
+    }
+
     public function assertNoFinancialCorrectionRequiredLocked(Order $order, bool $forIntent = false): void
     {
         $correction = Schema::hasTable('invoice_financial_corrections') ? DB::table('invoice_financial_corrections')

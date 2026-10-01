@@ -56,4 +56,9 @@ class InvoiceFinancialCorrection extends Model
     {
         return $this->hasMany(InvoiceCorrectionReceivableDisposition::class, 'invoice_financial_correction_id');
     }
+
+    public function recoveries(): HasMany
+    {
+        return $this->hasMany(CaptainReceivableRecovery::class);
+    }
 }

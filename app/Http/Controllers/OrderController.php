@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\OrderEntryMode;
+use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderShopType;
 use App\Enums\OrderSource;
 use App\Http\Requests\OrderRequest;
@@ -14,6 +15,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\Unit;
+use App\Services\OrderCancellationSafetyService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
 use Illuminate\Database\Eloquent\Builder;
@@ -86,6 +88,9 @@ class OrderController extends Controller
             $pricingPreview = $deliveryPricing->preview($r->user(), $order, Area::findOrFail($validated['preview_from_area_id']));
         }
 
-        return view('orders.show', ['order' => $order, 'shops' => $shops, 'products' => Product::where('is_active', true)->orderBy('name')->get(), 'units' => Unit::where('is_active', true)->orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'captains' => $captains, 'currentDeliveryPricing' => $currentDeliveryPricing, 'pricingOrigins' => $pricingOrigins, 'destinationAreas' => $pricingOrigins, 'suggestedOriginId' => $suggestedOriginId, 'pricingPreview' => $pricingPreview]);
+        $recoveredCancellationAvailable = $order->operational_status === OrderOperationalStatus::Delivered
+            && app(OrderCancellationSafetyService::class)->allowsRecoveredDeliveredCancellation($order, true);
+
+        return view('orders.show', ['order' => $order, 'shops' => $shops, 'products' => Product::where('is_active', true)->orderBy('name')->get(), 'units' => Unit::where('is_active', true)->orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'captains' => $captains, 'currentDeliveryPricing' => $currentDeliveryPricing, 'pricingOrigins' => $pricingOrigins, 'destinationAreas' => $pricingOrigins, 'suggestedOriginId' => $suggestedOriginId, 'pricingPreview' => $pricingPreview, 'recoveredCancellationAvailable' => $recoveredCancellationAvailable]);
     }
 }

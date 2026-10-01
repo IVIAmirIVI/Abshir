@@ -37,7 +37,8 @@ class OrderCancellationIntentService
                 return $existing;
             }
             $this->safety->assertNoFinancialCorrectionRequiredLocked($order, true);
-            if (in_array($order->operational_status, [OrderOperationalStatus::Cancelled, OrderOperationalStatus::Delivered], true)) {
+            if ($order->operational_status === OrderOperationalStatus::Cancelled || ($order->operational_status === OrderOperationalStatus::Delivered
+                && ! $this->safety->allowsRecoveredDeliveredCancellation($order, true))) {
                 throw ValidationException::withMessages(['order' => 'Delivered or cancelled Orders cannot start cancellation.']);
             }
             $this->safety->assertNoLegacyPurchaseCandidateLocked($order);

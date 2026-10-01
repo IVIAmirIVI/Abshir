@@ -102,6 +102,28 @@
                                 <p class="font-semibold text-red-700">Captain repayment required before completion.</p>
                             @endif
                         @endforeach
+                        @foreach($recoverySummaries[$correction->id] as $requirement)
+                            <div class="rounded border p-3">
+                                <p>{{ $requirement['captain_name'] }} (Captain #{{ $requirement['captain_id'] }}) · {{ $invoice->order->branch->name }} · Full CASH repayment: {{ $requirement['amount'] }} {{ $invoice->currency->code }} · {{ $requirement['receipt'] ? 'RECEIVED' : 'REQUIRED' }}</p>
+                                @foreach($requirement['dispositions'] as $source)<p>{{ $source->concept }}: {{ $source->recovery_required }}</p>@endforeach
+                                @if($requirement['receipt'])
+                                    <p>Received {{ $requirement['receipt']->received_at }} by {{ $requirement['receipt']->receiver->name }}.</p>
+                                    @can('captain_receivable_recoveries.view_evidence')<a class="underline" href="{{ route('captain-recoveries.evidence',[$correction,$requirement['receipt']]) }}">Private CASH repayment evidence</a>@endcan
+                                @elseif($correction->state===\App\Enums\InvoiceFinancialCorrectionState::ReadyToFinalize && auth()->user()->roles()->where('code','ORDER_EMPLOYEE')->exists() && auth()->user()->branches()->whereKey($correction->branch_id)->exists())
+                                    @can('captain_receivable_recoveries.record')
+                                        <form method="POST" enctype="multipart/form-data" action="{{ route('captain-recoveries.store',[$correction,$requirement['captain_id']]) }}" class="grid gap-2 sm:grid-cols-2">
+                                            @csrf
+                                            <input type="hidden" name="request_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                                            <p>Exact amount: {{ $requirement['amount'] }} {{ $invoice->currency->code }}. Record only after physically receiving the full CASH repayment yourself.</p>
+                                            <label>Received at <x-text-input name="received_at" type="datetime-local" step="1" :value="now()->format('Y-m-d\TH:i:s')" required/></label>
+                                            <label>Reference <x-text-input name="reference"/></label>
+                                            <label>JPEG, PNG or WebP evidence, at most 5 MB <input type="file" name="evidence" accept="image/jpeg,image/png,image/webp" required></label>
+                                            <x-primary-button>Record full cash repayment</x-primary-button>
+                                        </form>
+                                    @endcan
+                                @endif
+                            </div>
+                        @endforeach
                         @if($correction->kind === \App\Enums\InvoiceFinancialCorrectionKind::CancelAndRefund)
                             <p>Shop returns and cancellation intent must be completed before finalization. <a class="underline" href="{{ route('orders.show', $invoice->order) }}">View Order progress</a></p>
                         @endif
@@ -132,7 +154,14 @@
                             @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.abandon', $correction) }}">@csrf<button class="rounded bg-gray-700 px-3 py-2 text-white">Abandon unfunded request</button></form>@endcan
                         @endif
                         @if($correction->state === \App\Enums\InvoiceFinancialCorrectionState::ReadyToFinalize)
-                            @can('invoice_corrections.finalize')<form method="POST" action="{{ route('invoice-corrections.finalize', $correction) }}">@csrf<x-primary-button>Finalize correction</x-primary-button></form>@endcan
+                            @can('invoice_corrections.finalize')
+                                @if(collect($recoverySummaries[$correction->id])->contains(fn($r)=>!$r['receipt']))
+                                    <p>Finalization awaits every required Captain CASH repayment.</p>
+                                    <button disabled class="rounded border p-2">Finalize correction</button>
+                                @else
+                                    <form method="POST" action="{{ route('invoice-corrections.finalize', $correction) }}">@csrf<x-primary-button>Finalize correction</x-primary-button></form>
+                                @endif
+                            @endcan
                         @endif
                     </article>
                 @endforeach

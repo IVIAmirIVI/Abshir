@@ -67,6 +67,13 @@ return [
             'throw' => true,
         ],
 
+        'captain_receivable_recoveries' => [
+            'driver' => 'local',
+            'root' => storage_path('app/captain-receivable-recoveries-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'order_returns' => [
             'driver' => 'local',
             'root' => storage_path('app/order-returns-private'),

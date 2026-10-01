@@ -12,6 +12,7 @@ use App\Models\Currency;
 use App\Models\FinancialAccount;
 use App\Models\InvoiceFinancialCorrection;
 use Brick\Math\BigDecimal;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -78,6 +79,15 @@ class InvoiceCorrectionReceivableDispositionService
         DB::select('SELECT validate_receivable_disposition_set(?)', [$correction->id]);
         $required = $correction->receivableDispositions()->where('recovery_required', '>', 0)->first();
         if ($required) {
+            if (app(CaptainReceivableRecoveryService::class)->active()) {
+                try {
+                    DB::select('SELECT validate_correction_recoveries(?,true)', [$correction->id]);
+
+                    return;
+                } catch (QueryException $exception) {
+                    throw ValidationException::withMessages(['correction' => 'CAPTAIN_RECOVERY_REQUIRED: exact valid full CASH recovery is required.']);
+                }
+            }
             throw ValidationException::withMessages(['correction' => 'CAPTAIN_RECOVERY_REQUIRED: disposition_id='.$required->id.', amount='.$required->recovery_required.'. Physical CASH recovery is deferred to Phase 9C.3B.2.']);
         }
     }

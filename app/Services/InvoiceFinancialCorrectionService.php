@@ -205,7 +205,8 @@ class InvoiceFinancialCorrectionService
                 throw ValidationException::withMessages(['refund' => 'A zero-delta correction cannot contain a refund.']);
             }
             if ($correction->kind === InvoiceFinancialCorrectionKind::CancelAndRefund) {
-                if ($order->operational_status === OrderOperationalStatus::Delivered || $order->billPayments()->exists()) {
+                if (($order->operational_status === OrderOperationalStatus::Delivered && ! DB::scalar("SELECT to_regprocedure('captain_recovery_cancellation_allowed(bigint,boolean)') IS NOT NULL")) || $order->billPayments()->exists()
+                    || ($order->operational_status === OrderOperationalStatus::Delivered && ! DB::scalar('SELECT captain_recovery_cancellation_allowed(?,true)', [$order->id]))) {
                     throw ValidationException::withMessages(['correction' => 'COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE or Order already delivered.']);
                 }
                 if (! $order->cancellationIntent()->exists()) {
@@ -260,6 +261,9 @@ class InvoiceFinancialCorrectionService
                 'captured_at' => $now,
             ]);
             if ($correction->kind === InvoiceFinancialCorrectionKind::CancelAndRefund) {
+                if ($order->operational_status === OrderOperationalStatus::Delivered && $correction->receivable_contract_version === 2) {
+                    $this->dispositions->postLocked($correction->fresh());
+                }
                 $this->cancellations->finalize($actor, $order);
             } else {
                 $this->posting->postIfDeliveredLocked($order->fresh(), $correction->fresh());

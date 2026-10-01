@@ -35,6 +35,7 @@ use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderPricingService;
 use App\Services\OrderService;
 use App\Services\OrderShopProgressService;
+use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
 use App\Services\OrderStatusService;
 use Brick\Math\BigDecimal;
@@ -48,7 +49,7 @@ trait ReceivableDispositionFixtures
 {
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-    protected function fixture(string $code, ?array $shared = null, string $captainPercent = '0', int $captainCount = 1, InvoiceCollectionMethod $method = InvoiceCollectionMethod::ShamCash, bool $deliver = true): array
+    protected function fixture(string $code, ?array $shared = null, string $captainPercent = '0', int $captainCount = 1, InvoiceCollectionMethod $method = InvoiceCollectionMethod::ShamCash, bool $deliver = true, bool $purchase = false): array
     {
         $this->seed(AuthorizationSeeder::class);
         foreach (['customer_refunds', 'order_receipts', 'captain_financial_evidence'] as $disk) {
@@ -98,6 +99,12 @@ trait ReceivableDispositionFixtures
         app(DeliveryPricingSettings::class)->update($admin, $captainPercent, '0');
         app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
         $invoices = app(InvoiceService::class);
+        if ($purchase) {
+            Storage::fake('order_returns');
+            app(OrderShopPurchaseConfirmationService::class)->record($employee, $order->fresh(), $shop, [
+                'order_captain_id' => $order->captainAssignments()->orderBy('id')->first()->id, 'currency_id' => $currency->id,
+                'amount' => '100', 'purchased_at' => now()->subMinute()->toIso8601String(), 'request_key' => (string) Str::uuid()], $this->proof());
+        }
         $invoice = $invoices->issue($employee, $order, $invoices->refresh($employee, $order, $invoices->createDraft($employee, $order)));
         $collection = app(InvoiceCollectionService::class)->record($employee, $invoice, $method, (string) (200 * $captainCount), $currency->id, now());
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops,

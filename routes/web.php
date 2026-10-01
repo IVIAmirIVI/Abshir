@@ -13,6 +13,7 @@ use App\Http\Controllers\CaptainEmploymentController;
 use App\Http\Controllers\CaptainFinancialController;
 use App\Http\Controllers\CaptainGroupController;
 use App\Http\Controllers\CaptainGroupMembershipController;
+use App\Http\Controllers\CaptainReceivableRecoveryController;
 use App\Http\Controllers\CaptainStatusController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CurrencyController;
@@ -187,6 +188,8 @@ Route::middleware('auth')->group(function () {
     Route::get('invoice-collections/sham-cash', [InvoiceCollectionController::class, 'shamCash'])->name('invoice-collections.sham-cash');
     Route::post('invoices/{invoice}/collection', [InvoiceCollectionController::class, 'store'])->name('invoices.collection.store');
     Route::post('invoices/{invoice}/financial-corrections', [InvoiceFinancialCorrectionController::class, 'request'])->name('invoices.corrections.request');
+    Route::post('invoice-financial-corrections/{correction}/captains/{captain}/recoveries', [CaptainReceivableRecoveryController::class, 'store'])->name('captain-recoveries.store');
+    Route::get('invoice-financial-corrections/{correction}/recoveries/{recovery}/evidence', [CaptainReceivableRecoveryController::class, 'evidence'])->name('captain-recoveries.evidence');
     Route::post('invoice-financial-corrections/{correction}/prepare', [InvoiceFinancialCorrectionController::class, 'prepare'])->name('invoice-corrections.prepare');
     Route::post('invoice-financial-corrections/{correction}/abandon', [InvoiceFinancialCorrectionController::class, 'abandon'])->name('invoice-corrections.abandon');
     Route::post('invoice-financial-corrections/{correction}/refund', [InvoiceFinancialCorrectionController::class, 'refund'])->name('invoice-corrections.refund');

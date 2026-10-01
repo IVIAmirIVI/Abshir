@@ -111,7 +111,9 @@ class OrderShopReturnService
 
                     return $existing;
                 }
-                if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
+                if ($order->operational_status === OrderOperationalStatus::Cancelled
+                    || ($order->operational_status === OrderOperationalStatus::Delivered
+                        && ! $this->safety->allowsRecoveredDeliveredCancellation($order, true))) {
                     throw ValidationException::withMessages(['order' => 'A finalized Order cannot record a new return.']);
                 }
                 $this->safety->assertNoFinancialCorrectionRequiredLocked($order, true);

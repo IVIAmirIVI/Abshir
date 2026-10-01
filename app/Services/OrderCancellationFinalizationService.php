@@ -24,7 +24,8 @@ class OrderCancellationFinalizationService
         return DB::transaction(function () use ($actor, $order): OrderCancellation {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->safety->assertNoFinancialCorrectionRequiredLocked($order);
-            if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
+            if ($order->operational_status === OrderOperationalStatus::Cancelled || ($order->operational_status === OrderOperationalStatus::Delivered
+                && ! $this->safety->allowsRecoveredDeliveredCancellation($order, false))) {
                 throw ValidationException::withMessages(['order' => 'Delivered or cancelled Orders cannot be finalized again.']);
             }
             $intent = $order->cancellationIntent()->lockForUpdate()->first();
