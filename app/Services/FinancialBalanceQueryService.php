@@ -127,8 +127,35 @@ class FinancialBalanceQueryService
                 'INVOICE_CORRECTION_SHAM_DELIVERY_DUE',
             ]);
         }
+        if (Schema::hasTable('invoice_correction_receivable_dispositions')
+            && DB::scalar('SELECT receivable_dispositions_active()')) {
+            $eventTypes[] = 'RECEIVABLE_CORRECTED_RESIDUAL_DUE';
+        }
 
         return $this->receivableSourceEntries($captain, $branch, $currency, $eventTypes);
+    }
+
+    /** Reserved amounts remain economic liabilities until atomic correction completion. */
+    public function reservedReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
+    {
+        if (! Schema::hasTable('invoice_correction_receivable_dispositions')) {
+            return collect();
+        }
+        $sources = $this->receivableSourceEntries($captain, $branch, $currency, [
+            'ORDER_CASH_DELIVERY_SHORTFALL_DUE', 'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE',
+            'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE', 'INVOICE_CORRECTION_CASH_SHORTFALL_DUE',
+            'INVOICE_CORRECTION_SHAM_PRODUCT_DUE', 'INVOICE_CORRECTION_SHAM_DELIVERY_DUE',
+            'RECEIVABLE_CORRECTED_RESIDUAL_DUE',
+        ], true);
+        foreach ($sources as $source) {
+            $correctionId = DB::table('invoice_correction_receivable_dispositions as d')
+                ->join('invoice_financial_corrections as c', 'c.id', '=', 'd.invoice_financial_correction_id')
+                ->where('d.original_receivable_financial_entry_id', $source->financial_entry_id)
+                ->whereIn('c.state', ['PREPARED', 'READY_TO_FINALIZE'])->value('c.id');
+            DB::select('SELECT validate_receivable_disposition_set(?)', [$correctionId]);
+        }
+
+        return $sources;
     }
 
     /** Known immutable sources explain the economic balance while deployment keeps them non-allocatable. */
@@ -168,13 +195,16 @@ class FinancialBalanceQueryService
         return $sources;
     }
 
-    private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes): Collection
+    private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes, bool $reserved = false): Collection
     {
         $orderLookup = Schema::hasTable('invoice_financial_corrections')
             ? "CASE WHEN t.source_type = 'INVOICE_COLLECTION' THEN (SELECT ic.order_id FROM invoice_collections ic WHERE ic.id::text = t.source_id) WHEN t.source_type = 'INVOICE_FINANCIAL_CORRECTION' THEN (SELECT c.order_id FROM invoice_financial_corrections c WHERE c.id::text = t.source_id) END"
             : '(SELECT ic.order_id FROM invoice_collections ic WHERE ic.id::text = t.source_id)';
+        if (Schema::hasTable('invoice_correction_receivable_dispositions')) {
+            $orderLookup = "CASE WHEN t.source_type='INVOICE_CORRECTION_RECEIVABLE_DISPOSITION' THEN (SELECT c.order_id FROM invoice_correction_receivable_dispositions d JOIN invoice_financial_corrections c ON c.id=d.invoice_financial_correction_id WHERE d.id::text=t.source_id) ELSE {$orderLookup} END";
+        }
 
-        return DB::table('financial_entries as e')
+        $query = DB::table('financial_entries as e')
             ->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
             ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
             ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
@@ -192,6 +222,17 @@ class FinancialBalanceQueryService
             ->groupBy('e.id', 't.id')
             ->selectRaw("e.id AS financial_entry_id, t.id AS financial_transaction_id, t.event_type, t.source_type, t.source_id, t.occurred_at, e.amount, COALESCE(SUM(p.amount), 0) AS paid_amount, e.amount - COALESCE(SUM(p.amount), 0) AS remaining_amount, (SELECT o.order_number FROM orders o WHERE o.id = {$orderLookup} LIMIT 1) AS order_number")
             ->havingRaw('e.amount - COALESCE(SUM(p.amount), 0) > 0')
-            ->orderBy('t.occurred_at')->orderBy('e.id')->get();
+            ->orderBy('t.occurred_at')->orderBy('e.id');
+        if (Schema::hasTable('invoice_correction_receivable_dispositions')) {
+            $query->whereNotExists(fn ($q) => $q->selectRaw('1')->from('invoice_correction_receivable_dispositions as d')
+                ->join('invoice_financial_corrections as c', 'c.id', '=', 'd.invoice_financial_correction_id')
+                ->whereColumn('d.original_receivable_financial_entry_id', 'e.id')->where('c.state', 'COMPLETED'));
+            $reservation = fn ($q) => $q->selectRaw('1')->from('invoice_correction_receivable_dispositions as d')
+                ->join('invoice_financial_corrections as c', 'c.id', '=', 'd.invoice_financial_correction_id')
+                ->whereColumn('d.original_receivable_financial_entry_id', 'e.id')->whereIn('c.state', ['PREPARED', 'READY_TO_FINALIZE']);
+            $reserved ? $query->whereExists($reservation) : $query->whereNotExists($reservation);
+        }
+
+        return $query->get();
     }
 }

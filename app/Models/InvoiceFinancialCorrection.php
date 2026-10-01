@@ -6,6 +6,7 @@ use App\Enums\InvoiceFinancialCorrectionKind;
 use App\Enums\InvoiceFinancialCorrectionState;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class InvoiceFinancialCorrection extends Model
@@ -17,6 +18,8 @@ class InvoiceFinancialCorrection extends Model
     protected function casts(): array
     {
         return [
+            'receivable_contract_version' => 'integer',
+            'receivable_dispositions_captured' => 'boolean',
             'kind' => InvoiceFinancialCorrectionKind::class,
             'state' => InvoiceFinancialCorrectionState::class,
             'proposal_payload' => 'array',
@@ -47,5 +50,10 @@ class InvoiceFinancialCorrection extends Model
     public function refund(): HasOne
     {
         return $this->hasOne(CustomerRefund::class);
+    }
+
+    public function receivableDispositions(): HasMany
+    {
+        return $this->hasMany(InvoiceCorrectionReceivableDisposition::class, 'invoice_financial_correction_id');
     }
 }

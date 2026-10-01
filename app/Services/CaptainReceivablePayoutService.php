@@ -97,7 +97,9 @@ class CaptainReceivablePayoutService
                 $payableTotal = $payable->reduce(fn (BigDecimal $sum, $row): BigDecimal => $sum->plus((string) $row->remaining_amount), BigDecimal::zero());
                 $gated = $this->balances->gatedCorrectedReceivableEntries($captain, $branch, $currency);
                 $gatedTotal = $gated->reduce(fn (BigDecimal $sum, $row): BigDecimal => $sum->plus((string) $row->remaining_amount), BigDecimal::zero());
-                if (! $branchBalance->isEqualTo($payableTotal->plus($gatedTotal))) {
+                $reserved = $this->balances->reservedReceivableEntries($captain, $branch, $currency);
+                $reservedTotal = $reserved->reduce(fn (BigDecimal $sum, $row): BigDecimal => $sum->plus((string) $row->remaining_amount), BigDecimal::zero());
+                if (! $branchBalance->isEqualTo($payableTotal->plus($gatedTotal)->plus($reservedTotal))) {
                     throw new FinancialIdempotencyConflictException('FINANCIAL_CORRECTION_REQUIRED: Branch Receivable includes unresolved or unattributed history.');
                 }
                 if (! $payableTotal->isGreaterThan(0) || $payableTotal->isLessThan(BigDecimal::of($amount))

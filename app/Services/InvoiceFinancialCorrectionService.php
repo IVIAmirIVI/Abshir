@@ -32,6 +32,7 @@ class InvoiceFinancialCorrectionService
         private readonly CorrectedOrderFinancialService $originalFinancials,
         private readonly InvoiceCorrectionFinancialPostingService $posting,
         private readonly OrderCancellationFinalizationService $cancellations,
+        private readonly InvoiceCorrectionReceivableDispositionService $dispositions,
     ) {}
 
     /** Requesting does not change the authoritative Invoice, Collection, or ledger. */
@@ -119,20 +120,27 @@ class InvoiceFinancialCorrectionService
             $snapshot = $this->snapshots->read($invoice);
             $currency = Currency::query()->lockForUpdate()->findOrFail($correction->currency_id);
             $planned = $this->calculate($correction, $invoice, $snapshot, $currency);
-            $this->assertNoPaidDependency($correction, $planned, $snapshot);
+            if (! $this->dispositions->active()) {
+                $this->assertNoPaidDependency($correction, $planned, $snapshot);
+            }
             $corrected = BigDecimal::of($planned['total']);
             $delta = $corrected->minus(BigDecimal::of($collection->amount));
             if ($delta->isGreaterThan(0)) {
                 throw ValidationException::withMessages(['correction' => 'ADDITIONAL_COLLECTION_REQUIRED']);
             }
-            $correction->update([
+            $preparedFacts = [
                 'state' => InvoiceFinancialCorrectionState::Prepared,
                 'corrected_amount' => (string) $corrected->toScale(4),
                 'customer_delta' => (string) $delta->toScale(4),
                 'proposal_hash' => hash('sha256', json_encode($planned, JSON_THROW_ON_ERROR)),
                 'prepared_by' => $actor->id,
-                'prepared_at' => now(),
-            ]);
+                'prepared_at' => now()->startOfSecond(),
+            ];
+            if ($this->dispositions->active()) {
+                $this->dispositions->captureLocked($correction, $preparedFacts);
+            } else {
+                $correction->update($preparedFacts);
+            }
             if ($delta->isZero()) {
                 $correction->update(['state' => InvoiceFinancialCorrectionState::ReadyToFinalize]);
             }
@@ -182,7 +190,11 @@ class InvoiceFinancialCorrectionService
                 || ! BigDecimal::of($planned['total'])->isEqualTo(BigDecimal::of($correction->corrected_amount))) {
                 throw ValidationException::withMessages(['correction' => 'Prepared proposal no longer matches its frozen facts.']);
             }
-            $this->assertNoPaidDependency($correction, $planned, $original);
+            if ($correction->receivable_dispositions_captured) {
+                $this->dispositions->assertFinalizableLocked($correction);
+            } else {
+                $this->assertNoPaidDependency($correction, $planned, $original);
+            }
             $refund = $correction->refund()->lockForUpdate()->first();
             $requiredRefund = BigDecimal::of($correction->customer_delta)->negated();
             if ($requiredRefund->isGreaterThan(0)) {

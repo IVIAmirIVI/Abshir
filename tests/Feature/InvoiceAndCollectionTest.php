@@ -994,6 +994,7 @@ class InvoiceAndCollectionTest extends TestCase
     {
         Storage::fake('order_receipts');
         Storage::fake('captain_financial_evidence');
+        Storage::fake('customer_refunds');
         $c = $this->context();
         $invoice = $this->issued($c);
         app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
@@ -1022,17 +1023,22 @@ class InvoiceAndCollectionTest extends TestCase
             ['items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '8.00']],
                 'delivery' => [['order_captain_id' => $assignment->id, 'customer_amount' => '5.00']]],
             'Product price correction', 'Captain has already received original amount', (string) Str::uuid());
+        // 9C.3B.1 freezes the overpayment instead of rejecting preparation; completion still fails closed.
+        $prepared = app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+        $this->assertTrue($prepared->receivableDispositions()->where('recovery_required', '>', 0)->exists());
+        app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
+            'RECOVERY-PENDING-REFUND', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
         try {
-            app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+            app(InvoiceFinancialCorrectionService::class)->finalize($c['admin'], $prepared->fresh());
             $this->fail('An overpaid historical Receivable was silently reversed.');
         } catch (ValidationException $exception) {
             $this->assertStringContainsString('CAPTAIN_RECOVERY_REQUIRED', $exception->errors()['correction'][0]);
-            $this->assertStringContainsString('financial_entry_id='.$productDue->financial_entry_id, $exception->errors()['correction'][0]);
+            $this->assertTrue($prepared->receivableDispositions()->where('original_receivable_financial_entry_id', $productDue->financial_entry_id)->exists());
         }
         $this->assertDatabaseHas('captain_receivable_payout_allocations', [
             'captain_receivable_payout_id' => $payout->id, 'financial_entry_id' => $productDue->financial_entry_id]);
         $this->assertDatabaseCount('invoice_correction_reversals', 0);
-        $this->assertSame(InvoiceFinancialCorrectionState::Requested, $source->fresh()->state);
+        $this->assertSame(InvoiceFinancialCorrectionState::ReadyToFinalize, $source->fresh()->state);
         DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
     }
 

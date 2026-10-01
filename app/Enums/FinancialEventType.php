@@ -23,6 +23,8 @@ enum FinancialEventType: string
     case InvoiceCorrectionCashShortfallDue = 'INVOICE_CORRECTION_CASH_SHORTFALL_DUE';
     case InvoiceCorrectionShamProductDue = 'INVOICE_CORRECTION_SHAM_PRODUCT_DUE';
     case InvoiceCorrectionShamDeliveryDue = 'INVOICE_CORRECTION_SHAM_DELIVERY_DUE';
+    case ReceivableUnpaidRemainderRetired = 'RECEIVABLE_UNPAID_REMAINDER_RETIRED';
+    case ReceivableCorrectedResidualDue = 'RECEIVABLE_CORRECTED_RESIDUAL_DUE';
 
     public static function orderDerived(): array
     {

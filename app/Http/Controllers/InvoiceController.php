@@ -35,7 +35,7 @@ class InvoiceController extends Controller
         $invoice->load(['order.branch', 'order.captainAssignments.captain.user', 'currency', 'items', 'collection.captain.user', 'issuer', 'voider', 'replacer', 'replacementInvoice']);
         $primaryCollector = $invoice->order->captainAssignments->first(fn ($assignment) => $assignment->removed_at === null && $assignment->assignment_role === OrderCaptainRole::PrimaryCollection);
         $corrections = InvoiceFinancialCorrection::query()->where('original_invoice_id', $invoice->id)
-            ->with('refund')->latest('id')->get();
+            ->with(['refund', 'receivableDispositions'])->latest('id')->get();
         $settledCorrection = InvoiceFinancialCorrection::query()->where('replacement_invoice_id', $invoice->id)
             ->where('state', 'COMPLETED')->first();
         $correctionSource = $invoice->collection && $invoice->status === InvoiceStatus::Issued

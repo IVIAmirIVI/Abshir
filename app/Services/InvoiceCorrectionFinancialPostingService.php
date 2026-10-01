@@ -27,6 +27,7 @@ class InvoiceCorrectionFinancialPostingService
     public function __construct(
         private readonly FinancialPostingService $posting,
         private readonly FinancialAccountService $accounts,
+        private readonly InvoiceCorrectionReceivableDispositionService $dispositions,
     ) {}
 
     /** Called under the Order lock before replacing the original Invoice. */
@@ -37,6 +38,9 @@ class InvoiceCorrectionFinancialPostingService
             ->where('source_id', (string) $correction->original_collection_id)
             ->whereIn('event_type', $eventTypes)->orderBy('id')->get();
         foreach ($events as $event) {
+            if ($correction->receivable_contract_version === 2 && $event->event_type !== FinancialEventType::OrderCashCompanyDeliveryShareDepositDebit->value) {
+                continue;
+            }
             $paid = DB::table('captain_receivable_payout_allocations as a')
                 ->join('financial_entries as e', 'e.id', '=', 'a.financial_entry_id')
                 ->where('e.financial_transaction_id', $event->id)->exists();
@@ -113,6 +117,10 @@ class InvoiceCorrectionFinancialPostingService
             $concepts[FinancialEventType::InvoiceCorrectionShamDeliveryDue->value] = $delivery;
         }
         $posted = [];
+        if ($correction->receivable_contract_version === 2) {
+            $concepts = array_intersect_key($concepts, [FinancialEventType::InvoiceCorrectionCashDepositDebit->value => true]);
+            $posted = $this->dispositions->postLocked($correction);
+        }
         foreach ($concepts as $eventType => $movements) {
             if ($movements !== []) {
                 $posted[] = $this->posting->postEvent($currency, 'INVOICE_FINANCIAL_CORRECTION', $correction->id,

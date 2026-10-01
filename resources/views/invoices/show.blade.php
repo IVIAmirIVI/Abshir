@@ -93,6 +93,15 @@
                     <article class="space-y-2 rounded border p-4">
                         <p><strong>{{ $correction->kind->value }}</strong> · {{ $correction->state->value }} · {{ $correction->reason }}</p>
                         <p>Original {{ $correction->original_amount }} · Corrected {{ $correction->corrected_amount ?? 'Pending approval' }} · Customer delta {{ $correction->customer_delta ?? 'Pending approval' }} {{ $invoice->currency->code }}</p>
+                        @foreach($correction->receivableDispositions as $disposition)
+                            <p>Captain #{{ $disposition->captain_id }} · {{ $disposition->concept }}:
+                                Original {{ $disposition->original_entitlement }} · Already paid {{ $disposition->historical_paid }} ·
+                                Corrected {{ $disposition->corrected_entitlement }} · Remaining payable {{ $disposition->residual_payable }} ·
+                                Recovery required {{ $disposition->recovery_required }} {{ $invoice->currency->code }}.</p>
+                            @if(\Brick\Math\BigDecimal::of($disposition->recovery_required)->isGreaterThan(0))
+                                <p class="font-semibold text-red-700">Captain repayment required before completion.</p>
+                            @endif
+                        @endforeach
                         @if($correction->kind === \App\Enums\InvoiceFinancialCorrectionKind::CancelAndRefund)
                             <p>Shop returns and cancellation intent must be completed before finalization. <a class="underline" href="{{ route('orders.show', $invoice->order) }}">View Order progress</a></p>
                         @endif

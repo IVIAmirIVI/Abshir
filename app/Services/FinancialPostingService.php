@@ -180,6 +180,8 @@ class FinancialPostingService
             if (in_array($original->event_type, [
                 FinancialEventType::CaptainDepositReceived->value,
                 FinancialEventType::CaptainReceivablePaid->value,
+                FinancialEventType::ReceivableUnpaidRemainderRetired->value,
+                FinancialEventType::ReceivableCorrectedResidualDue->value,
             ], true)) {
                 throw new FinancialIdempotencyConflictException('FINANCIAL_SOURCE_REQUIRES_CONTROLLED_CORRECTION: this Captain cash operation cannot be reversed generically.');
             }
@@ -281,6 +283,8 @@ class FinancialPostingService
             ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()),
             FinancialEventType::CaptainDepositReceived->value,
             FinancialEventType::CaptainReceivablePaid->value,
+            FinancialEventType::ReceivableUnpaidRemainderRetired->value,
+            FinancialEventType::ReceivableCorrectedResidualDue->value,
         ], true);
 
         $identity = [
@@ -365,7 +369,12 @@ class FinancialPostingService
             return;
         }
         $id = (string) $sourceId;
-        if ($sourceType === 'CUSTOMER_INVOICE'
+        if ($sourceType === 'INVOICE_CORRECTION_RECEIVABLE_DISPOSITION'
+            && in_array($eventType, [FinancialEventType::ReceivableUnpaidRemainderRetired->value, FinancialEventType::ReceivableCorrectedResidualDue->value], true)) {
+            $orderId = DB::table('invoice_correction_receivable_dispositions as d')
+                ->join('invoice_financial_corrections as c', 'c.id', '=', 'd.invoice_financial_correction_id')
+                ->where('d.id', $id)->value('c.order_id');
+        } elseif ($sourceType === 'CUSTOMER_INVOICE'
             && in_array($eventType, array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::orderDerived()), true)) {
             $orderId = DB::table('invoices')->where('id', $id)->value('order_id');
         } elseif ($sourceType === 'INVOICE_COLLECTION'
