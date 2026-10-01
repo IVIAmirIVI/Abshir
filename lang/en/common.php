@@ -32,6 +32,7 @@ return [
         'label' => 'Label',
     ],
     'terms' => [
+        'address' => 'Address',
         'branch' => 'Branch',
         'customer' => 'Customer',
         'area' => 'Area',

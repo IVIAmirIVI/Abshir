@@ -112,7 +112,10 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         $this->get(route('customers.edit', $c['customer']))->assertOk()->assertSee('تعديل الزبون')->assertSee('ملاحظة Original');
         $show = $this->get(route('customers.show', $c['customer']))->assertOk()->assertSee('أرقام الهاتف')
             ->assertSee('العناوين')->assertSee('إضافة رقم هاتف')->assertSee('إضافة عنوان')
-            ->assertSee($c['area']->path())->assertSee('شارع Original');
+            ->assertSee($c['area']->path())->assertSee('شارع Original')
+            ->assertDontSee('common.terms.address');
+        $this->assertNull($c['address']->fresh()->label);
+        $this->assertSame(1, $this->xpath($show->getContent())->query('//h4[normalize-space(.)="العنوان"]')->length);
         $this->assertGreaterThan(0, $this->xpath($show->getContent())->query('//bdi[@dir="ltr" and text()="+963 944 123456"]')->length);
         $phone = $this->get(route('customers.phones.create', $c['customer']))->assertOk()->assertSee('رقم الهاتف الأساسي');
         $this->assertSame('ltr', $this->xpath($phone->getContent())->query('//input[@name="phone"]')->item(0)->getAttribute('dir'));

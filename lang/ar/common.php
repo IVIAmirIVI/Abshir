@@ -32,6 +32,7 @@ return [
         'label' => 'التسمية',
     ],
     'terms' => [
+        'address' => 'العنوان',
         'branch' => 'فرع',
         'customer' => 'زبون',
         'area' => 'منطقة',
