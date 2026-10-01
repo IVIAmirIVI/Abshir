@@ -16,13 +16,13 @@ class ProductGroupMembershipController extends Controller
     {
         $service->join($request->user(), $product, ProductGroup::findOrFail($request->integer('product_group_id')), $request->validated());
 
-        return back()->with('status', 'Product Group membership added.');
+        return back()->with('status', __('catalog.flash_product_group_membership_added'));
     }
 
     public function end(Request $request, Product $product, ProductGroupMember $membership, ProductGroupMembershipService $service): RedirectResponse
     {
         $service->end($request->user(), $product, $membership);
 
-        return back()->with('status', 'Product Group membership ended.');
+        return back()->with('status', __('catalog.flash_product_group_membership_ended'));
     }
 }

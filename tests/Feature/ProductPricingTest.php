@@ -267,7 +267,7 @@ class ProductPricingTest extends TestCase
         $admin = $this->account();
         $observation = $this->observation($context, '9.0000', now()->subHour()->toDateTimeString());
 
-        $this->actingAs($admin)->get(route('product-prices.index'))->assertOk()->assertSee('Observed at')->assertSee('Entered at');
+        $this->actingAs($admin)->get(route('product-prices.index'))->assertOk()->assertSee(__('pricing.observed_at'))->assertSee(__('pricing.entered_at'));
         $this->get(route('products.price-history', $context['product']))->assertOk()->assertSee($context['shop']->name);
         $this->get(route('shops.price-history', $context['shop']))->assertOk()->assertSee($context['product']->name);
         $this->put('/price-observations/'.$observation->id, ['price' => '1.0000'])->assertNotFound();

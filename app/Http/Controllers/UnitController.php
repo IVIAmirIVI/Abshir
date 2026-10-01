@@ -30,7 +30,7 @@ class UnitController extends Controller
     {
         $service->save($request->user(), new Unit, $request->validated());
 
-        return redirect()->route('units.index')->with('status', 'Unit created.');
+        return redirect()->route('units.index')->with('status', __('catalog.flash_unit_created'));
     }
 
     public function edit(Unit $unit): View
@@ -44,7 +44,7 @@ class UnitController extends Controller
     {
         $service->save($request->user(), $unit, $request->validated());
 
-        return redirect()->route('units.index')->with('status', 'Unit updated.');
+        return redirect()->route('units.index')->with('status', __('catalog.flash_unit_updated'));
     }
 
     public function status(Request $request, Unit $unit, UnitService $service): RedirectResponse
@@ -52,6 +52,6 @@ class UnitController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $unit, (bool) $data['is_active']);
 
-        return back()->with('status', 'Unit status updated.');
+        return back()->with('status', __('catalog.flash_unit_status_updated'));
     }
 }

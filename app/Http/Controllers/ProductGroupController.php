@@ -30,7 +30,7 @@ class ProductGroupController extends Controller
     {
         $service->save($request->user(), new ProductGroup, $request->validated());
 
-        return redirect()->route('product-groups.index')->with('status', 'Product Group created.');
+        return redirect()->route('product-groups.index')->with('status', __('catalog.flash_product_group_created'));
     }
 
     public function edit(ProductGroup $productGroup): View
@@ -44,7 +44,7 @@ class ProductGroupController extends Controller
     {
         $service->save($request->user(), $productGroup, $request->validated());
 
-        return redirect()->route('product-groups.index')->with('status', 'Product Group updated.');
+        return redirect()->route('product-groups.index')->with('status', __('catalog.flash_product_group_updated'));
     }
 
     public function status(Request $request, ProductGroup $productGroup, ProductGroupService $service): RedirectResponse
@@ -52,6 +52,6 @@ class ProductGroupController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $productGroup, (bool) $data['is_active']);
 
-        return back()->with('status', 'Product Group status updated.');
+        return back()->with('status', __('catalog.flash_product_group_status_updated'));
     }
 }

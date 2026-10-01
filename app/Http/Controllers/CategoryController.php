@@ -30,7 +30,7 @@ class CategoryController extends Controller
     {
         $service->save($request->user(), new Category, $request->validated());
 
-        return redirect()->route('categories.index')->with('status', 'Category created.');
+        return redirect()->route('categories.index')->with('status', __('catalog.flash_category_created'));
     }
 
     public function edit(Category $category, CategoryService $service): View
@@ -44,7 +44,7 @@ class CategoryController extends Controller
     {
         $service->save($request->user(), $category, $request->validated());
 
-        return redirect()->route('categories.index')->with('status', 'Category updated.');
+        return redirect()->route('categories.index')->with('status', __('catalog.flash_category_updated'));
     }
 
     public function status(Request $request, Category $category, CategoryService $service): RedirectResponse
@@ -52,6 +52,6 @@ class CategoryController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $category, (bool) $data['is_active']);
 
-        return back()->with('status', 'Category status updated.');
+        return back()->with('status', __('catalog.flash_category_status_updated'));
     }
 }

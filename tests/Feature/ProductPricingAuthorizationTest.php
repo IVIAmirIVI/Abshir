@@ -88,7 +88,7 @@ class ProductPricingAuthorizationTest extends TestCase
             'product_id' => $context['product']->id,
             'unit_id' => $context['unit']->id,
             'currency_id' => $context['currency']->id,
-        ]))->assertOk()->assertSee('No estimate available');
+        ]))->assertOk()->assertSee(__('pricing.no_estimate_available'));
         $this->assertDatabaseCount('product_price_history', 1);
         $this->assertModelExists($observation);
     }

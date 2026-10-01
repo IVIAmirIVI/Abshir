@@ -30,7 +30,7 @@ class CurrencyController extends Controller
     {
         $service->save($request->user(), new Currency, $request->validated());
 
-        return redirect()->route('currencies.index')->with('status', 'Currency created.');
+        return redirect()->route('currencies.index')->with('status', __('catalog.flash_currency_created'));
     }
 
     public function edit(Currency $currency): View
@@ -44,7 +44,7 @@ class CurrencyController extends Controller
     {
         $service->save($request->user(), $currency, $request->validated());
 
-        return redirect()->route('currencies.index')->with('status', 'Currency updated.');
+        return redirect()->route('currencies.index')->with('status', __('catalog.flash_currency_updated'));
     }
 
     public function status(Request $request, Currency $currency, CurrencyService $service): RedirectResponse
@@ -52,6 +52,6 @@ class CurrencyController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $currency, (bool) $data['is_active']);
 
-        return back()->with('status', 'Currency status updated.');
+        return back()->with('status', __('catalog.flash_currency_status_updated'));
     }
 }

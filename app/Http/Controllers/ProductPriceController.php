@@ -26,7 +26,7 @@ class ProductPriceController extends Controller
     {
         Gate::authorize('product_prices.view');
 
-        return $this->historyView($request, 'Recent price observations');
+        return $this->historyView($request, __('pricing.recent_price_observations'));
     }
 
     public function create(Request $request): View
@@ -47,7 +47,7 @@ class ProductPriceController extends Controller
         $observation = $service->record($request->user(), $request->validated());
 
         return redirect()->route('product-prices.index', ['product_id' => $observation->product_id])
-            ->with('status', 'Price observation recorded. Historical observations cannot be edited or deleted.');
+            ->with('status', __('pricing.flash_price_observation_recorded_historical_observations_cannot_be_edited_or_deleted'));
     }
 
     public function productHistory(Request $request, Product $product): View
@@ -55,7 +55,7 @@ class ProductPriceController extends Controller
         Gate::authorize('product_prices.view');
         $request->merge(['product_id' => $product->id]);
 
-        return $this->historyView($request, 'Price history: '.$product->name, $product);
+        return $this->historyView($request, __('pricing.history_title', ['name' => $product->name]), $product);
     }
 
     public function shopHistory(Request $request, Shop $shop): View
@@ -64,7 +64,7 @@ class ProductPriceController extends Controller
         abort_unless($request->user()->canAccessShop($shop), 403);
         $request->merge(['shop_id' => $shop->id]);
 
-        return $this->historyView($request, 'Price history: '.$shop->name, null, $shop);
+        return $this->historyView($request, __('pricing.history_title', ['name' => $shop->name]), null, $shop);
     }
 
     public function comparison(Request $request, Product $product, ProductPriceService $service): View

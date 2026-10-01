@@ -44,7 +44,7 @@ class ProductController extends Controller
     {
         $product = $service->save($request->user(), new Product, $request->validated());
 
-        return redirect()->route('products.show', $product)->with('status', 'Product created.');
+        return redirect()->route('products.show', $product)->with('status', __('catalog.flash_product_created'));
     }
 
     public function show(Product $product): View
@@ -72,7 +72,7 @@ class ProductController extends Controller
     {
         $service->save($request->user(), $product, $request->validated());
 
-        return redirect()->route('products.show', $product)->with('status', 'Product updated.');
+        return redirect()->route('products.show', $product)->with('status', __('catalog.flash_product_updated'));
     }
 
     public function status(Request $request, Product $product, ProductService $service): RedirectResponse
@@ -80,7 +80,7 @@ class ProductController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $product, (bool) $data['is_active']);
 
-        return back()->with('status', 'Product status updated.');
+        return back()->with('status', __('catalog.flash_product_status_updated'));
     }
 
     private function form(Product $product): View

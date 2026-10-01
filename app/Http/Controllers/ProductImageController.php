@@ -15,20 +15,20 @@ class ProductImageController extends Controller
     {
         $service->add($request->user(), $product, $request->file('image'), $request->safe()->except('image'));
 
-        return back()->with('status', 'Product image added.');
+        return back()->with('status', __('catalog.flash_product_image_added'));
     }
 
     public function primary(Request $request, Product $product, ProductImage $image, ProductImageService $service): RedirectResponse
     {
         $service->makePrimary($request->user(), $product, $image);
 
-        return back()->with('status', 'Primary image updated.');
+        return back()->with('status', __('catalog.flash_primary_image_updated'));
     }
 
     public function destroy(Request $request, Product $product, ProductImage $image, ProductImageService $service): RedirectResponse
     {
         $service->remove($request->user(), $product, $image);
 
-        return back()->with('status', 'Product image removed.');
+        return back()->with('status', __('catalog.flash_product_image_removed'));
     }
 }

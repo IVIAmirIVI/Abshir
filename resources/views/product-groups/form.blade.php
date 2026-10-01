@@ -1,10 +1,10 @@
 <x-app-layout>
-    <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800">{{ $productGroup->exists ? 'Edit Product Group' : 'Create Product Group' }}</h2></x-slot>
+    <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800">{{ $productGroup->exists ? __('catalog.edit_product_group') : __('catalog.create_product_group') }}</h2></x-slot>
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><form class="max-w-3xl rounded-lg bg-white p-5 shadow space-y-6 sm:p-8" method="POST" action="{{ $productGroup->exists ? route('product-groups.update', $productGroup) : route('product-groups.store') }}">@csrf @if($productGroup->exists)@method('PUT')@endif
-        @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-4 text-red-800"><ul class="list-disc pl-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
-        <div class="grid gap-5 sm:grid-cols-2"><div><x-input-label for="name" value="Name" /><x-text-input id="name" name="name" class="mt-1 block w-full" value="{{ old('name', $productGroup->name) }}" required /></div><div><x-input-label for="code" value="Unique code" /><x-text-input id="code" name="code" class="mt-1 block w-full" value="{{ old('code', $productGroup->code) }}" /></div></div>
-        <div><x-input-label for="description" value="Description" /><textarea id="description" name="description" rows="4" class="mt-1 block w-full rounded-md border-gray-300">{{ old('description', $productGroup->description) }}</textarea></div>
-        <p class="text-sm text-gray-500">Groups support commercial targeting and reporting. They contain no pricing or commission rules.</p>
-        <div class="flex gap-4"><x-primary-button>Save Product Group</x-primary-button><a class="self-center underline text-sm" href="{{ route('product-groups.index') }}">Cancel</a></div>
+        @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-4 text-red-800"><ul class="list-disc ps-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+        <div class="grid gap-5 sm:grid-cols-2"><div><x-input-label for="name" :value="__('common.fields.name')" /><x-text-input id="name" name="name" class="mt-1 block w-full" value="{{ old('name', $productGroup->name) }}" required dir="auto" /></div><div><x-input-label for="code" :value="__('catalog.unique_code')" /><x-text-input id="code" name="code" class="mt-1 block w-full" value="{{ old('code', $productGroup->code) }}" dir="ltr" /></div></div>
+        <div><x-input-label for="description" :value="__('catalog.description')" /><textarea id="description" name="description" rows="4" class="mt-1 block w-full rounded-md border-gray-300" dir="auto">{{ old('description', $productGroup->description) }}</textarea></div>
+        <p class="text-sm text-gray-500">{{ __('catalog.groups_support_commercial_targeting_and_reporting_they_contain_no_pricing_or_commission_rules') }}</p>
+        <div class="flex flex-wrap gap-4"><x-primary-button class="w-full justify-center sm:w-auto">{{ __('catalog.save_product_group') }}</x-primary-button><a class="self-center underline text-sm" href="{{ route('product-groups.index') }}">{{ __('common.actions.cancel') }}</a></div>
     </form></div>
 </x-app-layout>
