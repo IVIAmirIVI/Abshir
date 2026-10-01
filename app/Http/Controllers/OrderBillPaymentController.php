@@ -20,7 +20,7 @@ class OrderBillPaymentController extends Controller
         $data = $request->validate(['currency_id' => ['required', 'integer', 'exists:currencies,id']]);
         $service->request($request->user(), $order, (int) $data['currency_id']);
 
-        return back()->with('status', 'Bill-payment service requested.');
+        return back()->with('status', __('orders.flash.bill_requested'));
     }
 
     public function cancel(Request $request, Order $order, OrderBillPaymentRequest $billPaymentRequest, OrderBillPaymentService $service): RedirectResponse
@@ -28,7 +28,7 @@ class OrderBillPaymentController extends Controller
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
         $service->cancel($request->user(), $order, $billPaymentRequest, $data['reason']);
 
-        return back()->with('status', 'Bill-payment request cancelled.');
+        return back()->with('status', __('orders.flash.bill_cancelled'));
     }
 
     public function complete(Request $request, Order $order, OrderBillPaymentRequest $billPaymentRequest, OrderBillPaymentService $service): RedirectResponse
@@ -46,7 +46,7 @@ class OrderBillPaymentController extends Controller
         ]);
         $service->complete($request->user(), $order, $billPaymentRequest, $data, $request->file('evidence'));
 
-        return back()->with('status', 'Successful external bill payment recorded.');
+        return back()->with('status', __('orders.flash.bill_recorded'));
     }
 
     public function evidence(Request $request, Order $order, OrderBillPaymentRequest $billPaymentRequest, OrderBillPayment $billPayment, OrderBillPaymentEvidence $evidence): Response

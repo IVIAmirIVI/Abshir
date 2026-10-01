@@ -31,7 +31,7 @@ class OrderReturnController extends Controller
         ]);
         $service->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
 
-        return back()->with('status', 'Authoritative Shop purchase recorded.');
+        return back()->with('status', __('orders.flash.purchase_recorded'));
     }
 
     public function intent(Request $request, Order $order, OrderCancellationIntentService $service): RedirectResponse
@@ -42,7 +42,7 @@ class OrderReturnController extends Controller
         ]);
         $service->create($request->user(), $order, OrderCancellationReason::from($data['reason']), $data['notes'] ?? null, $data['request_key']);
 
-        return back()->with('status', 'Cancellation intent recorded. Complete each purchased Shop return before final cancellation.');
+        return back()->with('status', __('orders.flash.intent_recorded'));
     }
 
     public function returnShop(Request $request, Order $order, OrderShop $orderShop, OrderShopReturnService $service): RedirectResponse
@@ -63,14 +63,14 @@ class OrderReturnController extends Controller
         ]);
         $service->record($request->user(), $order, $orderShop, $data, $files);
 
-        return back()->with('status', 'Shop return and refund evidence recorded.');
+        return back()->with('status', __('orders.flash.return_recorded'));
     }
 
     public function finalize(Request $request, Order $order, OrderCancellationFinalizationService $service): RedirectResponse
     {
         $service->finalize($request->user(), $order);
 
-        return back()->with('status', 'Order cancelled after all purchased Shops were returned.');
+        return back()->with('status', __('orders.flash.cancelled_after'));
     }
 
     public function purchaseEvidence(Request $request, Order $order, OrderShop $orderShop, OrderShopPurchaseConfirmation $purchase, OrderReturnEvidenceService $evidence): StreamedResponse

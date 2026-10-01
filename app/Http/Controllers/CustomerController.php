@@ -56,14 +56,14 @@ class CustomerController extends Controller
     {
         $customer = $service->save($request->user(), new Customer, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Customer created. Add a phone or address when ready.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.created'));
     }
 
     public function update(CustomerRequest $request, Customer $customer, CustomerService $service): RedirectResponse
     {
         $service->save($request->user(), $customer, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Customer updated.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.updated'));
     }
 
     public function status(Request $request, Customer $customer, CustomerService $service): RedirectResponse
@@ -71,6 +71,6 @@ class CustomerController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $customer, (bool) $data['is_active']);
 
-        return back()->with('status', 'Customer status updated.');
+        return back()->with('status', __('customers.flash.status_updated'));
     }
 }

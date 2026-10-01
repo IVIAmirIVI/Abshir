@@ -21,20 +21,20 @@ class OrderPhase85Controller extends Controller
     {
         $service->record($request->user(), $order, $orderShop, $request->validated('marker'));
 
-        return back()->with('status', 'Shop progress recorded.');
+        return back()->with('status', __('orders.flash.progress_recorded'));
     }
 
     public function cancel(OrderCancellationRequest $request, Order $order, OrderCancellationService $service): RedirectResponse
     {
         $service->cancel($request->user(), $order, OrderCancellationClassification::from($request->validated('classification')), OrderCancellationReason::from($request->validated('reason')), $request->validated('notes'));
 
-        return back()->with('status', 'Order cancelled without deleting its history.');
+        return back()->with('status', __('orders.flash.cancelled'));
     }
 
     public function rating(CaptainRatingRequest $request, Order $order, CaptainRatingService $service): RedirectResponse
     {
         $service->recordManual($request->user(), $order, Captain::findOrFail($request->integer('captain_id')), $request->integer('rating'));
 
-        return back()->with('status', 'Captain rating recorded.');
+        return back()->with('status', __('orders.flash.rating_recorded'));
     }
 }

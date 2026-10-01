@@ -30,56 +30,56 @@ class OrderOperationController extends Controller
     {
         $s->add($r->user(), $order, $r->validated());
 
-        return back()->with('status', 'Order Shop added.');
+        return back()->with('status', __('orders.flash.shop_added'));
     }
 
     public function classifyShop(OrderShopClassificationRequest $r, Order $order, OrderShop $orderShop, OrderShopService $s): RedirectResponse
     {
         $s->classifyLegacy($r->user(), $order, $orderShop, $r->validated('business_classification'));
 
-        return back()->with('status', 'Order Shop classification snapshotted.');
+        return back()->with('status', __('orders.flash.classification'));
     }
 
     public function addItem(OrderItemRequest $r, Order $order, OrderShop $orderShop, OrderItemService $s): RedirectResponse
     {
         $s->add($r->user(), $order, $orderShop, $r->validated());
 
-        return back()->with('status', 'Order Item added.');
+        return back()->with('status', __('orders.flash.item_added'));
     }
 
     public function actual(OrderActualPriceRequest $r, Order $order, OrderShop $orderShop, OrderItem $item, OrderItemService $s): RedirectResponse
     {
         $s->confirmActual($r->user(), $order, $orderShop, $item, $r->validated());
 
-        return back()->with('status', 'Actual price confirmed.');
+        return back()->with('status', __('orders.flash.actual_confirmed'));
     }
 
     public function change(OrderItemChangeRequest $r, Order $order, OrderShop $orderShop, OrderItem $item, OrderItemService $s): RedirectResponse
     {
         $s->change($r->user(), $order, $orderShop, $item, $r->validated());
 
-        return back()->with('status', 'Item change recorded.');
+        return back()->with('status', __('orders.flash.item_changed'));
     }
 
     public function status(OrderStatusRequest $r, Order $order, OrderStatusService $s): RedirectResponse
     {
         $s->transition($r->user(), $order, OrderOperationalStatus::from($r->validated('operational_status')), $r->validated('reason'));
 
-        return back()->with('status', 'Order status updated.');
+        return back()->with('status', __('orders.flash.status_updated'));
     }
 
     public function assignCaptain(OrderCaptainRequest $r, Order $order, OrderCaptainService $s): RedirectResponse
     {
         $s->assign($r->user(), $order, Captain::findOrFail($r->integer('captain_id')), OrderCaptainRole::from($r->validated('assignment_role')));
 
-        return back()->with('status', 'Captain assigned.');
+        return back()->with('status', __('orders.flash.captain_assigned'));
     }
 
     public function switchCaptain(OrderCaptainSwitchRequest $r, Order $order, OrderCaptainService $s): RedirectResponse
     {
         $s->switchPrimary($r->user(), $order, Captain::findOrFail($r->integer('captain_id')), $r->validated('reason'));
 
-        return back()->with('status', 'Primary Collection Captain switched.');
+        return back()->with('status', __('orders.flash.captain_switched'));
     }
 
     public function removeCaptain(Request $r, Order $order, OrderCaptain $assignment, OrderCaptainService $s): RedirectResponse
@@ -87,6 +87,6 @@ class OrderOperationController extends Controller
         $data = $r->validate(['reason' => ['required', 'string', 'max:1000']]);
         $s->remove($r->user(), $order, $assignment, $data['reason']);
 
-        return back()->with('status', 'Captain assignment removed.');
+        return back()->with('status', __('orders.flash.captain_removed'));
     }
 }

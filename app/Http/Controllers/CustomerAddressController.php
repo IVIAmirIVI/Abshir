@@ -46,14 +46,14 @@ class CustomerAddressController extends Controller
     {
         $service->save($request->user(), $customer, new CustomerAddress, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Address added.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.address_added'));
     }
 
     public function update(CustomerAddressRequest $request, Customer $customer, CustomerAddress $address, CustomerAddressService $service): RedirectResponse
     {
         $service->save($request->user(), $customer, $address, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Address updated.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.address_updated'));
     }
 
     public function status(Request $request, Customer $customer, CustomerAddress $address, CustomerAddressService $service): RedirectResponse
@@ -61,14 +61,14 @@ class CustomerAddressController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $customer, $address, (bool) $data['is_active']);
 
-        return back()->with('status', 'Address status updated.');
+        return back()->with('status', __('customers.flash.address_status'));
     }
 
     public function primary(Request $request, Customer $customer, CustomerAddress $address, CustomerAddressService $service): RedirectResponse
     {
         $service->makePrimary($request->user(), $customer, $address);
 
-        return back()->with('status', 'Primary address updated.');
+        return back()->with('status', __('customers.flash.primary_address'));
     }
 
     private function authorizeCustomer(Request $request, Customer $customer): void

@@ -32,28 +32,28 @@ class CustomerPhoneController extends Controller
     {
         $service->save($request->user(), $customer, new CustomerPhone, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Phone added.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.phone_added'));
     }
 
     public function update(CustomerPhoneRequest $request, Customer $customer, CustomerPhone $phone, CustomerPhoneService $service): RedirectResponse
     {
         $service->save($request->user(), $customer, $phone, $request->validated());
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Phone updated.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.phone_updated'));
     }
 
     public function destroy(Request $request, Customer $customer, CustomerPhone $phone, CustomerPhoneService $service): RedirectResponse
     {
         $service->delete($request->user(), $customer, $phone);
 
-        return redirect()->route('customers.show', $customer)->with('status', 'Phone removed.');
+        return redirect()->route('customers.show', $customer)->with('status', __('customers.flash.phone_removed'));
     }
 
     public function primary(Request $request, Customer $customer, CustomerPhone $phone, CustomerPhoneService $service): RedirectResponse
     {
         $service->makePrimary($request->user(), $customer, $phone);
 
-        return back()->with('status', 'Primary phone updated.');
+        return back()->with('status', __('customers.flash.primary_phone'));
     }
 
     private function authorizeCustomer(Request $request, Customer $customer): void

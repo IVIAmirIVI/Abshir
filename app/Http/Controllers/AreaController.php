@@ -65,14 +65,14 @@ class AreaController extends Controller
     {
         $area = $service->save($request->user(), new Area, $request->validated());
 
-        return redirect()->route('areas.index', ['branch_id' => $area->branch_id])->with('status', 'Area created.');
+        return redirect()->route('areas.index', ['branch_id' => $area->branch_id])->with('status', __('areas.flash.created'));
     }
 
     public function update(AreaRequest $request, Area $area, AreaService $service): RedirectResponse
     {
         $area = $service->save($request->user(), $area, $request->validated());
 
-        return redirect()->route('areas.index', ['branch_id' => $area->branch_id])->with('status', 'Area updated.');
+        return redirect()->route('areas.index', ['branch_id' => $area->branch_id])->with('status', __('areas.flash.updated'));
     }
 
     public function status(Request $request, Area $area, AreaService $service): RedirectResponse
@@ -80,6 +80,6 @@ class AreaController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $area, (bool) $data['is_active']);
 
-        return back()->with('status', 'Area status updated.');
+        return back()->with('status', __('areas.flash.status_updated'));
     }
 }

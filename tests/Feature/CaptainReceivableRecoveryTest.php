@@ -213,7 +213,7 @@ class CaptainReceivableRecoveryTest extends TestCase
         $history = $this->history();
         $c = app(InvoiceFinancialCorrectionService::class)->request($f['employee'], $f['invoice'], InvoiceFinancialCorrectionKind::CancelAndRefund, [], 'Cancel after paid purchase', 'Return goods', (string) Str::uuid());
         $c = $this->prepareAndRefund($f, $c);
-        $this->actingAs($f['employee'])->get(route('orders.show', $f['order']))->assertOk()->assertSee('Start return workflow');
+        $this->actingAs($f['employee'])->get(route('orders.show', $f['order']))->assertOk()->assertSee(__('orders.ui_start_return'));
         app(OrderCancellationIntentService::class)->create($f['employee'], $f['order']->fresh(), OrderCancellationReason::CustomerCancelled, 'Return goods', (string) Str::uuid());
         $shop = $f['order']->shops()->sole();
         app(OrderShopReturnService::class)->record($f['employee'], $f['order']->fresh(), $shop, [

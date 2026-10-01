@@ -117,7 +117,7 @@ class AreaManagementTest extends TestCase
         $customer = Customer::factory()->create();
         $admin = $this->account();
 
-        $this->actingAs($admin)->get(route('areas.index', ['branch_id' => $branch]))->assertOk()->assertSee($area->name)->assertSee('Inactive');
+        $this->actingAs($admin)->get(route('areas.index', ['branch_id' => $branch]))->assertOk()->assertSee($area->name)->assertSee(__('common.operational_inactive'));
         $this->post(route('customers.addresses.store', $customer), ['area_id' => $area->id, 'address_line_1' => 'Blocked'])->assertSessionHasErrors('area_id');
         $this->assertDatabaseCount('customer_addresses', 0);
     }

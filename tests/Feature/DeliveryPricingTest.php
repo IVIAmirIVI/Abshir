@@ -553,8 +553,8 @@ class DeliveryPricingTest extends TestCase
         $this->configure($c);
         app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
         app(OrderDeliveryPricingService::class)->price($c['employee'], $c['order'], $c['from']);
-        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()->assertDontSee('Captain share snapshot')->assertDontSee('Company collectible');
-        $this->actingAs($c['admin'])->get(route('orders.show', $c['order']))->assertOk()->assertSee('Captain share snapshot')->assertSee('Company collectible');
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()->assertDontSee(__('orders.ui_captain_share'))->assertDontSee(__('orders.ui_company_collectible'));
+        $this->actingAs($c['admin'])->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_captain_share'))->assertSee(__('orders.ui_company_collectible'));
 
         $otherBranch = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
         $otherArea = Area::factory()->for($otherBranch)->create();

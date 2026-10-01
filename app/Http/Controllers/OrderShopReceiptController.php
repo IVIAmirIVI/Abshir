@@ -18,7 +18,7 @@ class OrderShopReceiptController extends Controller
     {
         $service->upload($request->user(), $order, $orderShop, $request->file('receipt'), $request->validated('note'));
 
-        return back()->with('status', 'Private purchase receipt evidence uploaded.');
+        return back()->with('status', __('orders.flash.receipt_uploaded'));
     }
 
     public function show(Request $request, Order $order, OrderShop $orderShop, OrderShopReceipt $receipt, OrderShopReceiptService $service): StreamedResponse

@@ -19,6 +19,7 @@ use App\Services\OrderCancellationSafetyService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -44,7 +45,7 @@ class OrderController extends Controller
             'branches' => $r->user()->availableBranches()->where('is_active', true)->orderBy('name')->get(),
             'customers' => Customer::query()->accessibleTo($r->user())->where('is_active', true)->with([
                 'phones',
-                'addresses' => fn (Builder $q) => $q->where('is_active', true)->whereHas('area', fn (Builder $areas) => $areas->where('is_active', true)),
+                'addresses' => fn (HasMany $q) => $q->where('is_active', true)->whereHas('area', fn (Builder $areas) => $areas->where('is_active', true)),
                 'addresses.area.branch',
             ])->orderBy('name')->get(),
             'sources' => OrderSource::staffChoices(),
@@ -56,7 +57,7 @@ class OrderController extends Controller
     {
         $o = $s->create($r->user(), $r->validated());
 
-        return redirect()->route('orders.show', $o)->with('status', 'Order created. Add Shops and Items.');
+        return redirect()->route('orders.show', $o)->with('status', __('orders.flash.created'));
     }
 
     public function show(Request $r, Order $order, OrderService $s, OrderDeliveryPricingService $deliveryPricing): View
