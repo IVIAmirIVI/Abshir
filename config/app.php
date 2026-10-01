@@ -78,9 +78,10 @@ return [
     |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    // The operational UI is Arabic-first; legacy local APP_LOCALE values do not override it.
+    'locale' => 'ar',
 
-    'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
+    'fallback_locale' => 'en',
 
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
 

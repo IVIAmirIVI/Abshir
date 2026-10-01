@@ -12,7 +12,10 @@ export default {
     theme: {
         extend: {
             fontFamily: {
-                sans: ['Figtree', ...defaultTheme.fontFamily.sans],
+                sans: ['Tahoma', 'Arial', ...defaultTheme.fontFamily.sans],
+            },
+            colors: {
+                brand: { primary: '#164d3b', hover: '#103c2e', accent: '#e88a26', canvas: '#faf8f2' },
             },
         },
     },

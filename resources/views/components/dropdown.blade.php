@@ -9,11 +9,12 @@ $alignmentClasses = match ($align) {
 
 $width = match ($width) {
     '48' => 'w-48',
+    '64' => 'w-64',
     default => $width,
 };
 @endphp
 
-<div class="relative" x-data="{ open: false }" @click.outside="open = false" @close.stop="open = false">
+<div class="relative" x-data="{ open: false }" @click.outside="open = false" @close.stop="open = false" @keydown.escape.stop="open = false">
     <div @click="open = ! open">
         {{ $trigger }}
     </div>

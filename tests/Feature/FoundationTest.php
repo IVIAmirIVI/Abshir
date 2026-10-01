@@ -20,7 +20,7 @@ class FoundationTest extends TestCase
         $this->actingAs(User::factory()->create())
             ->get('/dashboard')
             ->assertOk()
-            ->assertSee('Your workspace is ready.');
+            ->assertSee(__('messages.dashboard_heading'));
     }
 
     public function test_application_homepage_smoke_test_passes(): void
