@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Branch;
 use App\Models\Captain;
+use App\Models\CaptainDepositManualAdjustment;
 use App\Models\CaptainDepositReceipt;
 use App\Models\CaptainReceivablePayout;
 use App\Models\Currency;
@@ -59,11 +60,20 @@ class CaptainFinancialController extends Controller
         $selectedCurrency = $currencies->firstWhere('id', (int) $request->query('currency_id'));
         $outstanding = $selectedBranch && $selectedCurrency
             ? $balances->payableReceivableEntries($captain, $selectedBranch, $selectedCurrency) : collect();
+        $manualAdjustmentsEnabled = $request->user()->isSuperAdmin()
+            && DB::scalar("SELECT to_regprocedure('captain_manual_deposits_active()') IS NOT NULL")
+            && DB::scalar('SELECT captain_manual_deposits_active()');
 
         return view('captain-financials.show', [
             'captain' => $captain->load('user'), 'rows' => $rows, 'branches' => $branches,
             'currencies' => $currencies, 'selectedBranch' => $selectedBranch,
             'selectedCurrency' => $selectedCurrency, 'outstanding' => $outstanding,
+            'manualAdjustmentsEnabled' => $manualAdjustmentsEnabled,
+            'manualAdjustments' => $manualAdjustmentsEnabled
+                ? CaptainDepositManualAdjustment::query()->where('captain_id', $captain->id)
+                    ->with(['branch', 'currency', 'adjustedBy'])->latest('id')->limit(30)->get() : collect(),
+            'adjustmentBranches' => $manualAdjustmentsEnabled
+                ? $branches->filter(fn ($branch) => DB::scalar('SELECT manual_deposit_branch_legitimate(?,?)', [$captain->id, $branch->id])) : collect(),
             'receipts' => $request->user()->can('captain_deposits.view')
                 ? CaptainDepositReceipt::query()->where('captain_id', $captain->id)->whereIn('branch_id', $branchIds)
                     ->with(['branch', 'currency', 'receivedBy'])->latest('id')->limit(30)->get() : collect(),

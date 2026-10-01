@@ -9,6 +9,7 @@ use App\Http\Controllers\AreaController;
 use App\Http\Controllers\BillPaymentFeeRuleController;
 use App\Http\Controllers\CaptainBranchAssignmentController;
 use App\Http\Controllers\CaptainController;
+use App\Http\Controllers\CaptainDepositManualAdjustmentController;
 use App\Http\Controllers\CaptainEmploymentController;
 use App\Http\Controllers\CaptainFinancialController;
 use App\Http\Controllers\CaptainGroupController;
@@ -93,6 +94,8 @@ Route::middleware('auth')->group(function () {
     Route::resource('captains', CaptainController::class)->except('destroy');
     Route::get('captain-financials', [CaptainFinancialController::class, 'index'])->name('captain-financials.index');
     Route::get('captains/{captain}/financials', [CaptainFinancialController::class, 'show'])->name('captains.financials.show');
+    Route::post('captains/{captain}/financials/manual-deposit-adjustments', [CaptainDepositManualAdjustmentController::class, 'store'])->name('captains.manual-deposit-adjustments.store');
+    Route::get('captains/{captain}/financials/manual-deposit-adjustments/{adjustment}/evidence', [CaptainDepositManualAdjustmentController::class, 'evidence'])->name('captains.manual-deposit-adjustments.evidence');
     Route::post('captains/{captain}/financials/deposits', [CaptainFinancialController::class, 'deposit'])->name('captains.financials.deposits.store');
     Route::post('captains/{captain}/financials/payouts', [CaptainFinancialController::class, 'payout'])->name('captains.financials.payouts.store');
     Route::get('captains/{captain}/financials/deposits/{receipt}/evidence', [CaptainFinancialController::class, 'depositEvidence'])->name('captains.financials.deposits.evidence');

@@ -74,6 +74,13 @@ return [
             'throw' => true,
         ],
 
+        'captain_deposit_manual_adjustments' => [
+            'driver' => 'local',
+            'root' => storage_path('app/captain-deposit-adjustments-private'),
+            'serve' => false,
+            'throw' => true,
+        ],
+
         'order_returns' => [
             'driver' => 'local',
             'root' => storage_path('app/order-returns-private'),

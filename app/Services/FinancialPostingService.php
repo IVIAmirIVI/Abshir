@@ -179,6 +179,8 @@ class FinancialPostingService
             }
             if (in_array($original->event_type, [
                 FinancialEventType::CaptainDepositReceived->value,
+                FinancialEventType::CaptainDepositManualAdjustmentIncrease->value,
+                FinancialEventType::CaptainDepositManualAdjustmentDecrease->value,
                 FinancialEventType::CaptainReceivablePaid->value,
                 FinancialEventType::ReceivableUnpaidRemainderRetired->value,
                 FinancialEventType::ReceivableCorrectedResidualDue->value,
@@ -282,6 +284,8 @@ class FinancialPostingService
         $preciseOrderEvent = in_array($eventType, [
             ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()),
             FinancialEventType::CaptainDepositReceived->value,
+            FinancialEventType::CaptainDepositManualAdjustmentIncrease->value,
+            FinancialEventType::CaptainDepositManualAdjustmentDecrease->value,
             FinancialEventType::CaptainReceivablePaid->value,
             FinancialEventType::ReceivableUnpaidRemainderRetired->value,
             FinancialEventType::ReceivableCorrectedResidualDue->value,

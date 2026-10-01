@@ -17,6 +17,8 @@ enum FinancialEventType: string
     case BillPaymentPrincipalHandedOver = 'BILL_PAYMENT_PRINCIPAL_HANDED_OVER';
     case BillPaymentServiceFeeRetained = 'BILL_PAYMENT_SERVICE_FEE_RETAINED';
     case CaptainDepositReceived = 'CAPTAIN_DEPOSIT_RECEIVED';
+    case CaptainDepositManualAdjustmentIncrease = 'CAPTAIN_DEPOSIT_MANUAL_ADJUSTMENT_INCREASE';
+    case CaptainDepositManualAdjustmentDecrease = 'CAPTAIN_DEPOSIT_MANUAL_ADJUSTMENT_DECREASE';
     case CaptainReceivablePaid = 'CAPTAIN_RECEIVABLE_PAID';
     case InvoiceCorrectionReverseOriginal = 'INVOICE_CORRECTION_REVERSE_ORIGINAL';
     case InvoiceCorrectionCashDepositDebit = 'INVOICE_CORRECTION_CASH_DEPOSIT_DEBIT';

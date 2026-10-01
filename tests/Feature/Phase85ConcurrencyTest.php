@@ -42,6 +42,7 @@ use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
 use App\Services\OrderShopReturnService;
 use App\Services\OrderStatusService;
+use Brick\Math\BigDecimal;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
@@ -176,15 +177,52 @@ class Phase85ConcurrencyTest extends TestCase
                     'occurred_at' => now()->subSecond()->toIso8601String(), 'reference' => 'RACE-PREPARE-PAYOUT',
                     'financial_entry_id' => $due->financial_entry_id],
             ], $ready['currency']);
-            $this->assertSame('success', $results[1]['status'], json_encode($results));
-            $this->assertContains($results[0]['status'], ['success', 'validation'], json_encode($results));
-            if ($results[0]['status'] === 'validation') {
-                $this->assertStringContainsString('CAPTAIN_RECOVERY_REQUIRED',
-                    $results[0]['errors']['correction'][0]);
+            // Either worker may acquire the Currency lock first; PREPARE must capture
+            // exactly the committed payout, then reserve the original source in both cases.
+            $this->assertSame('success', $results[0]['status'], json_encode($results));
+            $this->assertContains($results[1]['status'], ['success', 'validation'], json_encode($results));
+            $source = $source->fresh();
+            $this->assertSame('PREPARED', $source->state->value);
+            $this->assertTrue($source->receivable_dispositions_captured);
+            $disposition = $source->receivableDispositions()
+                ->where('original_receivable_financial_entry_id', $due->financial_entry_id)->sole();
+            $this->assertSame($ready['captain']->id, $disposition->captain_id);
+            $this->assertSame($fixture['branch']->id, $disposition->branch_id);
+            $this->assertSame($ready['currency']->id, $disposition->currency_id);
+            $paidFirst = $results[1]['status'] === 'success';
+            $expected = [
+                'original_entitlement' => '10.0000', 'corrected_entitlement' => '8.0000',
+                'historical_paid' => $paidFirst ? '10.0000' : '0.0000',
+                'original_unpaid' => $paidFirst ? '0.0000' : '10.0000',
+                'residual_payable' => $paidFirst ? '0.0000' : '8.0000',
+                'recovery_required' => $paidFirst ? '2.0000' : '0.0000',
+            ];
+            foreach ($expected as $field => $amount) {
+                $this->assertSame($amount, (string) BigDecimal::of($disposition->$field)->toScale(4), $field);
             }
-            $this->assertDatabaseCount('captain_receivable_payout_allocations', 1);
+            $this->assertSame($paidFirst ? 2 : 1, $source->receivable_contract_version);
+            $this->assertDatabaseCount('captain_receivable_payouts', $paidFirst ? 1 : 0);
+            $this->assertDatabaseCount('captain_receivable_payout_allocations', $paidFirst ? 1 : 0);
+            $this->assertCount($paidFirst ? 1 : 0, $disposition->allocations);
+            if ($paidFirst) {
+                $allocation = DB::table('captain_receivable_payout_allocations')->sole();
+                $this->assertSame($due->financial_entry_id, $allocation->financial_entry_id);
+                $this->assertSame('10.0000', (string) BigDecimal::of($allocation->amount)->toScale(4));
+                $frozen = $disposition->allocations->sole();
+                $this->assertSame($allocation->id, $frozen->captain_receivable_payout_allocation_id);
+                $this->assertSame($allocation->captain_receivable_payout_id, $frozen->captain_receivable_payout_id);
+                $this->assertSame('10.0000', (string) BigDecimal::of($frozen->amount)->toScale(4));
+            } else {
+                $this->assertSame(['amount' => ['Payout exceeds the payable Receivable in this Branch and Currency.']],
+                    $results[1]['errors']);
+            }
+            $this->assertNull(app(FinancialBalanceQueryService::class)
+                ->payableReceivableEntries($ready['captain'], $fixture['branch'], $ready['currency'])
+                ->firstWhere('financial_entry_id', $due->financial_entry_id));
+            $this->assertSame(0, DB::table('financial_transactions')->whereIn('event_type', [
+                'RECEIVABLE_UNPAID_REMAINDER_RETIRED', 'RECEIVABLE_CORRECTED_RESIDUAL_DUE',
+            ])->count());
             $this->assertDatabaseCount('invoice_correction_reversals', 0);
-            $this->assertContains($source->fresh()->state->value, ['REQUESTED', 'PREPARED']);
             foreach (DB::table('captain_receivable_payouts')->pluck('evidence_path') as $path) {
                 Storage::disk('captain_financial_evidence')->delete($path);
             }

@@ -12,6 +12,10 @@
             </tbody></table></div>
         </section>
 
+        @if($manualAdjustmentsEnabled)
+            @include('captain-financials.manual-deposit-adjustments')
+        @endif
+
         @can('captain_deposits.create')
         <section class="rounded-lg bg-white p-5 shadow space-y-3"><h3 class="text-lg font-semibold">Record real Captain Deposit receipt</h3>
             <form method="POST" enctype="multipart/form-data" action="{{ route('captains.financials.deposits.store', $captain) }}" class="grid gap-3 sm:grid-cols-2">@csrf
