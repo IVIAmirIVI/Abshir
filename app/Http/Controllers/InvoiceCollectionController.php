@@ -62,6 +62,6 @@ class InvoiceCollectionController extends Controller
             $request->validated('payment_reference'),
         );
 
-        return back()->with('status', 'Full Customer collection recorded.');
+        return back()->with('status', __('financial.flash.collection_recorded'));
     }
 }

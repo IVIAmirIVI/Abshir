@@ -1,21 +1,21 @@
 <section class="space-y-4 rounded bg-white p-5 shadow">
     <div class="flex flex-wrap items-center justify-between gap-3">
-        <div><h3 class="font-semibold">Customer Invoice</h3><p class="text-sm">Financially complete: {{ $order->isFinanciallyComplete() ? 'Yes' : 'No' }}</p></div>
+        <div><h3 class="font-semibold">{{ __('financial.ui.customer_invoice') }}</h3><p class="text-sm">{{ __('financial.ui.financially_complete') }} {{ $order->isFinanciallyComplete() ? __('financial.ui.yes') : __('financial.ui.no') }}</p></div>
         @can('invoices.create')
             @if(!$order->currentInvoice)
-                <form method="POST" action="{{ route('orders.invoices.store', $order) }}">@csrf<x-primary-button>Create Invoice draft</x-primary-button></form>
+                <form method="POST" action="{{ route('orders.invoices.store', $order) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.create_draft') }}</x-primary-button></form>
             @endif
         @endcan
     </div>
     @forelse($order->invoices->sortByDesc('version') as $invoice)
-        <article class="rounded border p-3">
-            <div class="flex flex-wrap justify-between gap-2"><a class="font-semibold underline" href="{{ route('orders.invoices.show', [$order, $invoice]) }}">{{ $invoice->invoice_number }} · v{{ $invoice->version }}</a><span>{{ $invoice->status->value }}</span></div>
-            <p>{{ $invoice->grand_total ?? 'Not ready' }} {{ $invoice->currency?->code }} · {{ $invoice->collection ? 'Collected '.$invoice->collection->collected_at->format('Y-m-d H:i') : 'Uncollected' }}</p>
-            @if($invoice->issued_at)<p class="text-sm">Issued {{ $invoice->issued_at->format('Y-m-d H:i') }}</p>@endif
-            @if($invoice->void_reason)<p class="text-sm">Voided: {{ $invoice->void_reason }}</p>@endif
-            @if($invoice->replacement_reason)<p class="text-sm">Replaced: {{ $invoice->replacement_reason }}</p>@endif
+        <article class="rounded border p-3"><p class="text-sm">{{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p>
+            <div class="flex flex-wrap justify-between gap-2"><a class="font-semibold underline" href="{{ route('orders.invoices.show', [$order, $invoice]) }}"><x-ltr>{{ $invoice->invoice_number }}</x-ltr> · {{ __('financial.ui.version') }} <x-ltr>{{ $invoice->version }}</x-ltr></a><span>{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }}</span></div>
+            <p>@if($invoice->grand_total !== null)<x-money :amount="$invoice->grand_total" />@else{{ __('financial.ui.not_ready') }}@endif <x-ltr>{{ $invoice->currency?->code }}</x-ltr> · @if($invoice->collection){{ __('financial.collection_states.collected') }} <x-ltr>{{ $invoice->collection->collected_at->format('Y-m-d H:i') }}</x-ltr>@else{{ __('financial.collection_states.uncollected') }}@endif</p>
+            @if($invoice->issued_at)<p class="text-sm">{{ __('financial.ui.issued') }} <x-ltr>{{ $invoice->issued_at->format('Y-m-d H:i') }}</x-ltr></p>@endif
+            @if($invoice->void_reason)<p class="text-sm">{{ __('financial.ui.voided') }} {{ $invoice->void_reason }}</p>@endif
+            @if($invoice->replacement_reason)<p class="text-sm">{{ __('financial.ui.replaced') }} {{ $invoice->replacement_reason }}</p>@endif
         </article>
     @empty
-        <p>No Invoice versions yet.</p>
+        <p>{{ __('financial.ui.no_versions') }}</p>
     @endforelse
 </section>

@@ -59,35 +59,35 @@ class InvoiceController extends Controller
     {
         $invoice = $service->createDraft($request->user(), $order);
 
-        return redirect()->route('orders.invoices.show', [$order, $invoice])->with('status', 'Invoice draft created.');
+        return redirect()->route('orders.invoices.show', [$order, $invoice])->with('status', __('financial.flash.draft_created'));
     }
 
     public function refresh(Request $request, Order $order, Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $service->refresh($request->user(), $order, $invoice);
 
-        return back()->with('status', 'Invoice snapshot refreshed and is READY.');
+        return back()->with('status', __('financial.flash.invoice_ready'));
     }
 
     public function issue(Request $request, Order $order, Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $service->issue($request->user(), $order, $invoice);
 
-        return back()->with('status', 'Invoice issued.');
+        return back()->with('status', __('financial.flash.invoice_issued'));
     }
 
     public function void(InvoiceReasonRequest $request, Order $order, Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $service->void($request->user(), $order, $invoice, $request->input('reason'));
 
-        return back()->with('status', 'Invoice voided.');
+        return back()->with('status', __('financial.flash.invoice_voided'));
     }
 
     public function replace(InvoiceReasonRequest $request, Order $order, Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $replacement = $service->replace($request->user(), $order, $invoice, $request->input('reason'));
 
-        return redirect()->route('orders.invoices.show', [$order, $replacement])->with('status', 'Replacement Invoice created and is READY.');
+        return redirect()->route('orders.invoices.show', [$order, $replacement])->with('status', __('financial.flash.replacement_ready'));
     }
 
     private function ownership(Request $request, Order $order, Invoice $invoice): void

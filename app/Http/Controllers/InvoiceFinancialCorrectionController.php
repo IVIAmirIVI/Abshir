@@ -38,21 +38,21 @@ class InvoiceFinancialCorrectionController extends Controller
         $service->request($request->user(), $invoice, $kind, $proposal, $data['reason'],
             $data['explanation'], $data['request_key']);
 
-        return back()->with('status', 'Financial correction requested. The original Collection remains authoritative.');
+        return back()->with('status', __('financial.flash.correction_requested'));
     }
 
     public function prepare(Request $request, InvoiceFinancialCorrection $correction, InvoiceFinancialCorrectionService $service): RedirectResponse
     {
         $service->prepare($request->user(), $correction);
 
-        return back()->with('status', 'Corrected amount prepared. No financial history has changed.');
+        return back()->with('status', __('financial.flash.correction_prepared'));
     }
 
     public function abandon(Request $request, InvoiceFinancialCorrection $correction, InvoiceFinancialCorrectionService $service): RedirectResponse
     {
         $service->abandon($request->user(), $correction);
 
-        return back()->with('status', 'Unfunded correction abandoned.');
+        return back()->with('status', __('financial.flash.correction_abandoned'));
     }
 
     public function refund(Request $request, InvoiceFinancialCorrection $correction, CustomerRefundService $service): RedirectResponse
@@ -66,14 +66,14 @@ class InvoiceFinancialCorrectionController extends Controller
         $service->record($request->user(), $correction, $data['request_key'], $data['refunded_at'],
             $data['reference'], $request->file('evidence'));
 
-        return back()->with('status', 'Customer refund recorded with private evidence.');
+        return back()->with('status', __('financial.flash.refund_recorded'));
     }
 
     public function finalize(Request $request, InvoiceFinancialCorrection $correction, InvoiceFinancialCorrectionService $service): RedirectResponse
     {
         $service->finalize($request->user(), $correction);
 
-        return back()->with('status', 'Financial correction finalized.');
+        return back()->with('status', __('financial.flash.correction_finalized'));
     }
 
     public function evidence(Request $request, CustomerRefund $refund, CustomerRefundEvidenceService $evidence): Response

@@ -36,7 +36,7 @@ class CaptainDepositManualAdjustmentController extends Controller
         $service->record($request->user(), $captain, Branch::findOrFail($data['branch_id']), Currency::findOrFail($data['currency_id']),
             $data, $request->file('evidence'));
 
-        return back()->with('status', 'Manual Captain Deposit Adjustment recorded.');
+        return back()->with('status', __('financial.flash.adjustment_recorded'));
     }
 
     public function evidence(Request $request, Captain $captain, CaptainDepositManualAdjustment $adjustment, CaptainDepositManualAdjustmentEvidenceService $evidence): Response

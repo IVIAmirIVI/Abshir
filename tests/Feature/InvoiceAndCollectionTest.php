@@ -118,6 +118,39 @@ class InvoiceAndCollectionTest extends TestCase
         return app(InvoiceService::class)->refresh($context['employee'], $context['order'], $invoice);
     }
 
+    public function test_arabic_invoice_lifecycle_print_and_historical_versions_preserve_values(): void
+    {
+        $c = $this->context();
+        $service = app(InvoiceService::class);
+        $draft = $service->createDraft($c['employee'], $c['order']);
+        $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $draft]))
+            ->assertOk()->assertSee('مسودة')->assertSee('الفاتورة الحالية')->assertSee(__('financial.ui.refresh_help'));
+        $ready = $service->refresh($c['employee'], $c['order'], $draft);
+        $this->get(route('orders.invoices.show', [$c['order'], $ready]))->assertOk()
+            ->assertSee('جاهزة للإصدار')->assertSee('إصدار الفاتورة')->assertSee('30.0000');
+        $issued = $service->issue($c['employee'], $c['order'], $ready);
+        $this->get(route('invoices.index'))->assertOk()->assertSee('فواتير')->assertSee('صادرة')->assertSee($issued->invoice_number);
+        $print = $this->get(route('orders.invoices.print', [$c['order'], $issued]))->assertOk()
+            ->assertSee('أبشر')->assertSee('فاتورة الزبون')->assertSee('إجمالي الفاتورة')
+            ->assertSee('صادرة')->assertSee('الفاتورة الحالية')
+            ->assertSee('dir="rtl"', false)->assertSee('30.0000')->assertSee('25.0000')->assertSee('USD')
+            ->assertSee('Snapshot Customer')->assertSee('Snapshot Street');
+        $this->assertStringContainsString('<bdi dir="ltr"', $print->getContent());
+        $replacement = $service->replace($c['admin'], $c['order'], $issued, 'Historical replacement reason');
+        $this->get(route('orders.invoices.show', [$c['order'], $issued]))->assertOk()
+            ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('Historical replacement reason');
+        $this->get(route('orders.invoices.print', [$c['order'], $issued]))->assertOk()
+            ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('30.0000');
+        $this->get(route('orders.show', $c['order']))->assertOk()
+            ->assertSee('فاتورة تاريخية')->assertSee('الفاتورة الحالية');
+        $replacement = $service->issue($c['admin'], $c['order'], $replacement);
+        $service->void($c['admin'], $c['order'], $replacement, 'Preserved void reason');
+        $this->get(route('orders.invoices.show', [$c['order'], $replacement]))->assertOk()
+            ->assertSee('ملغاة')->assertSee('فاتورة تاريخية')->assertSee('Preserved void reason');
+        $this->assertSame('30.0000', $issued->fresh()->grand_total);
+        $this->assertSame('Snapshot Customer', $issued->fresh()->customer_name_snapshot);
+    }
+
     private function issued(array $context): Invoice
     {
         return app(InvoiceService::class)->issue($context['employee'], $context['order'], $this->ready($context));
@@ -446,6 +479,11 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertNull($collection->captain_id);
         $this->assertNull($collection->order_captain_id);
         $this->assertSame('SC-123', $collection->payment_reference);
+        $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $issued]))
+            ->assertOk()->assertSee('محصّلة بالكامل')->assertSee('شام كاش')
+            ->assertSee(__('financial.ui.direct_sham'))->assertSee('SC-123')->assertSee('30.0000');
+        $this->get(route('invoice-collections.index'))->assertOk()->assertSee('تحصيلات الزبائن')
+            ->assertSee('شام كاش')->assertSee('SC-123')->assertSee($c['employee']->name);
         $this->assertSame($c['employee']->id, $collection->recorded_by);
         $this->assertDatabaseCount('financial_transactions', 0);
         $this->expectValidation(fn () => $service->record($c['employee'], $issued, InvoiceCollectionMethod::ShamCash, '30', $c['currency']->id, now()));
@@ -483,7 +521,8 @@ class InvoiceAndCollectionTest extends TestCase
         $this->actingAs($captainUser)->get(route('invoice-collections.sham-cash'))->assertForbidden();
 
         $response = $this->actingAs($usd['admin'])->get(route('invoice-collections.sham-cash', ['from' => today()->toDateString(), 'to' => today()->toDateString()]));
-        $response->assertOk()->assertSee($usdInvoice->invoice_number)->assertSee($eurInvoice->invoice_number)->assertDontSee($cashInvoice->invoice_number)->assertSee('USD-REF');
+        $response->assertOk()->assertSee($usdInvoice->invoice_number)->assertSee($eurInvoice->invoice_number)->assertDontSee($cashInvoice->invoice_number)->assertSee('USD-REF')
+            ->assertSee('مطابقة شام كاش')->assertSee(__('financial.ui.sham_help'));
         $totals = $response->viewData('totals')->pluck('total', 'code')->all();
         $this->assertEquals(['EUR' => '30.0000', 'USD' => '30.0000'], $totals);
         $this->actingAs($usd['admin'])->get(route('invoice-collections.sham-cash', ['from' => today()->addDay()->toDateString()]))->assertDontSee($usdInvoice->invoice_number);
@@ -649,6 +688,8 @@ class InvoiceAndCollectionTest extends TestCase
         $base = (array) DB::table('invoice_financial_corrections')->where('id', $source->id)->sole();
         unset($base['id']);
         $service->abandon($c['admin'], $source);
+        $this->actingAs($c['admin'])->get(route('orders.invoices.show', [$c['order'], $invoice]))
+            ->assertOk()->assertSee('تم إيقاف طلب التصحيح');
         foreach (['DRAFT', 'READY', 'VOIDED', 'REPLACED', 'ISSUED'] as $index => $status) {
             $facts = (array) DB::table('invoices')->where('id', $invoice->id)->sole();
             unset($facts['id']);
@@ -907,7 +948,7 @@ class InvoiceAndCollectionTest extends TestCase
         $otherEmployee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $otherEmployee->branches()->attach($otherBranch);
         $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $invoice]))
-            ->assertOk()->assertSee('Request financial correction');
+            ->assertOk()->assertSee(__('financial.ui.request_correction'));
         $request = [
             'kind' => 'REPRICE', 'request_key' => (string) Str::uuid(),
             'reason' => 'Wrong unit price', 'explanation' => 'Verified replacement price',
@@ -917,8 +958,12 @@ class InvoiceAndCollectionTest extends TestCase
         $this->actingAs($otherEmployee)->post(route('invoices.corrections.request', $invoice), $request)->assertForbidden();
         $this->actingAs($c['employee'])->post(route('invoices.corrections.request', $invoice), $request)->assertSessionHasNoErrors();
         $source = InvoiceFinancialCorrection::query()->sole();
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()
+            ->assertSee('تصحيح السعر')->assertSee('بانتظار التجهيز');
         $this->actingAs($c['employee'])->post(route('invoice-corrections.prepare', $source))->assertForbidden();
         $this->actingAs($c['admin'])->post(route('invoice-corrections.prepare', $source))->assertSessionHasNoErrors();
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()
+            ->assertSee('تم التجهيز')->assertSee(__('financial.ui.required_refund'))->assertSee('شام كاش');
         $this->actingAs($c['employee'])->post(route('invoice-corrections.refund', $source), [
             'request_key' => (string) Str::uuid(), 'refunded_at' => now()->format('Y-m-d H:i:s'),
             'reference' => 'EMPLOYEE-CANNOT-REFUND',
@@ -932,6 +977,9 @@ class InvoiceAndCollectionTest extends TestCase
         $refund = $source->refund()->sole();
         $this->assertSame(InvoiceCollectionMethod::ShamCash, $refund->method);
         $this->assertNull($refund->refunding_captain_id);
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()
+            ->assertSee('جاهز للإتمام')->assertSee(__('financial.ui.customer_refund_evidence'))
+            ->assertSee(__('financial.ui.company_refund'))->assertSee('5.0000');
         $this->actingAs($c['employee'])->get(route('customer-refunds.evidence', $refund))->assertOk();
         $this->actingAs($otherEmployee)->get(route('customer-refunds.evidence', $refund))->assertForbidden();
         $c['captain']->user->roles()->attach(Role::where('code', 'CAPTAIN')->sole());
@@ -941,6 +989,9 @@ class InvoiceAndCollectionTest extends TestCase
         $this->actingAs($c['employee'])->post(route('invoice-corrections.finalize', $source))->assertForbidden();
         $this->actingAs($c['admin'])->post(route('invoice-corrections.finalize', $source))->assertSessionHasNoErrors();
         $replacement = Invoice::findOrFail($source->fresh()->replacement_invoice_id);
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertSee('مكتمل');
+        $this->get(route('orders.invoices.show', [$c['order'], $replacement]))->assertOk()
+            ->assertSee(__('financial.ui.settled_payment', ['id' => $source->original_collection_id]));
         $this->actingAs($c['employee'])->post(route('invoices.collection.store', $replacement), [
             'collection_method' => 'SHAM_CASH', 'collected_at' => now()->format('Y-m-d H:i:s'),
         ])->assertSessionHasErrors('invoice');
@@ -979,6 +1030,11 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertCount(2, $payable);
         $this->assertTrue($payable->every(fn ($row) => $row->source_type === 'INVOICE_FINANCIAL_CORRECTION'
             && $row->source_id === (string) $completed->id));
+        $this->actingAs($c['admin'])->get(route('captains.financials.show', [
+            'captain' => $c['captain'], 'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id,
+        ]))->assertOk()->assertSee(__('financial.events.INVOICE_CORRECTION_SHAM_PRODUCT_DUE'))
+            ->assertSee(__('financial.events.INVOICE_CORRECTION_SHAM_DELIVERY_DUE'))
+            ->assertSee(__('financial.ui.this_payout'))->assertSee('USD');
         $first = $payable->first();
         $payout = app(CaptainReceivablePayoutService::class)->record($c['admin'], $c['captain'], $c['branch'],
             $c['currency'], ['request_key' => (string) Str::uuid(), 'amount' => (string) $first->remaining_amount,

@@ -26,7 +26,7 @@ class CaptainDepositManualAdjustmentMigrationTest extends TestCase
                     $this->assertNotEmpty($e->errors());
                 }
                 $this->deposit($f, '10');
-                $this->actingAs($f['admin'])->get(route('captains.financials.show', $f['captain']))->assertOk()->assertDontSee('Manual Captain Deposit Adjustment');
+                $this->actingAs($f['admin'])->get(route('captains.financials.show', $f['captain']))->assertOk()->assertDontSee(__('financial.terms.manual_deposit_adjustment'));
             }
             DB::transaction(fn () => (require database_path('migrations/2026_09_29_000450_activate_manual_deposit_adjustments.php'))->up());
             $this->assertTrue(DB::scalar('SELECT captain_manual_deposits_active()'));

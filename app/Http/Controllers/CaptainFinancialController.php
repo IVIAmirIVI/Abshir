@@ -95,7 +95,7 @@ class CaptainFinancialController extends Controller
         $service->record($request->user(), $captain, Branch::findOrFail($data['branch_id']),
             Currency::findOrFail($data['currency_id']), $data, $request->file('evidence'));
 
-        return back()->with('status', 'Captain Deposit receipt recorded.');
+        return back()->with('status', __('financial.flash.deposit_recorded'));
     }
 
     public function payout(Request $request, Captain $captain, CaptainReceivablePayoutService $service): RedirectResponse
@@ -115,7 +115,7 @@ class CaptainFinancialController extends Controller
         $service->record($request->user(), $captain, Branch::findOrFail($data['branch_id']),
             Currency::findOrFail($data['currency_id']), $data, $allocations, $request->file('evidence'));
 
-        return back()->with('status', 'Attributed Captain Receivable payout recorded.');
+        return back()->with('status', __('financial.flash.payout_recorded'));
     }
 
     public function depositEvidence(Request $request, Captain $captain, CaptainDepositReceipt $receipt, CaptainFinancialEvidenceService $evidence): Response

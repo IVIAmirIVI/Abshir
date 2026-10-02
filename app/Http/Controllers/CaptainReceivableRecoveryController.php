@@ -22,7 +22,7 @@ class CaptainReceivableRecoveryController extends Controller
             'amount' => ['prohibited'], 'branch_id' => ['prohibited'], 'currency_id' => ['prohibited'], 'received_by_user_id' => ['prohibited'], 'method' => ['prohibited']]);
         $service->record($request->user(), $correction, $captain, $data, $request->file('evidence'));
 
-        return back()->with('status', 'Full Captain CASH repayment recorded. Financial finalization still requires Super Admin.');
+        return back()->with('status', __('financial.flash.recovery_recorded'));
     }
 
     public function evidence(Request $request, InvoiceFinancialCorrection $correction, CaptainReceivableRecovery $recovery, CaptainReceivableRecoveryEvidenceService $evidence): Response

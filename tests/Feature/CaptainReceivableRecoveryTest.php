@@ -129,8 +129,8 @@ class CaptainReceivableRecoveryTest extends TestCase
         $this->payout($f, $this->productEntry($f), '100');
         $c = $this->prepareAndRefund($f, $this->correction($f, '60'));
         $url = route('captain-recoveries.store', [$c, $f['captain']]);
-        $this->actingAs($f['employee'])->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee('Record full cash repayment')->assertSee('REQUIRED');
-        $this->actingAs($f['admin'])->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee('Finalization awaits every required Captain CASH repayment.')->assertDontSee('Record full cash repayment');
+        $this->actingAs($f['employee'])->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee(__('financial.ui.record_repayment'))->assertSee(__('financial.ui.required'));
+        $this->actingAs($f['admin'])->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee(__('financial.ui.finalization_awaits'))->assertDontSee(__('financial.ui.record_repayment'));
         $this->actingAs($f['employee'])->post($url, $this->data())->assertSessionHasErrors('evidence');
         foreach (['<svg xmlns="http://www.w3.org/2000/svg"></svg>', '<?php echo 1;', '<html>proof</html>'] as $bad) {
             $this->blocked(fn () => app(CaptainReceivableRecoveryService::class)->record($f['employee'], $c, $f['captain'], $this->data(), UploadedFile::fake()->createWithContent('image.png', $bad)));
@@ -139,7 +139,7 @@ class CaptainReceivableRecoveryTest extends TestCase
         $this->actingAs($f['employee'])->post($url, $this->data() + ['evidence' => $this->proof(), 'amount' => '40'])->assertSessionHasErrors('amount');
         $this->actingAs($f['employee'])->post($url, $this->data() + ['evidence' => $this->proof()])->assertRedirect();
         $r = CaptainReceivableRecovery::sole();
-        $this->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee('RECEIVED')->assertSee($f['employee']->name);
+        $this->get(route('orders.invoices.show', [$f['order'], $f['invoice']]))->assertOk()->assertSee(__('financial.ui.received'))->assertSee($f['employee']->name);
         $this->get(route('captain-recoveries.evidence', [$c, $r]))->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
         $other = $this->fixture('USD', $f);
         $otherC = $this->correction($other, '70');

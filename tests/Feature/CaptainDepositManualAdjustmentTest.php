@@ -17,6 +17,7 @@ use App\Services\CaptainDepositManualAdjustmentEvidenceService;
 use App\Services\CaptainDepositManualAdjustmentService;
 use App\Services\FinancialAccountService;
 use App\Services\FinancialPostingService;
+use App\Support\UiLabels;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -61,7 +62,7 @@ class CaptainDepositManualAdjustmentTest extends TestCase
         $this->assertDatabaseMissing('financial_accounts', ['account_kind' => 'CAPTAIN_CASH_CUSTODY']);
         $this->assertDatabaseMissing('financial_accounts', ['account_kind' => 'CAPTAIN_COMPANY_RECEIVABLE']);
         $this->actingAs($f['admin'])->get(route('captains.financials.show', $f['captain']))
-            ->assertOk()->assertSee('Manual Captain Deposit Adjustment')->assertSee($direction)->assertSee($a->reason);
+            ->assertOk()->assertSee(__('financial.terms.manual_deposit_adjustment'))->assertSee(UiLabels::label('financial.directions', $direction))->assertSee($a->reason)->assertSee($balance);
     }
 
     public function test_branches_and_currencies_stay_independent_after_real_transfer(): void

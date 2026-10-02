@@ -1,30 +1,30 @@
 <x-app-layout>
-    <x-slot name="header"><h2 class="text-xl font-semibold">Sham Cash reconciliation</h2></x-slot>
+    <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('financial.ui.sham_reconciliation') }}</h2></x-slot>
     <div class="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
-        <p class="rounded bg-emerald-50 p-4">Customer money shown here was transferred directly to the company owner's Sham Cash account. It is not Captain cash custody.</p>
+        <p class="rounded bg-emerald-50 p-4">{{ __('financial.ui.sham_help') }}</p>
         <form class="grid gap-3 rounded bg-white p-4 shadow sm:grid-cols-3">
-            <label class="space-y-1"><span>From date</span><x-text-input name="from" type="date" :value="request('from')" class="w-full"/></label>
-            <label class="space-y-1"><span>To date</span><x-text-input name="to" type="date" :value="request('to')" class="w-full"/></label>
-            <x-primary-button class="self-end">Filter</x-primary-button>
+            <label class="space-y-1"><span>{{ __('financial.ui.from_date') }}</span><x-text-input name="from" type="date" :value="request('from')" class="w-full" dir="ltr"/></label>
+            <label class="space-y-1"><span>{{ __('financial.ui.to_date') }}</span><x-text-input name="to" type="date" :value="request('to')" class="w-full" dir="ltr"/></label>
+            <x-primary-button class="self-end">{{ __('common.actions.filter') }}</x-primary-button>
         </form>
         <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            @forelse($totals as $total)<div class="rounded bg-white p-4 shadow"><p class="text-sm text-gray-600">Filtered total</p><p class="text-xl font-bold">{{ $total->total }} {{ $total->code }}</p></div>@empty<p>No Sham Cash totals for this period.</p>@endforelse
+            @forelse($totals as $total)<div class="rounded bg-white p-4 shadow"><p class="text-sm text-gray-600">{{ __('financial.ui.filtered_total') }}</p><p class="text-xl font-bold"><x-money :amount="$total->total" /> <x-ltr>{{ $total->code }}</x-ltr></p></div>@empty<p>{{ __('financial.ui.no_sham_totals') }}</p>@endforelse
         </section>
         <div class="grid gap-4 lg:grid-cols-2">
             @forelse($collections as $collection)
                 <article class="space-y-1 rounded bg-white p-5 shadow">
-                    <p class="text-sm">{{ $collection->collected_at->format('Y-m-d H:i') }}</p>
-                    <a class="font-semibold underline" href="{{ route('orders.invoices.show', [$collection->order, $collection->invoice]) }}">{{ $collection->invoice->invoice_number }}</a>
-                    <p>Order {{ $collection->order->order_number }} · {{ $collection->invoice->customer_name_snapshot }}</p>
-                    <p>Branch: {{ $collection->order->branch->name }}</p>
-                    <p>Items: {{ $collection->invoice->items_subtotal }} {{ $collection->currency->code }}</p>
-                    <p>Delivery: {{ $collection->invoice->delivery_total }} {{ $collection->currency->code }}</p>
-                    <p class="font-bold">Total: {{ $collection->invoice->grand_total }} {{ $collection->currency->code }}</p>
-                    <p class="break-all">Reference: {{ $collection->payment_reference ?: '—' }}</p>
-                    <p class="text-sm">Recorded by {{ $collection->recordedBy?->name }}</p>
+                    <p class="text-sm"><x-ltr>{{ $collection->collected_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <a class="font-semibold underline" href="{{ route('orders.invoices.show', [$collection->order, $collection->invoice]) }}"><x-ltr>{{ $collection->invoice->invoice_number }}</x-ltr></a>
+                    <p>{{ __('common.terms.order') }} <x-ltr>{{ $collection->order->order_number }}</x-ltr> · {{ $collection->invoice->customer_name_snapshot }}</p>
+                    <p>{{ __('common.terms.branch') }}: {{ $collection->order->branch->name }}</p>
+                    <p>{{ __('financial.ui.items') }} <x-money :amount="$collection->invoice->items_subtotal" /> <x-ltr>{{ $collection->currency->code }}</x-ltr></p>
+                    <p>{{ __('financial.ui.delivery') }} <x-money :amount="$collection->invoice->delivery_total" /> <x-ltr>{{ $collection->currency->code }}</x-ltr></p>
+                    <p class="font-bold">{{ __('financial.ui.total') }} <x-money :amount="$collection->invoice->grand_total" /> <x-ltr>{{ $collection->currency->code }}</x-ltr></p>
+                    <p class="break-all">{{ __('financial.ui.reference') }}: <x-ltr>{{ $collection->payment_reference ?: '—' }}</x-ltr></p>
+                    <p class="text-sm">{{ __('financial.ui.recorded_by') }} {{ $collection->recordedBy?->name }}</p>
                 </article>
             @empty
-                <p>No Sham Cash collections found.</p>
+                <p>{{ __('financial.ui.no_sham_collections') }}</p>
             @endforelse
         </div>
         {{ $collections->links() }}
