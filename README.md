@@ -50,6 +50,37 @@ npm run build
 
 Tests use an isolated in-memory SQLite database through `phpunit.xml`; SQLite is never the configured primary application database.
 
+### PostgreSQL test isolation
+
+PostgreSQL is authoritative for acceptance. Create `abshir_testing` owned by
+`abshir_app` once through an authenticated PostgreSQL administrator. Never use
+the development database `abshir` for tests, even with a separate schema.
+
+Create a local, ignored `.env.testing` containing `APP_ENV=testing`, the local
+`APP_KEY` and PostgreSQL credentials, `DB_CONNECTION=pgsql`,
+`DB_DATABASE=abshir_testing`, `DB_URL=`, and `DB_SCHEMA=public`. Keep development
+`.env` pointed at `abshir`. Do not commit credentials.
+
+```powershell
+php artisan test --configuration=phpunit.pgsql.xml
+```
+
+The PostgreSQL PHPUnit configuration sets both PHPUnit environment and server
+values for the test connection, database, empty URL, and public schema, including
+when stale shell overrides are present. Laravel can read server values before
+environment values, so both are required. The
+ordinary `phpunit.xml` retains SQLite `:memory:` for lightweight tests. PHPUnit
+environment values take precedence over `.env.testing`; that file supplies local
+credentials. Without `force`, existing shell variables take precedence over
+PHPUnit values, so old manual PostgreSQL commands are not safe configuration.
+
+The test bootstrap, Laravel TestCase (before RefreshDatabase), and independent
+concurrency workers reject any PostgreSQL target except `abshir_testing` and
+verify `SELECT current_database()` before test work. Cached local configuration
+or a non-testing environment is rejected. File-backed SQLite is also rejected.
+Do not run test preparation/migrations until a read-only connection reports
+`abshir_testing`. No test guard changes application runtime behavior.
+
 ## Architecture
 
 Blade is the web presentation layer. Controllers remain thin and must delegate reusable workflow and domain work to focused classes in `app/Actions` or `app/Services` when such work is introduced. Blade templates do not calculate business values. This allows web and future API controllers to use the same application services.

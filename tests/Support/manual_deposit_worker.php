@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 $application = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $application->make(Kernel::class)->bootstrap();
+Tests\Support\TestDatabaseSafety::assertSafe($application);
 $job = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
 foreach ($job['evidence_roots'] ?? [] as $disk => $root) {
     config(['filesystems.disks.'.$disk.'.root' => $root]);

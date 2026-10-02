@@ -28,6 +28,7 @@ use Illuminate\Support\Str;
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 $application = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $application->make(Kernel::class)->bootstrap();
+Tests\Support\TestDatabaseSafety::assertSafe($application);
 [$script, $payloadPath, $readyPath, $goPath, $resultPath] = $argv;
 $payload = json_decode(file_get_contents($payloadPath), true, flags: JSON_THROW_ON_ERROR);
 DB::select("SELECT set_config('application_name', ?, false)", [$payload['worker_tag']]);
