@@ -16,7 +16,7 @@ class CaptainStatusService
         Gate::forUser($actor)->authorize('captains.status.update');
         $reason = filled($reason) ? trim($reason) : null;
         if ($status === CaptainOperationalStatus::Suspended && $reason === null) {
-            throw ValidationException::withMessages(['reason' => 'A reason is required when suspending a Captain.']);
+            throw ValidationException::withMessages(['reason' => __('domain.a_reason_is_required_when_suspending_a_captain')]);
         }
 
         return DB::transaction(function () use ($actor, $captain, $status, $reason): Captain {

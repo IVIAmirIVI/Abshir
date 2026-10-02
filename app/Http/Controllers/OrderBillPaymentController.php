@@ -54,16 +54,16 @@ class OrderBillPaymentController extends Controller
         Gate::authorize('bill_payments.view');
         abort_unless(Order::query()->accessibleTo($request->user())->whereKey($order->id)->exists(), 403);
         abort_if($billPaymentRequest->order_id !== $order->id || $billPayment->request_id !== $billPaymentRequest->id || $billPayment->order_id !== $order->id || $evidence->bill_payment_id !== $billPayment->id, 404);
-        abort_unless(Storage::disk(OrderBillPaymentService::DISK)->exists($evidence->storage_path), 409, 'Evidence integrity check failed.');
+        abort_unless(Storage::disk(OrderBillPaymentService::DISK)->exists($evidence->storage_path), 409, __('domain.evidence_integrity'));
 
         try {
             $bytes = Storage::disk(OrderBillPaymentService::DISK)->get($evidence->storage_path);
         } catch (\Throwable) {
-            abort(409, 'Evidence integrity check failed.');
+            abort(409, __('domain.evidence_integrity'));
         }
         abort_unless(strlen($bytes) === (int) $evidence->file_size
             && hash_equals($evidence->sha256, hash('sha256', $bytes))
-            && (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) === $evidence->mime_type, 409, 'Evidence integrity check failed.');
+            && (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) === $evidence->mime_type, 409, __('domain.evidence_integrity'));
 
         return response($bytes, 200, ['Content-Type' => $evidence->mime_type, 'Content-Disposition' => 'inline; filename="evidence-'.$evidence->id.'"']);
     }

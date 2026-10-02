@@ -25,7 +25,7 @@ class AreaService
             abort_unless($actor->canAccessBranch($branch), 403);
 
             if ($area->exists && $area->branch_id !== $branch->id && ($area->children()->exists() || $area->addresses()->exists())) {
-                throw ValidationException::withMessages(['branch_id' => 'An area with children or customer addresses cannot be moved to another branch.']);
+                throw ValidationException::withMessages(['branch_id' => __('domain.an_area_with_children_or_customer_addresses_cannot_be_moved_to_another_branch')]);
             }
 
             $parent = isset($data['parent_id']) ? Area::query()->lockForUpdate()->findOrFail($data['parent_id']) : null;
@@ -61,13 +61,13 @@ class AreaService
         }
         abort_unless($actor->canAccessArea($parent), 403);
         if ($parent->branch_id !== $branch->id) {
-            throw ValidationException::withMessages(['parent_id' => 'The parent area must belong to the selected branch.']);
+            throw ValidationException::withMessages(['parent_id' => __('domain.the_parent_area_must_belong_to_the_selected_branch')]);
         }
         if (! $parent->is_active && $area->parent_id !== $parent->id) {
-            throw ValidationException::withMessages(['parent_id' => 'The selected parent area is inactive.']);
+            throw ValidationException::withMessages(['parent_id' => __('domain.the_selected_parent_area_is_inactive')]);
         }
         if ($area->exists && ($parent->id === $area->id || $this->descendantIds($area)->contains($parent->id))) {
-            throw ValidationException::withMessages(['parent_id' => 'The selected parent would create an area hierarchy cycle.']);
+            throw ValidationException::withMessages(['parent_id' => __('domain.the_selected_parent_would_create_an_area_hierarchy_cycle')]);
         }
     }
 

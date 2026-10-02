@@ -25,12 +25,12 @@ class CustomerRefundService
     {
         Gate::forUser($actor)->authorize('customer_refunds.record');
         if (! Str::isUuid($requestKey) || trim($reference) === '') {
-            throw ValidationException::withMessages(['refund' => 'A request key and payment reference are required.']);
+            throw ValidationException::withMessages(['refund' => __('domain.a_request_key_and_payment_reference_are_required')]);
         }
         $metadata = $this->evidence->inspect($file);
         $when = CarbonImmutable::parse($refundedAt)->utc();
         if ($when->isFuture()) {
-            throw ValidationException::withMessages(['refunded_at' => 'Refund time cannot be in the future.']);
+            throw ValidationException::withMessages(['refunded_at' => __('domain.refund_time_cannot_be_in_the_future')]);
         }
         $path = null;
         $refund = null;
@@ -41,7 +41,7 @@ class CustomerRefundService
                 $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
                 $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($correction->original_collection_id);
                 if ($correction->customer_delta === null || ! BigDecimal::of($correction->customer_delta)->isLessThan(0)) {
-                    throw ValidationException::withMessages(['refund' => 'A prepared downward correction is required.']);
+                    throw ValidationException::withMessages(['refund' => __('domain.a_prepared_downward_correction_is_required')]);
                 }
                 $amount = (string) BigDecimal::of($correction->customer_delta)->negated()->toScale(4);
                 $facts = [
@@ -63,16 +63,16 @@ class CustomerRefundService
                 $existing = CustomerRefund::query()->where('request_key', $requestKey)->orWhere('invoice_financial_correction_id', $correction->id)->first();
                 if ($existing) {
                     if ($existing->request_key !== $requestKey || ! hash_equals($existing->payload_hash, $hash)) {
-                        throw ValidationException::withMessages(['request_key' => 'Refund identity already has different facts or proof.']);
+                        throw ValidationException::withMessages(['request_key' => __('domain.refund_identity_already_has_different_facts_or_proof')]);
                     }
 
                     return $existing;
                 }
                 if ($when->lessThan($collection->collected_at)) {
-                    throw ValidationException::withMessages(['refunded_at' => 'Refund cannot precede original Collection.']);
+                    throw ValidationException::withMessages(['refunded_at' => __('domain.refund_cannot_precede_original_collection')]);
                 }
                 if (! in_array($correction->state, [InvoiceFinancialCorrectionState::Prepared, InvoiceFinancialCorrectionState::ReadyToFinalize], true)) {
-                    throw ValidationException::withMessages(['refund' => 'A prepared downward correction is required.']);
+                    throw ValidationException::withMessages(['refund' => __('domain.a_prepared_downward_correction_is_required')]);
                 }
                 $path = $this->evidence->store($file, $metadata);
                 $refund = CustomerRefund::query()->create($facts + [

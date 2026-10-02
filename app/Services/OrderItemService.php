@@ -30,16 +30,16 @@ class OrderItemService
         $type = OrderItemType::from($data['item_type']);
         $unit = Unit::query()->findOrFail($data['unit_id']);
         if (! $unit->is_active) {
-            throw ValidationException::withMessages(['unit_id' => 'An inactive Unit cannot be used for a new item.']);
+            throw ValidationException::withMessages(['unit_id' => __('domain.an_inactive_unit_cannot_be_used_for_a_new_item')]);
         } $this->validateQuantity($data['quantity'], $unit);
         $product = null;
         if ($type === OrderItemType::Catalog) {
             $product = Product::query()->findOrFail($data['product_id']);
             if (! $product->is_active) {
-                throw ValidationException::withMessages(['product_id' => 'An inactive Product cannot be used for a new item.']);
+                throw ValidationException::withMessages(['product_id' => __('domain.an_inactive_product_cannot_be_used_for_a_new_item')]);
             }
         } elseif (! empty($data['product_id'])) {
-            throw ValidationException::withMessages(['product_id' => 'A one-time item cannot reference a Product.']);
+            throw ValidationException::withMessages(['product_id' => __('domain.a_one_time_item_cannot_reference_a_product')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $orderShop, $data, $type, $unit, $product): OrderItem {
@@ -60,7 +60,7 @@ class OrderItemService
         $this->ownership($actor, $order, $shop, $item);
         $currency = Currency::query()->findOrFail($data['actual_currency_id']);
         if (! $currency->is_active) {
-            throw ValidationException::withMessages(['actual_currency_id' => 'An inactive Currency cannot be used for a new actual price.']);
+            throw ValidationException::withMessages(['actual_currency_id' => __('domain.an_inactive_currency_cannot_be_used_for_a_new_actual_price')]);
         }
         DB::transaction(function () use ($actor, $order, $item, $data): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
@@ -90,13 +90,13 @@ class OrderItemService
                 $newType = OrderItemType::from($data['item_type']);
                 $unit = Unit::query()->findOrFail($data['unit_id']);
                 if (! $unit->is_active) {
-                    throw ValidationException::withMessages(['unit_id' => 'Replacement Unit must be active.']);
+                    throw ValidationException::withMessages(['unit_id' => __('domain.replacement_unit_must_be_active')]);
                 } $this->validateQuantity($data['quantity'], $unit);
                 $product = $newType === OrderItemType::Catalog ? Product::query()->findOrFail($data['product_id']) : null;
                 if ($product && ! $product->is_active) {
-                    throw ValidationException::withMessages(['product_id' => 'Replacement Product must be active.']);
+                    throw ValidationException::withMessages(['product_id' => __('domain.replacement_product_must_be_active')]);
                 } if ($newType === OrderItemType::OneTime && ! empty($data['product_id'])) {
-                    throw ValidationException::withMessages(['product_id' => 'One-time replacement cannot reference a Product.']);
+                    throw ValidationException::withMessages(['product_id' => __('domain.one_time_replacement_cannot_reference_a_product')]);
                 } $updates = ['item_type' => $newType, 'product_id' => $product?->id, 'product_name_snapshot' => $product?->name ?? $data['item_name'], 'unit_id' => $unit->id, 'unit_name_snapshot' => $unit->name, 'unit_symbol_snapshot' => $unit->symbol, 'current_quantity' => $data['quantity'], 'estimated_unit_price' => null, 'estimated_price_method' => null, 'estimated_source_shop_id' => null, 'estimated_source_price_observation_id' => null, 'estimated_source_observed_at' => null, 'estimation_window_days' => null, 'estimated_currency_id' => null, 'actual_unit_price' => null, 'actual_price_source' => null, 'actual_currency_id' => null, 'actual_price_confirmed_at' => null, 'actual_price_confirmed_by' => null];
             }
             $item->update($updates);
@@ -112,7 +112,7 @@ class OrderItemService
         }
         $currency = Currency::query()->findOrFail($data['estimated_currency_id']);
         if (! $currency->is_active) {
-            throw ValidationException::withMessages(['estimated_currency_id' => 'An inactive Currency cannot be used for a new estimate.']);
+            throw ValidationException::withMessages(['estimated_currency_id' => __('domain.an_inactive_currency_cannot_be_used_for_a_new_estimate')]);
         }
         $observation = null;
         if ($shop->shop_type === OrderShopType::Registered) {
@@ -135,12 +135,12 @@ class OrderItemService
         if (empty($data['manual_estimated_unit_price'])) {
             return [];
         } if (empty($data['estimated_currency_id'])) {
-            throw ValidationException::withMessages(['estimated_currency_id' => 'Currency is required for a manual estimate.']);
+            throw ValidationException::withMessages(['estimated_currency_id' => __('domain.currency_is_required_for_a_manual_estimate')]);
         }
 
         $currency = Currency::query()->findOrFail($data['estimated_currency_id']);
         if (! $currency->is_active) {
-            throw ValidationException::withMessages(['estimated_currency_id' => 'An inactive Currency cannot be used for a new estimate.']);
+            throw ValidationException::withMessages(['estimated_currency_id' => __('domain.an_inactive_currency_cannot_be_used_for_a_new_estimate')]);
         }
 
         return ['estimated_unit_price' => $data['manual_estimated_unit_price'], 'estimated_price_method' => OrderEstimateMethod::Manual, 'estimated_currency_id' => $data['estimated_currency_id']];
@@ -149,9 +149,9 @@ class OrderItemService
     private function validateQuantity(string $quantity, Unit $unit): void
     {
         if (BigDecimal::of($quantity)->isLessThanOrEqualTo(0)) {
-            throw ValidationException::withMessages(['quantity' => 'Quantity must be greater than zero.']);
+            throw ValidationException::withMessages(['quantity' => __('domain.quantity_must_be_greater_than_zero')]);
         } if (! $unit->allows_decimal && ! preg_match('/^\d+(?:\.0{1,4})?$/', $quantity)) {
-            throw ValidationException::withMessages(['quantity' => 'This Unit requires a whole-number quantity.']);
+            throw ValidationException::withMessages(['quantity' => __('domain.this_unit_requires_a_whole_number_quantity')]);
         }
     }
 

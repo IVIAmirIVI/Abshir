@@ -14,15 +14,15 @@ class OrderMutationGuard
     {
         $this->assertNoCancellationIntentLocked($order);
         if ($order->operational_status === OrderOperationalStatus::Delivered) {
-            throw ValidationException::withMessages(['order' => 'A delivered Order cannot be changed.']);
+            throw ValidationException::withMessages(['order' => __('domain.a_delivered_order_cannot_be_changed')]);
         }
 
         if ($order->operational_status === OrderOperationalStatus::Cancelled) {
-            throw ValidationException::withMessages(['order' => 'A cancelled Order cannot be changed.']);
+            throw ValidationException::withMessages(['order' => __('domain.a_cancelled_order_cannot_be_changed')]);
         }
 
         if ($order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->lockForUpdate()->first()) {
-            throw ValidationException::withMessages(['order' => 'The Order cannot be changed while its current Invoice is issued.']);
+            throw ValidationException::withMessages(['order' => __('domain.the_order_cannot_be_changed_while_its_current_invoice_is_issued')]);
         }
     }
 
@@ -30,18 +30,18 @@ class OrderMutationGuard
     {
         $this->assertNoCancellationIntentLocked($order);
         if ($order->operational_status === OrderOperationalStatus::Delivered) {
-            throw ValidationException::withMessages(['order' => 'A delivered Order cannot be changed.']);
+            throw ValidationException::withMessages(['order' => __('domain.a_delivered_order_cannot_be_changed')]);
         }
 
         if ($order->operational_status === OrderOperationalStatus::Cancelled) {
-            throw ValidationException::withMessages(['order' => 'A cancelled Order cannot be changed.']);
+            throw ValidationException::withMessages(['order' => __('domain.a_cancelled_order_cannot_be_changed')]);
         }
     }
 
     public function assertNoCancellationIntentLocked(Order $order): void
     {
         if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
-            throw ValidationException::withMessages(['order' => 'Normal Order advancement is frozen by an AFTER_PURCHASE cancellation intent.']);
+            throw ValidationException::withMessages(['order' => __('domain.normal_order_advancement_is_frozen_by_an_after_purchase_cancellation_intent')]);
         }
     }
 }

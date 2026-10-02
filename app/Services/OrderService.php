@@ -25,20 +25,20 @@ class OrderService
         Gate::forUser($actor)->authorize('orders.create');
         $source = OrderSource::tryFrom((string) ($data['source'] ?? ''));
         if (! $source || ! in_array($source, OrderSource::staffChoices(), true)) {
-            throw ValidationException::withMessages(['source' => 'Select WhatsApp, Phone, or Manual for a staff-created Order.']);
+            throw ValidationException::withMessages(['source' => __('domain.select_whatsapp_phone_or_manual_for_a_staff_created_order')]);
         }
         $entryMode = OrderEntryMode::tryFrom((string) ($data['entry_mode'] ?? ''));
         if (! $entryMode) {
-            throw ValidationException::withMessages(['entry_mode' => 'Select a valid Order entry mode.']);
+            throw ValidationException::withMessages(['entry_mode' => __('domain.select_a_valid_order_entry_mode')]);
         }
         if ($entryMode === OrderEntryMode::HistoricalManual) {
             Gate::forUser($actor)->authorize('orders.historical_entry');
             if (empty($data['ordered_at'])) {
-                throw ValidationException::withMessages(['ordered_at' => 'Historical Order date and time are required.']);
+                throw ValidationException::withMessages(['ordered_at' => __('domain.historical_order_date_and_time_are_required')]);
             }
             $orderedAt = Carbon::parse($data['ordered_at']);
             if ($orderedAt->isFuture()) {
-                throw ValidationException::withMessages(['ordered_at' => 'Historical Order date and time cannot be in the future.']);
+                throw ValidationException::withMessages(['ordered_at' => __('domain.historical_order_date_and_time_cannot_be_in_the_future')]);
             }
         } else {
             $orderedAt = now();
@@ -49,16 +49,16 @@ class OrderService
         $address = CustomerAddress::query()->with('area.parent')->findOrFail($data['customer_address_id']);
         abort_unless($actor->canAccessBranch($branch), 403);
         if (! $branch->is_active || ! $customer->is_active || ! $address->is_active || ! $address->area->is_active) {
-            throw ValidationException::withMessages(['order' => 'New Orders require active Branch, Customer, Address, and Area records.']);
+            throw ValidationException::withMessages(['order' => __('domain.new_orders_require_active_branch_customer_address_and_area_records')]);
         }
         if ($phone->customer_id !== $customer->id) {
-            throw ValidationException::withMessages(['customer_phone_id' => 'The selected phone does not belong to this Customer.']);
+            throw ValidationException::withMessages(['customer_phone_id' => __('domain.the_selected_phone_does_not_belong_to_this_customer')]);
         }
         if ($address->customer_id !== $customer->id) {
-            throw ValidationException::withMessages(['customer_address_id' => 'The selected address does not belong to this Customer.']);
+            throw ValidationException::withMessages(['customer_address_id' => __('domain.the_selected_address_does_not_belong_to_this_customer')]);
         }
         if ($address->area->branch_id !== $branch->id) {
-            throw ValidationException::withMessages(['customer_address_id' => 'The selected address is outside the Order Branch.']);
+            throw ValidationException::withMessages(['customer_address_id' => __('domain.the_selected_address_is_outside_the_order_branch')]);
         }
 
         return DB::transaction(function () use ($actor, $branch, $customer, $phone, $address, $data, $source, $entryMode, $orderedAt): Order {

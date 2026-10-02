@@ -27,7 +27,7 @@ class BillPaymentFeeRuleController extends Controller
         $data = $this->validated($request);
         $service->create($request->user(), (int) $data['currency_id'], $data['fixed_fee'], $data['effective_from']);
 
-        return back()->with('status', 'Bill-payment fee rule created.');
+        return back()->with('status', __('admin.ui.bill_payment_fee_rule_created'));
     }
 
     public function version(Request $request, BillPaymentFeeRule $rule, BillPaymentFeeRuleService $service): RedirectResponse
@@ -35,7 +35,7 @@ class BillPaymentFeeRuleController extends Controller
         $data = $request->validate(['fixed_fee' => ['required', 'string', 'regex:/^\d+(?:\.\d{1,4})?$/'], 'effective_from' => ['required', 'date']]);
         $service->version($request->user(), $rule, $data['fixed_fee'], $data['effective_from']);
 
-        return back()->with('status', 'Bill-payment fee version created.');
+        return back()->with('status', __('admin.ui.bill_payment_fee_version_created'));
     }
 
     private function validated(Request $request): array

@@ -1,26 +1,26 @@
 <x-app-layout>
-    <x-slot name="header"><h2 class="text-xl font-semibold">Delivery pricing rules</h2></x-slot>
+    <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('admin.ui.delivery_pricing_rules') }}</h2></x-slot>
     <div class="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
         @if(session('status'))<p class="rounded bg-green-50 p-4">{{ session('status') }}</p>@endif
-        <div class="flex flex-wrap justify-between gap-3"><p>Directional, exact Area-pair, Currency, and Order Pricing Class rules with retained history.</p>@can('delivery_pricing_rules.create')<a class="rounded bg-gray-800 px-4 py-2 text-white" href="{{ route('delivery-pricing-rules.create') }}">Create rule</a>@endcan</div>
+        <div class="flex flex-wrap justify-between gap-3"><p>{{ __('admin.ui.directional_exact_area_pair_currency_and_order_pricing_class_rules_with_retained_history') }}</p>@can('delivery_pricing_rules.create')<a class="rounded bg-gray-800 px-4 py-2 text-white" href="{{ route('delivery-pricing-rules.create') }}">{{ __('admin.ui.create_rule') }}</a>@endcan</div>
         <form class="grid gap-3 rounded bg-white p-4 shadow sm:grid-cols-2 lg:grid-cols-6">
-            <select name="branch_id" class="rounded border-gray-300"><option value="">All branches</option>@foreach($branches as $branch)<option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>@endforeach</select>
-            <select name="from_area_id" class="rounded border-gray-300"><option value="">All origins</option>@foreach($areas as $a)<option value="{{ $a->id }}" @selected(request('from_area_id') == $a->id)>{{ $a->path() }}</option>@endforeach</select>
-            <select name="to_area_id" class="rounded border-gray-300"><option value="">All destinations</option>@foreach($areas as $a)<option value="{{ $a->id }}" @selected(request('to_area_id') == $a->id)>{{ $a->path() }}</option>@endforeach</select>
-            <select name="currency_id" class="rounded border-gray-300"><option value="">All currencies</option>@foreach($currencies as $c)<option value="{{ $c->id }}" @selected(request('currency_id') == $c->id)>{{ $c->code }}</option>@endforeach</select>
-            <select name="order_pricing_class" class="rounded border-gray-300"><option value="">All pricing classes</option>@foreach($pricingClasses as $class)<option value="{{ $class->value }}" @selected(request('order_pricing_class') === $class->value)>{{ $class->label() }}</option>@endforeach</select>
-            <select name="scope" class="rounded border-gray-300"><option value="">All history</option><option value="current" @selected(request('scope') === 'current')>Current</option></select>
-            <x-primary-button>Filter</x-primary-button>
+            <select name="branch_id" aria-label="{{ __('admin.ui.all_branches') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_branches') }}</option>@foreach($branches as $branch)<option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>@endforeach</select>
+            <select name="from_area_id" aria-label="{{ __('admin.ui.all_origins') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_origins') }}</option>@foreach($areas as $a)<option value="{{ $a->id }}" @selected(request('from_area_id') == $a->id)>{{ $a->path() }}</option>@endforeach</select>
+            <select name="to_area_id" aria-label="{{ __('admin.ui.all_destinations') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_destinations') }}</option>@foreach($areas as $a)<option value="{{ $a->id }}" @selected(request('to_area_id') == $a->id)>{{ $a->path() }}</option>@endforeach</select>
+            <select name="currency_id" aria-label="{{ __('admin.ui.all_currencies') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_currencies') }}</option>@foreach($currencies as $c)<option value="{{ $c->id }}" @selected(request('currency_id') == $c->id)>{{ $c->code }}</option>@endforeach</select>
+            <select name="order_pricing_class" aria-label="{{ __('admin.ui.all_pricing_classes') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_pricing_classes') }}</option>@foreach($pricingClasses as $class)<option value="{{ $class->value }}" @selected(request('order_pricing_class') === $class->value)>{{ \App\Support\UiLabels::label('orders.pricing_classes', $class) }}</option>@endforeach</select>
+            <select name="scope" aria-label="{{ __('admin.ui.all_history') }}" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('admin.ui.all_history') }}</option><option value="current" @selected(request('scope') === 'current')>{{ __('admin.ui.current') }}</option></select>
+            <x-primary-button>{{ __('admin.ui.filter') }}</x-primary-button>
         </form>
         <div class="grid gap-4 lg:grid-cols-2">
-            @foreach($rules as $rule)
-                <article class="rounded bg-white p-5 shadow">
-                    <div class="flex flex-wrap justify-between gap-2"><strong>{{ $rule->fromArea->path() }} → {{ $rule->toArea->path() }}</strong><span>{{ $rule->delivery_unit_fee }} {{ $rule->currency->code }}</span></div>
-                    <p class="font-medium">{{ $rule->order_pricing_class?->label() ?? 'Legacy unclassified (historical only)' }}</p>
-                    <p class="text-sm">{{ $rule->effective_from->format('Y-m-d H:i') }} → {{ $rule->effective_until?->format('Y-m-d H:i') ?? 'Current' }} · {{ $rule->is_active ? 'Active' : 'Historical/inactive' }}</p>
-                    @if($rule->order_pricing_class)<div class="mt-3 flex flex-wrap gap-3">@can('delivery_pricing_rules.update')<a class="underline" href="{{ route('delivery-pricing-rules.edit', $rule) }}">Create new version</a>@endcan @can($rule->is_active ? 'delivery_pricing_rules.deactivate' : 'delivery_pricing_rules.activate')<form method="POST" action="{{ route('delivery-pricing-rules.status', $rule) }}">@csrf @method('PATCH')<input type="hidden" name="is_active" value="{{ $rule->is_active ? 0 : 1 }}"><button class="underline">{{ $rule->is_active ? 'Deactivate' : 'Activate' }}</button></form>@endcan</div>@endif
+            @forelse($rules as $rule)
+                <article class="min-w-0 break-words rounded bg-white p-5 shadow">
+                    <div class="flex flex-wrap justify-between gap-2"><strong>{{ $rule->fromArea->path() }} → {{ $rule->toArea->path() }}</strong><span><x-money :amount="$rule->delivery_unit_fee" :currency="$rule->currency->code" /></span></div>
+                    <p class="font-medium">{{ ($rule->order_pricing_class ? \App\Support\UiLabels::label('orders.pricing_classes', $rule->order_pricing_class) : null) ?? __('admin.ui.legacy_unclassified_historical_only') }}</p>
+                    <p class="text-sm"><x-ltr>{{ $rule->effective_from->format('Y-m-d H:i') }}</x-ltr> → @if($rule->effective_until)<x-ltr>{{ $rule->effective_until->format('Y-m-d H:i') }}</x-ltr>@else{{ __('admin.ui.current') }}@endif · {{ $rule->is_active ? __('admin.ui.active') : __('admin.ui.historical_inactive') }}</p>
+                    @if($rule->order_pricing_class)<div class="mt-3 flex flex-wrap gap-3">@can('delivery_pricing_rules.update')<a class="underline" href="{{ route('delivery-pricing-rules.edit', $rule) }}">{{ __('admin.ui.create_new_version') }}</a>@endcan @can($rule->is_active ? 'delivery_pricing_rules.deactivate' : 'delivery_pricing_rules.activate')<form method="POST" action="{{ route('delivery-pricing-rules.status', $rule) }}">@csrf @method('PATCH')<input type="hidden" name="is_active" value="{{ $rule->is_active ? 0 : 1 }}"><button class="underline">{{ $rule->is_active ? __('admin.ui.deactivate') : __('admin.ui.activate') }}</button></form>@endcan</div>@endif
                 </article>
-            @endforeach
+            @empty<p>{{ __('admin.no_rules') }}</p>@endforelse
         </div>
         {{ $rules->links() }}
     </div>

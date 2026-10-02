@@ -9,6 +9,7 @@ use App\Models\OrderCaptain;
 use App\Models\OrderShop;
 use App\Models\OrderShopPurchaseConfirmation;
 use App\Models\User;
+use App\Support\UiLabels;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ class OrderShopPurchaseConfirmationService
         $metadata = $this->evidence->inspect($file);
         $purchasedAt = CarbonImmutable::parse($data['purchased_at'])->utc();
         if ($purchasedAt->isFuture()) {
-            throw ValidationException::withMessages(['purchased_at' => 'Purchase time cannot be in the future.']);
+            throw ValidationException::withMessages(['purchased_at' => __('domain.purchase_time_cannot_be_in_the_future')]);
         }
         $path = null;
         try {
@@ -50,7 +51,7 @@ class OrderShopPurchaseConfirmationService
                 try {
                     $amount = $this->posting->validatePlannedAmount($currency, $data['amount']);
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['amount' => UiLabels::error($exception->getMessage())]);
                 }
                 $facts = [
                     'order_id' => $order->id, 'order_shop_id' => $shop->id, 'order_captain_id' => $assignment->id,
@@ -69,7 +70,7 @@ class OrderShopPurchaseConfirmationService
                 }
                 $this->guard->assertOperationalEvidenceMutableLocked($order);
                 if (OrderShopPurchaseConfirmation::query()->where('order_shop_id', $shop->id)->exists()) {
-                    throw ValidationException::withMessages(['purchase' => 'An authoritative purchase already exists for this Shop.']);
+                    throw ValidationException::withMessages(['purchase' => __('domain.an_authoritative_purchase_already_exists_for_this_shop')]);
                 }
                 $path = $this->evidence->store($file, $metadata);
 
@@ -95,7 +96,7 @@ class OrderShopPurchaseConfirmationService
         foreach ($facts as $key => $value) {
             $existing = $key === 'purchased_at' ? $confirmation->purchased_at->utc()->format('Y-m-d H:i:s.uP') : (string) $confirmation->{$key};
             if ($existing !== (string) $value) {
-                throw ValidationException::withMessages(['request_key' => 'Purchase request key has different immutable '.$key.' or evidence.']);
+                throw ValidationException::withMessages(['request_key' => __('domain.purchase_identity', ['field' => $key])]);
             }
         }
     }

@@ -143,10 +143,10 @@ class CaptainFinancialController extends Controller
         try {
             $bytes = $evidence->bytes($source->evidence_path, $source->evidence_sha256);
         } catch (\Throwable) {
-            abort(409, 'Evidence integrity check failed.');
+            abort(409, __('domain.evidence_integrity'));
         }
         abort_unless(strlen($bytes) === (int) $source->evidence_size
-            && (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) === $source->evidence_mime, 409, 'Evidence integrity check failed.');
+            && (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) === $source->evidence_mime, 409, __('domain.evidence_integrity'));
 
         return response($bytes, 200, ['Content-Type' => $source->evidence_mime,
             'Content-Disposition' => 'attachment; filename="captain-evidence-'.$source->id.'"']);

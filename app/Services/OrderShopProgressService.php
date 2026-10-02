@@ -21,7 +21,7 @@ class OrderShopProgressService
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
         abort_if($orderShop->order_id !== $order->id, 404);
         if (! in_array($marker, self::MARKERS, true)) {
-            throw ValidationException::withMessages(['marker' => 'Select a valid Shop progress marker.']);
+            throw ValidationException::withMessages(['marker' => __('domain.select_a_valid_shop_progress_marker')]);
         }
 
         return DB::transaction(function () use ($order, $orderShop, $marker): OrderShop {
@@ -29,7 +29,7 @@ class OrderShopProgressService
             $this->mutationGuard->assertOperationalEvidenceMutableLocked($order);
             $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
             if ($orderShop->{$marker}) {
-                throw ValidationException::withMessages(['marker' => 'This progress marker is already recorded and cannot be rewritten.']);
+                throw ValidationException::withMessages(['marker' => __('domain.this_progress_marker_is_already_recorded_and_cannot_be_rewritten')]);
             }
             $orderShop->update([$marker => now()]);
 

@@ -24,13 +24,13 @@ class CaptainBranchService
             $branch = Branch::query()->findOrFail($data['branch_id']);
             $this->assertBranchAccess($actor, $captain->homeBranch, $branch);
             if ($branch->is($captain->homeBranch)) {
-                throw ValidationException::withMessages(['branch_id' => 'A temporary assignment must use a branch other than the home branch.']);
+                throw ValidationException::withMessages(['branch_id' => __('domain.a_temporary_assignment_must_use_a_branch_other_than_the_home_branch')]);
             }
             abort_unless($branch->is_active, 422, 'The target branch must be active.');
             $startsAt = Carbon::parse($data['starts_at']);
             $endsAt = isset($data['ends_at']) ? Carbon::parse($data['ends_at']) : null;
             if ($endsAt && $endsAt->lte($startsAt)) {
-                throw ValidationException::withMessages(['ends_at' => 'The end time must be after the start time.']);
+                throw ValidationException::withMessages(['ends_at' => __('domain.the_end_time_must_be_after_the_start_time')]);
             }
             $this->assertNoTemporaryOverlap($captain, $startsAt, $endsAt);
 
@@ -53,7 +53,7 @@ class CaptainBranchService
         abort_if($assignment->captain_id !== $captain->id || $assignment->assignment_type !== CaptainAssignmentType::Temporary, 404);
         $this->assertBranchAccess($actor, $captain->homeBranch, $assignment->branch);
         if (! $assignment->newQuery()->whereKey($assignment)->activeAt(now())->exists()) {
-            throw ValidationException::withMessages(['assignment' => 'Only a currently active temporary assignment can be ended.']);
+            throw ValidationException::withMessages(['assignment' => __('domain.only_a_currently_active_temporary_assignment_can_be_ended')]);
         }
 
         DB::transaction(function () use ($actor, $assignment): void {
@@ -74,15 +74,15 @@ class CaptainBranchService
             $newBranch = Branch::query()->findOrFail($data['branch_id']);
             $this->assertBranchAccess($actor, $oldBranch, $newBranch);
             if ($newBranch->is($oldBranch)) {
-                throw ValidationException::withMessages(['branch_id' => 'The new home branch must differ from the current home branch.']);
+                throw ValidationException::withMessages(['branch_id' => __('domain.the_new_home_branch_must_differ_from_the_current_home_branch')]);
             }
             abort_unless($newBranch->is_active, 422, 'The new home branch must be active.');
             $startsAt = Carbon::parse($data['starts_at']);
             if ($startsAt->isFuture()) {
-                throw ValidationException::withMessages(['starts_at' => 'A permanent transfer cannot take effect in the future.']);
+                throw ValidationException::withMessages(['starts_at' => __('domain.a_permanent_transfer_cannot_take_effect_in_the_future')]);
             }
             if (trim((string) ($data['reason'] ?? '')) === '') {
-                throw ValidationException::withMessages(['reason' => 'A permanent transfer reason is required.']);
+                throw ValidationException::withMessages(['reason' => __('domain.a_permanent_transfer_reason_is_required')]);
             }
 
             $transfer = $captain->branchAssignments()->make([
@@ -109,7 +109,7 @@ class CaptainBranchService
             $overlap->where('starts_at', '<', $endsAt);
         }
         if ($overlap->exists()) {
-            throw ValidationException::withMessages(['starts_at' => 'This temporary assignment overlaps an existing temporary assignment.']);
+            throw ValidationException::withMessages(['starts_at' => __('domain.this_temporary_assignment_overlaps_an_existing_temporary_assignment')]);
         }
     }
 

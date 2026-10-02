@@ -18,7 +18,7 @@ class CaptainEmploymentService
         Gate::forUser($actor)->authorize('captains.update');
         $reason = trim($reason);
         if ($reason === '') {
-            throw ValidationException::withMessages(['reason' => 'A termination reason is required.']);
+            throw ValidationException::withMessages(['reason' => __('domain.a_termination_reason_is_required')]);
         }
 
         return DB::transaction(function () use ($actor, $captain, $endedAt, $reason): CaptainEmploymentPeriod {
@@ -27,12 +27,12 @@ class CaptainEmploymentService
             $period = $captain->employmentPeriods()->whereNull('ended_at')->lockForUpdate()->first();
 
             if (! $period) {
-                throw ValidationException::withMessages(['employment' => 'This Captain is not currently employed.']);
+                throw ValidationException::withMessages(['employment' => __('domain.this_captain_is_not_currently_employed')]);
             }
 
             $effectiveAt = $endedAt ? Carbon::parse($endedAt) : now();
             if ($effectiveAt->lt($period->started_at)) {
-                throw ValidationException::withMessages(['ended_at' => 'The termination time cannot be before employment started.']);
+                throw ValidationException::withMessages(['ended_at' => __('domain.the_termination_time_cannot_be_before_employment_started')]);
             }
 
             $period->update([
@@ -60,13 +60,13 @@ class CaptainEmploymentService
             abort_unless($actor->canAccessCaptain($captain), 403);
 
             if ($captain->employmentPeriods()->whereNull('ended_at')->lockForUpdate()->exists()) {
-                throw ValidationException::withMessages(['employment' => 'This Captain already has an open employment period.']);
+                throw ValidationException::withMessages(['employment' => __('domain.this_captain_already_has_an_open_employment_period')]);
             }
 
             $effectiveAt = Carbon::parse($startedAt);
             $latestEnd = $captain->employmentPeriods()->max('ended_at');
             if ($latestEnd && $effectiveAt->lt(Carbon::parse($latestEnd))) {
-                throw ValidationException::withMessages(['started_at' => 'Rehire cannot overlap a previous employment period.']);
+                throw ValidationException::withMessages(['started_at' => __('domain.rehire_cannot_overlap_a_previous_employment_period')]);
             }
 
             $period = $captain->employmentPeriods()->create([

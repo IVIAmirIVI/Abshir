@@ -10,6 +10,7 @@ use App\Models\OrderCaptain;
 use App\Models\OrderShop;
 use App\Models\OrderShopReturn;
 use App\Models\User;
+use App\Support\UiLabels;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -44,7 +45,7 @@ class OrderShopReturnService
         if (array_diff(array_keys($files), self::EVIDENCE_TYPES) !== []
             || ! (isset($files['RETURN_AND_REFUND_PROOF'])
                 || (isset($files['RETURN_PROOF']) && isset($files['REFUND_PROOF'])))) {
-            throw ValidationException::withMessages(['evidence' => 'Evidence must prove both the return and refund.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.evidence_must_prove_both_the_return_and_refund')]);
         }
         $metadata = [];
         foreach ($files as $type => $file) {
@@ -54,7 +55,7 @@ class OrderShopReturnService
         $returnedAt = CarbonImmutable::parse($data['returned_at'])->utc();
         $refundedAt = CarbonImmutable::parse($data['refunded_at'])->utc();
         if ($returnedAt->isFuture() || $refundedAt->isFuture() || $refundedAt->lessThan($returnedAt)) {
-            throw ValidationException::withMessages(['returned_at' => 'Return and refund times must be ordered and not in the future.']);
+            throw ValidationException::withMessages(['returned_at' => __('domain.return_and_refund_times_must_be_ordered_and_not_in_the_future')]);
         }
         $storedPaths = [];
         try {
@@ -62,32 +63,32 @@ class OrderShopReturnService
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 $intent = $order->cancellationIntent()->lockForUpdate()->first();
                 if (! $intent || ! $intent->frozen_at) {
-                    throw ValidationException::withMessages(['order' => 'An accepted AFTER_PURCHASE intent is required.']);
+                    throw ValidationException::withMessages(['order' => __('domain.an_accepted_after_purchase_intent_is_required')]);
                 }
                 $shop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($shop->id);
                 $purchase = $shop->purchaseConfirmation()->first();
                 if (! $purchase || ! $intent->requiredShops()->where('purchase_confirmation_id', $purchase->id)->exists()) {
-                    throw ValidationException::withMessages(['order_shop' => 'This Shop is not in the frozen return set.']);
+                    throw ValidationException::withMessages(['order_shop' => __('domain.this_shop_is_not_in_the_frozen_return_set')]);
                 }
                 if ($returnedAt->lessThan($purchase->purchased_at)) {
-                    throw ValidationException::withMessages(['returned_at' => 'Return time cannot precede the verified purchase.']);
+                    throw ValidationException::withMessages(['returned_at' => __('domain.return_time_cannot_precede_the_verified_purchase')]);
                 }
                 $returner = OrderCaptain::query()->where('order_id', $order->id)->findOrFail($data['returning_order_captain_id']);
                 $currency = Currency::query()->lockForUpdate()->findOrFail($purchase->currency_id);
                 try {
                     $refundAmount = $this->posting->validatePlannedAmount($currency, $data['refund_amount']);
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['refund_amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['refund_amount' => UiLabels::error($exception->getMessage())]);
                 }
                 if (BigDecimal::of($refundAmount)->isGreaterThan(BigDecimal::of($purchase->amount))) {
-                    throw ValidationException::withMessages(['refund_amount' => 'Refund cannot exceed the verified purchase amount.']);
+                    throw ValidationException::withMessages(['refund_amount' => __('domain.refund_cannot_exceed_the_verified_purchase_amount')]);
                 }
                 $shortfall = BigDecimal::of($refundAmount)->isLessThan(BigDecimal::of($purchase->amount));
                 if ($shortfall && blank($data['shortfall_reason'] ?? null)) {
-                    throw ValidationException::withMessages(['shortfall_reason' => 'A shortfall reason is required.']);
+                    throw ValidationException::withMessages(['shortfall_reason' => __('domain.a_shortfall_reason_is_required')]);
                 }
                 if ($shortfall && ! filter_var($data['shortfall_acknowledged'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-                    throw ValidationException::withMessages(['shortfall_acknowledged' => 'Confirm the exceptional shortfall before recording the completed return.']);
+                    throw ValidationException::withMessages(['shortfall_acknowledged' => __('domain.confirm_the_exceptional_shortfall_before_recording_the_completed_return')]);
                 }
                 $facts = [
                     'order_id' => $order->id, 'order_cancellation_intent_id' => $intent->id,
@@ -114,11 +115,11 @@ class OrderShopReturnService
                 if ($order->operational_status === OrderOperationalStatus::Cancelled
                     || ($order->operational_status === OrderOperationalStatus::Delivered
                         && ! $this->safety->allowsRecoveredDeliveredCancellation($order, true))) {
-                    throw ValidationException::withMessages(['order' => 'A finalized Order cannot record a new return.']);
+                    throw ValidationException::withMessages(['order' => __('domain.a_finalized_order_cannot_record_a_new_return')]);
                 }
                 $this->safety->assertNoFinancialCorrectionRequiredLocked($order, true);
                 if ($shop->shopReturn()->exists()) {
-                    throw ValidationException::withMessages(['return' => 'A completed return already exists for this purchased Shop.']);
+                    throw ValidationException::withMessages(['return' => __('domain.a_completed_return_already_exists_for_this_purchased_shop')]);
                 }
                 $returnId = DB::table('order_shop_returns')->insertGetId($facts + [
                     'request_key' => $data['request_key'],
@@ -153,13 +154,13 @@ class OrderShopReturnService
             $existing = in_array($key, ['returned_at', 'refunded_at'], true)
                 ? $return->{$key}->utc()->format('Y-m-d H:i:s.uP') : (string) $return->{$key};
             if ($existing !== (string) $value) {
-                throw ValidationException::withMessages(['request_key' => 'Return request key has different immutable facts.']);
+                throw ValidationException::withMessages(['request_key' => __('domain.return_request_key_has_different_immutable_facts')]);
             }
         }
         $existingEvidence = $return->evidence()->pluck('sha256', 'evidence_type')->sortKeys()->all();
         $requestedEvidence = collect($metadata)->mapWithKeys(fn ($meta, $type) => [$type => $meta['sha256']])->sortKeys()->all();
         if ($existingEvidence !== $requestedEvidence) {
-            throw ValidationException::withMessages(['request_key' => 'Return request key has different evidence.']);
+            throw ValidationException::withMessages(['request_key' => __('domain.return_request_key_has_different_evidence')]);
         }
     }
 }

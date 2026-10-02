@@ -25,13 +25,13 @@ class DeliveryPricingSettingController extends Controller
     {
         $settings->update($request->user(), $request->input('captain_share_percent'), $request->input('override_threshold_percent'));
 
-        return back()->with('status', 'Delivery pricing settings updated.');
+        return back()->with('status', __('admin.ui.delivery_pricing_settings_updated'));
     }
 
     public function limit(DeliveryUserLimitRequest $request): RedirectResponse
     {
         DeliveryPricingUserLimit::query()->updateOrCreate(['user_id' => $request->integer('user_id')], ['max_discount_percent' => $request->input('max_discount_percent'), 'updated_by' => $request->user()->id]);
 
-        return back()->with('status', 'Employee discount limit updated.');
+        return back()->with('status', __('admin.ui.employee_discount_limit_updated'));
     }
 }

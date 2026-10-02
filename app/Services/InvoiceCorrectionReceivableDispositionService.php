@@ -85,10 +85,10 @@ class InvoiceCorrectionReceivableDispositionService
 
                     return;
                 } catch (QueryException $exception) {
-                    throw ValidationException::withMessages(['correction' => 'CAPTAIN_RECOVERY_REQUIRED: exact valid full CASH recovery is required.']);
+                    throw ValidationException::withMessages(['correction' => __('domain.captain_recovery_required_exact_valid_full_cash_recovery_is_required')]);
                 }
             }
-            throw ValidationException::withMessages(['correction' => 'CAPTAIN_RECOVERY_REQUIRED: disposition_id='.$required->id.', amount='.$required->recovery_required.'. Physical CASH recovery is deferred to Phase 9C.3B.2.']);
+            throw ValidationException::withMessages(['correction' => __('domain.recovery_required', ['id' => $required->id, 'amount' => $required->recovery_required])]);
         }
     }
 

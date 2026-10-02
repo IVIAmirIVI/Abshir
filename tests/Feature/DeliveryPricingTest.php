@@ -287,8 +287,8 @@ class DeliveryPricingTest extends TestCase
         DeliveryPricingRule::create(['from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id, 'currency_id' => $c['currency']->id, 'order_pricing_class' => null, 'delivery_unit_fee' => '99', 'effective_from' => now()->subDay(), 'is_active' => true, 'created_by' => $c['admin']->id]);
         $this->rule($c, '100');
 
-        $this->actingAs($c['admin'])->get(route('delivery-pricing-rules.index'))->assertOk()->assertSee('Legacy unclassified (historical only)');
-        $this->actingAs($c['admin'])->get(route('delivery-pricing-rules.index', ['scope' => 'current']))->assertOk()->assertDontSee('Legacy unclassified (historical only)')->assertSee('Single Shop');
+        $this->actingAs($c['admin'])->get(route('delivery-pricing-rules.index'))->assertOk()->assertSee(__('admin.ui.legacy_unclassified_historical_only'));
+        $this->actingAs($c['admin'])->get(route('delivery-pricing-rules.index', ['scope' => 'current']))->assertOk()->assertDontSee(__('admin.ui.legacy_unclassified_historical_only'))->assertSee(__('orders.pricing_classes.SINGLE_SHOP'));
     }
 
     public function test_preview_needs_no_captain_but_final_pricing_does_and_requires_share_setting(): void

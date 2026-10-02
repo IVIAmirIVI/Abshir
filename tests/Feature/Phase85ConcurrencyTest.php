@@ -406,7 +406,7 @@ class Phase85ConcurrencyTest extends TestCase
             $this->assertOneSuccessAndOneValidation($results);
             $this->assertSame(1, DB::table('captain_ratings')->where(['order_id' => $fixture['order']->id, 'captain_id' => $captain->id])->count());
             $conflict = collect($results)->firstWhere('status', 'validation');
-            $this->assertSame('This Captain already has a rating for the Order.', $conflict['errors']['captain_id'][0] ?? null);
+            $this->assertSame('يوجد تقييم لهذا الكابتن على الطلب بالفعل.', $conflict['errors']['captain_id'][0] ?? null);
         } finally {
             DB::table('captain_ratings')->where('order_id', $fixture['order']->id)->delete();
             DB::table('order_captains')->where('order_id', $fixture['order']->id)->delete();

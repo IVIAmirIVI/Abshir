@@ -26,7 +26,7 @@ class CurrencyService
                         || (Schema::hasTable('order_shop_purchase_confirmations')
                             && DB::table('order_shop_purchase_confirmations')->where('currency_id', $currency->id)->exists()))) {
                     throw ValidationException::withMessages([
-                        'decimal_places' => 'Currency decimal precision cannot change after financial ledger or verified Shop purchase use.',
+                        'decimal_places' => __('domain.currency_decimal_precision_cannot_change_after_financial_ledger_or_verified_shop_purchase_use'),
                     ]);
                 }
             }

@@ -41,7 +41,7 @@ class InvoiceFinancialCorrectionService
         Gate::forUser($actor)->authorize('invoice_corrections.request');
         abort_unless(Invoice::query()->accessibleTo($actor)->whereKey($source)->exists(), 403);
         if (! Str::isUuid($requestKey) || trim($reason) === '' || trim($explanation) === '') {
-            throw ValidationException::withMessages(['correction' => 'A request key, reason, and explanation are required.']);
+            throw ValidationException::withMessages(['correction' => __('domain.a_request_key_reason_and_explanation_are_required')]);
         }
         $proposal = $this->canonicalProposal($kind, $proposal);
 
@@ -58,20 +58,20 @@ class InvoiceFinancialCorrectionService
                         json_encode($existing->proposal_payload, JSON_THROW_ON_ERROR),
                         json_encode($proposal, JSON_THROW_ON_ERROR),
                     ])) {
-                    throw ValidationException::withMessages(['request_key' => 'Correction request key already has different facts.']);
+                    throw ValidationException::withMessages(['request_key' => __('domain.correction_request_key_already_has_different_facts')]);
                 }
 
                 return $existing;
             }
             if (! $collection || $invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Correction requires the current collected ISSUED Invoice.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.correction_requires_the_current_collected_issued_invoice')]);
             }
             if ($kind === InvoiceFinancialCorrectionKind::CancelAndRefund && $order->billPayments()->exists()) {
-                throw ValidationException::withMessages(['correction' => 'COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE']);
+                throw ValidationException::withMessages(['correction' => __('domain.completed_bill_payment_order_not_cancellable')]);
             }
             if (InvoiceFinancialCorrection::query()->where('original_collection_id', $collection->id)
                 ->whereIn('state', ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE'])->exists()) {
-                throw ValidationException::withMessages(['correction' => 'An unresolved correction already exists for this Collection.']);
+                throw ValidationException::withMessages(['correction' => __('domain.an_unresolved_correction_already_exists_for_this_collection')]);
             }
             $snapshotId = DB::table('order_financial_source_snapshots')->where('invoice_id', $invoice->id)->value('id');
             $currency = Currency::query()->findOrFail($invoice->currency_id);
@@ -112,10 +112,10 @@ class InvoiceFinancialCorrectionService
                 return $correction;
             }
             if ($correction->state !== InvoiceFinancialCorrectionState::Requested) {
-                throw ValidationException::withMessages(['correction' => 'Only a REQUESTED correction may be prepared.']);
+                throw ValidationException::withMessages(['correction' => __('domain.only_a_requested_correction_may_be_prepared')]);
             }
             if ($correction->kind === InvoiceFinancialCorrectionKind::CancelAndRefund && $order->billPayments()->exists()) {
-                throw ValidationException::withMessages(['correction' => 'COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE']);
+                throw ValidationException::withMessages(['correction' => __('domain.completed_bill_payment_order_not_cancellable')]);
             }
             $snapshot = $this->snapshots->read($invoice);
             $currency = Currency::query()->lockForUpdate()->findOrFail($correction->currency_id);
@@ -126,7 +126,7 @@ class InvoiceFinancialCorrectionService
             $corrected = BigDecimal::of($planned['total']);
             $delta = $corrected->minus(BigDecimal::of($collection->amount));
             if ($delta->isGreaterThan(0)) {
-                throw ValidationException::withMessages(['correction' => 'ADDITIONAL_COLLECTION_REQUIRED']);
+                throw ValidationException::withMessages(['correction' => __('domain.additional_collection_required')]);
             }
             $preparedFacts = [
                 'state' => InvoiceFinancialCorrectionState::Prepared,
@@ -158,7 +158,7 @@ class InvoiceFinancialCorrectionService
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
             if (! in_array($correction->state, [InvoiceFinancialCorrectionState::Requested, InvoiceFinancialCorrectionState::Prepared], true)
                 || $correction->refund()->exists()) {
-                throw ValidationException::withMessages(['correction' => 'A correction with real refund or finalization cannot be abandoned.']);
+                throw ValidationException::withMessages(['correction' => __('domain.a_correction_with_real_refund_or_finalization_cannot_be_abandoned')]);
             }
             $correction->update(['state' => InvoiceFinancialCorrectionState::Abandoned]);
 
@@ -180,7 +180,7 @@ class InvoiceFinancialCorrectionService
                 return $correction;
             }
             if ($correction->state !== InvoiceFinancialCorrectionState::ReadyToFinalize) {
-                throw ValidationException::withMessages(['correction' => 'Correction is not READY_TO_FINALIZE.']);
+                throw ValidationException::withMessages(['correction' => __('domain.correction_is_not_ready_to_finalize')]);
             }
             $this->assertSource($order, $invoice, $collection, $correction);
             $original = $this->snapshots->read($invoice);
@@ -188,7 +188,7 @@ class InvoiceFinancialCorrectionService
             $planned = $this->calculate($correction, $invoice, $original, $currency);
             if (! hash_equals($correction->proposal_hash, hash('sha256', json_encode($planned, JSON_THROW_ON_ERROR)))
                 || ! BigDecimal::of($planned['total'])->isEqualTo(BigDecimal::of($correction->corrected_amount))) {
-                throw ValidationException::withMessages(['correction' => 'Prepared proposal no longer matches its frozen facts.']);
+                throw ValidationException::withMessages(['correction' => __('domain.prepared_proposal_no_longer_matches_its_frozen_facts')]);
             }
             if ($correction->receivable_dispositions_captured) {
                 $this->dispositions->assertFinalizableLocked($correction);
@@ -199,23 +199,23 @@ class InvoiceFinancialCorrectionService
             $requiredRefund = BigDecimal::of($correction->customer_delta)->negated();
             if ($requiredRefund->isGreaterThan(0)) {
                 if (! $refund || ! BigDecimal::of($refund->amount)->isEqualTo($requiredRefund)) {
-                    throw ValidationException::withMessages(['refund' => 'The exact real customer refund is required before finalization.']);
+                    throw ValidationException::withMessages(['refund' => __('domain.the_exact_real_customer_refund_is_required_before_finalization')]);
                 }
             } elseif ($refund) {
-                throw ValidationException::withMessages(['refund' => 'A zero-delta correction cannot contain a refund.']);
+                throw ValidationException::withMessages(['refund' => __('domain.a_zero_delta_correction_cannot_contain_a_refund')]);
             }
             if ($correction->kind === InvoiceFinancialCorrectionKind::CancelAndRefund) {
                 if (($order->operational_status === OrderOperationalStatus::Delivered && ! DB::scalar("SELECT to_regprocedure('captain_recovery_cancellation_allowed(bigint,boolean)') IS NOT NULL")) || $order->billPayments()->exists()
                     || ($order->operational_status === OrderOperationalStatus::Delivered && ! DB::scalar('SELECT captain_recovery_cancellation_allowed(?,true)', [$order->id]))) {
-                    throw ValidationException::withMessages(['correction' => 'COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE or Order already delivered.']);
+                    throw ValidationException::withMessages(['correction' => __('domain.completed_bill_payment_order_not_cancellable_or_order_already_delivered')]);
                 }
                 if (! $order->cancellationIntent()->exists()) {
-                    throw ValidationException::withMessages(['correction' => 'AFTER_PURCHASE cancellation intent and returns are required.']);
+                    throw ValidationException::withMessages(['correction' => __('domain.after_purchase_cancellation_intent_and_returns_are_required')]);
                 }
             } elseif ($order->operational_status === OrderOperationalStatus::Delivered) {
                 $assessment = $this->originalFinancials->assess($order);
                 if ($assessment['state'] !== 'complete') {
-                    throw ValidationException::withMessages(['correction' => 'Original delivered Order financial events are not complete.']);
+                    throw ValidationException::withMessages(['correction' => __('domain.original_delivered_order_financial_events_are_not_complete')]);
                 }
             }
             if ($order->operational_status === OrderOperationalStatus::Delivered) {
@@ -323,7 +323,7 @@ class InvoiceFinancialCorrectionService
     {
         if ($currency->id !== $correction->currency_id || $currency->decimal_places !== $correction->currency_decimal_places
             || $snapshot['branch_id'] !== $correction->branch_id || $snapshot['currency_id'] !== $currency->id) {
-            throw ValidationException::withMessages(['correction' => 'Historical Branch or Currency source changed.']);
+            throw ValidationException::withMessages(['correction' => __('domain.historical_branch_or_currency_source_changed')]);
         }
         if ($correction->kind === InvoiceFinancialCorrectionKind::CancelAndRefund) {
             return ['items' => [], 'allocations' => [], 'subtotal' => '0.0000', 'delivery_total' => '0.0000', 'total' => '0.0000'];
@@ -337,7 +337,7 @@ class InvoiceFinancialCorrectionService
             || $providedItems->keys()->sort()->values()->all() !== $items->pluck('id')->sort()->values()->all()
             || $providedAllocations->count() !== $participants->count()
             || $providedAllocations->keys()->sort()->values()->all() !== $participants->keys()->sort()->values()->all()) {
-            throw ValidationException::withMessages(['proposal' => 'Corrected Items and historical Captain allocations must be complete.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.corrected_items_and_historical_captain_allocations_must_be_complete')]);
         }
         $subtotal = BigDecimal::zero();
         $lines = [];
@@ -373,7 +373,7 @@ class InvoiceFinancialCorrectionService
         unset($allocation);
         $total = $subtotal->plus($delivery);
         if (! $total->isGreaterThan(0)) {
-            throw ValidationException::withMessages(['proposal' => 'Use CANCEL_AND_REFUND for a zero customer obligation.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.use_cancel_and_refund_for_a_zero_customer_obligation')]);
         }
 
         return ['items' => $lines, 'allocations' => $allocations,
@@ -384,15 +384,15 @@ class InvoiceFinancialCorrectionService
     private function money(mixed $raw, Currency $currency, bool $allowZero): BigDecimal
     {
         if (! is_string($raw) || ! preg_match('/^\d+(?:\.\d+)?$/', $raw)) {
-            throw ValidationException::withMessages(['proposal' => 'Money must be an exact decimal string.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.money_must_be_an_exact_decimal_string')]);
         }
         try {
             $value = BigDecimal::of($raw)->toScale($currency->decimal_places, RoundingMode::Unnecessary);
         } catch (\Throwable) {
-            throw ValidationException::withMessages(['proposal' => 'Money exceeds Currency precision.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.money_exceeds_currency_precision')]);
         }
         if ($value->isLessThan(0) || (! $allowZero && $value->isZero())) {
-            throw ValidationException::withMessages(['proposal' => 'Money must be positive for Items and nonnegative for delivery.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.money_must_be_positive_for_items_and_nonnegative_for_delivery')]);
         }
 
         return $value;
@@ -402,17 +402,17 @@ class InvoiceFinancialCorrectionService
     {
         if ($kind === InvoiceFinancialCorrectionKind::CancelAndRefund) {
             if ($proposal !== [] && $proposal !== ['items' => [], 'delivery' => []]) {
-                throw ValidationException::withMessages(['proposal' => 'Cancellation has no replacement Item or delivery amounts.']);
+                throw ValidationException::withMessages(['proposal' => __('domain.cancellation_has_no_replacement_item_or_delivery_amounts')]);
             }
 
             return ['items' => [], 'delivery' => []];
         }
         if (! isset($proposal['items'], $proposal['delivery']) || ! is_array($proposal['items']) || ! is_array($proposal['delivery'])) {
-            throw ValidationException::withMessages(['proposal' => 'Corrected Items and delivery allocations are required.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.corrected_items_and_delivery_allocations_are_required')]);
         }
         if (collect($proposal['items'])->contains(fn ($line) => ! is_array($line))
             || collect($proposal['delivery'])->contains(fn ($line) => ! is_array($line))) {
-            throw ValidationException::withMessages(['proposal' => 'Each Item and delivery allocation must be structured data.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.each_item_and_delivery_allocation_must_be_structured_data')]);
         }
         $items = collect($proposal['items'])->map(fn ($line) => [
             'invoice_item_id' => filter_var($line['invoice_item_id'] ?? null, FILTER_VALIDATE_INT),
@@ -424,7 +424,7 @@ class InvoiceFinancialCorrectionService
         ])->sortBy('order_captain_id')->values()->all();
         if (collect($items)->pluck('invoice_item_id')->contains(false)
             || collect($delivery)->pluck('order_captain_id')->contains(false)) {
-            throw ValidationException::withMessages(['proposal' => 'Proposal identifiers must be valid.']);
+            throw ValidationException::withMessages(['proposal' => __('domain.proposal_identifiers_must_be_valid')]);
         }
 
         return ['items' => $items, 'delivery' => $delivery];
@@ -437,7 +437,7 @@ class InvoiceFinancialCorrectionService
             || $invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at
             || $collection->currency_id !== $correction->currency_id || $order->branch_id !== $correction->branch_id
             || ! BigDecimal::of($collection->amount)->isEqualTo(BigDecimal::of($correction->original_amount))) {
-            throw ValidationException::withMessages(['correction' => 'Historical correction source is no longer authoritative.']);
+            throw ValidationException::withMessages(['correction' => __('domain.historical_correction_source_is_no_longer_authoritative')]);
         }
     }
 
@@ -488,7 +488,7 @@ class InvoiceFinancialCorrectionService
                 };
                 $code = BigDecimal::of($corrected)->isLessThan(BigDecimal::of($paid))
                     ? 'CAPTAIN_RECOVERY_REQUIRED' : 'PAID_RECEIVABLE_CORRECTION_REQUIRED';
-                throw ValidationException::withMessages(['correction' => "{$code}: captain_id={$captainId}, branch_id={$correction->branch_id}, currency_id={$currency->id}, financial_entry_id={$entry->id}, paid={$paid}, corrected_entitlement={$corrected}"]);
+                throw ValidationException::withMessages(['correction' => __('domain.paid_correction_details', ['code' => $code, 'captain' => $captainId, 'branch' => $correction->branch_id, 'currency' => $currency->id, 'entry' => $entry->id, 'paid' => (string) $paid, 'corrected' => (string) $corrected])]);
             }
         }
     }

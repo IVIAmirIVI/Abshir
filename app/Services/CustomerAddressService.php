@@ -26,7 +26,7 @@ class CustomerAddressService
             $area = Area::query()->findOrFail($data['area_id']);
             abort_unless($actor->canAccessArea($area), 403);
             if (! $area->is_active && (! $address->exists || $address->area_id !== $area->id)) {
-                throw ValidationException::withMessages(['area_id' => 'The selected area is inactive.']);
+                throw ValidationException::withMessages(['area_id' => __('domain.the_selected_area_is_inactive')]);
             }
             $address->fill($data);
             $address->customer_id = $customer->id;
@@ -46,7 +46,7 @@ class CustomerAddressService
     {
         $this->assertAccess($actor, $customer, $address);
         if (! $address->is_active) {
-            throw ValidationException::withMessages(['address' => 'An inactive address cannot be primary.']);
+            throw ValidationException::withMessages(['address' => __('domain.an_inactive_address_cannot_be_primary')]);
         }
         DB::transaction(function () use ($customer, $address): void {
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
@@ -60,7 +60,7 @@ class CustomerAddressService
     {
         $this->assertAccess($actor, $customer, $address);
         if ($active && ! $address->area->is_active) {
-            throw ValidationException::withMessages(['address' => 'An address in an inactive area cannot be activated.']);
+            throw ValidationException::withMessages(['address' => __('domain.an_address_in_an_inactive_area_cannot_be_activated')]);
         }
         DB::transaction(function () use ($customer, $address, $active): void {
             Customer::query()->lockForUpdate()->findOrFail($customer->id);

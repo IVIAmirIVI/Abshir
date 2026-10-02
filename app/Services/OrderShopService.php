@@ -31,25 +31,25 @@ class OrderShopService
                 $shop = Shop::query()->with(['area', 'type'])->findOrFail($data['shop_id']);
                 abort_unless($actor->canAccessShop($shop), 403);
                 if ($shop->area && $shop->area->branch_id !== $order->branch_id) {
-                    throw ValidationException::withMessages(['shop_id' => 'The Shop is outside the Order Branch.']);
+                    throw ValidationException::withMessages(['shop_id' => __('domain.the_shop_is_outside_the_order_branch')]);
                 }
                 if (! $shop->is_active) {
-                    throw ValidationException::withMessages(['shop_id' => 'An inactive Shop cannot be added to a new Order.']);
+                    throw ValidationException::withMessages(['shop_id' => __('domain.an_inactive_shop_cannot_be_added_to_a_new_order')]);
                 }
                 $classification = $shop->type?->business_classification ?? $explicit;
                 if (! $classification) {
-                    throw ValidationException::withMessages(['business_classification' => 'Choose Restaurant or Shop because this registered Shop Type is not configured.']);
+                    throw ValidationException::withMessages(['business_classification' => __('domain.choose_restaurant_or_shop_because_this_registered_shop_type_is_not_configured')]);
                 }
                 if ($shop->type?->business_classification && $explicit && $explicit !== $shop->type->business_classification) {
-                    throw ValidationException::withMessages(['business_classification' => 'The selected classification conflicts with the registered Shop Type.']);
+                    throw ValidationException::withMessages(['business_classification' => __('domain.the_selected_classification_conflicts_with_the_registered_shop_type')]);
                 }
                 $created = $order->shops()->create(['shop_type' => $type, 'business_classification_snapshot' => $classification, 'shop_id' => $shop->id, 'shop_name_snapshot' => $shop->name, 'shop_phone_snapshot' => $shop->phone, 'shop_address_snapshot' => $shop->address, 'area_name_snapshot' => $shop->area?->name, 'notes' => $data['notes'] ?? null, 'sort_order' => $data['sort_order'] ?? 0]);
             } else {
                 if (! empty($data['shop_id'])) {
-                    throw ValidationException::withMessages(['shop_id' => 'A one-time Shop cannot reference a registered Shop.']);
+                    throw ValidationException::withMessages(['shop_id' => __('domain.a_one_time_shop_cannot_reference_a_registered_shop')]);
                 }
                 if (! $explicit) {
-                    throw ValidationException::withMessages(['business_classification' => 'Choose Restaurant or Shop for a one-time Shop.']);
+                    throw ValidationException::withMessages(['business_classification' => __('domain.choose_restaurant_or_shop_for_a_one_time_shop')]);
                 }
                 $created = $order->shops()->create(['shop_type' => $type, 'business_classification_snapshot' => $explicit, 'shop_id' => null, 'shop_name_snapshot' => $data['shop_name'], 'shop_phone_snapshot' => $data['shop_phone'] ?? null, 'shop_address_snapshot' => $data['shop_address'] ?? null, 'notes' => $data['notes'] ?? null, 'sort_order' => $data['sort_order'] ?? 0]);
             }
@@ -71,7 +71,7 @@ class OrderShopService
             $this->mutationGuard->assertMutableLocked($order);
             $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
             if ($orderShop->business_classification_snapshot) {
-                throw ValidationException::withMessages(['business_classification' => 'The Order Shop classification snapshot is immutable.']);
+                throw ValidationException::withMessages(['business_classification' => __('domain.the_order_shop_classification_snapshot_is_immutable')]);
             }
             $orderShop->update(['business_classification_snapshot' => ShopBusinessClassification::from($classification)]);
             $this->classifications->recalculateLocked($order);

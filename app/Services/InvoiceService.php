@@ -45,7 +45,7 @@ class InvoiceService
             $this->assertNotCancelled($order);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if (! in_array($invoice->status, [InvoiceStatus::Draft, InvoiceStatus::Ready], true) || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Only the current DRAFT or READY Invoice may be refreshed.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_draft_or_ready_invoice_may_be_refreshed')]);
             }
 
             return $this->applySnapshot($invoice, $this->snapshots->build($order));
@@ -62,14 +62,14 @@ class InvoiceService
             $this->assertNotCancelled($order);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Ready || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Only the current READY Invoice may be issued.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_ready_invoice_may_be_issued')]);
             }
             $snapshot = $this->snapshots->build($order);
             if ($this->snapshots->isStale($invoice, $snapshot)) {
-                throw ValidationException::withMessages(['invoice' => 'The READY Invoice is stale. Refresh it before issue.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.the_ready_invoice_is_stale_refresh_it_before_issue')]);
             }
             if ($order->currentInvoice()->whereKeyNot($invoice->id)->lockForUpdate()->exists()) {
-                throw ValidationException::withMessages(['invoice' => 'Another current Invoice exists.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.another_current_invoice_exists')]);
             }
             $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $actor->id]);
             $this->financialSources->capture($invoice->fresh());
@@ -84,21 +84,21 @@ class InvoiceService
         Gate::forUser($actor)->authorize('invoices.void');
         $this->ownership($actor, $order, $invoice);
         if (trim($reason) === '') {
-            throw ValidationException::withMessages(['reason' => 'Void reason is required.']);
+            throw ValidationException::withMessages(['reason' => __('domain.void_reason_is_required')]);
         }
         DB::transaction(function () use ($actor, $order, $invoice, $reason): void {
             Order::query()->lockForUpdate()->findOrFail($order->id);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Only the current ISSUED Invoice may be voided.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_issued_invoice_may_be_voided')]);
             }
             if (Schema::hasTable('invoice_financial_corrections')
                 && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
                     ->where('state', 'COMPLETED')->exists()) {
-                throw ValidationException::withMessages(['invoice' => 'A financially corrected replacement Invoice is immutable.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.a_financially_corrected_replacement_invoice_is_immutable')]);
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
-                throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be voided until a financial reversal workflow exists.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_voided_until_a_financial_reversal_workflow_exists')]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $invoice->update(['status' => InvoiceStatus::Voided, 'voided_at' => now(), 'voided_by' => $actor->id, 'void_reason' => $reason, 'superseded_at' => now()]);
@@ -110,22 +110,22 @@ class InvoiceService
         Gate::forUser($actor)->authorize('invoices.replace');
         $this->ownership($actor, $order, $invoice);
         if (trim($reason) === '') {
-            throw ValidationException::withMessages(['reason' => 'Replacement reason is required.']);
+            throw ValidationException::withMessages(['reason' => __('domain.replacement_reason_is_required')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $invoice, $reason): Invoice {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Only the current ISSUED Invoice may be replaced.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_issued_invoice_may_be_replaced')]);
             }
             if (Schema::hasTable('invoice_financial_corrections')
                 && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
                     ->where('state', 'COMPLETED')->exists()) {
-                throw ValidationException::withMessages(['invoice' => 'A financially corrected replacement Invoice is immutable.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.a_financially_corrected_replacement_invoice_is_immutable')]);
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
-                throw ValidationException::withMessages(['invoice' => 'A collected Invoice cannot be replaced until a financial reversal workflow exists.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_replaced_until_a_financial_reversal_workflow_exists')]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $snapshot = $this->snapshots->build($order);
@@ -141,7 +141,7 @@ class InvoiceService
     private function createDraftLocked(User $actor, Order $order): Invoice
     {
         if ($order->currentInvoice()->lockForUpdate()->exists()) {
-            throw ValidationException::withMessages(['invoice' => 'This Order already has a current Invoice.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.this_order_already_has_a_current_invoice')]);
         }
         $invoice = $order->invoices()->create([
             'invoice_number' => 'PENDING-'.Str::uuid(),
@@ -186,7 +186,7 @@ class InvoiceService
     {
         if ($order->operational_status === OrderOperationalStatus::Cancelled
             || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())) {
-            throw ValidationException::withMessages(['invoice' => 'Cancelled Orders cannot create, refresh, or issue Invoices.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices')]);
         }
     }
 
@@ -194,7 +194,7 @@ class InvoiceService
     {
         if ($this->financials->hasOrderDerivedEvents($invoice)) {
             throw ValidationException::withMessages([
-                'invoice' => 'A financially crystallized Invoice cannot be corrected until the financial reversal workflow exists.',
+                'invoice' => __('domain.a_financially_crystallized_invoice_cannot_be_corrected_until_the_financial_reversal_workflow_exists'),
             ]);
         }
     }

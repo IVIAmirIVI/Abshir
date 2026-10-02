@@ -1,1 +1,31 @@
-<x-app-layout><x-slot name="header"><h2 class="text-xl font-semibold">Delivery fee override approvals ({{ $pendingCount }} pending)</h2></x-slot><div class="mx-auto max-w-6xl space-y-4 px-4 py-8">@foreach($requests as $request)<article class="rounded bg-white p-5 shadow"><div class="flex flex-wrap justify-between gap-2"><strong>{{ $request->order->order_number }} · {{ $request->fromArea->path() }}</strong><span>{{ $request->status->value }}</span></div><p>{{ $request->suggested_unit_fee }} → {{ $request->requested_unit_fee }} ({{ $request->difference_percent }}%)</p><p>{{ $request->reason }} · {{ $request->requester?->name }}</p>@if($request->status === \App\Enums\DeliveryOverrideStatus::Pending)<form method="POST" action="{{ route('delivery-overrides.resolve',$request) }}" class="mt-3 flex flex-wrap gap-2">@csrf @method('PATCH')<x-text-input name="resolution_reason" placeholder="Resolution note"/><button name="decision" value="approve" class="rounded bg-green-700 px-3 py-2 text-white">Approve</button><button name="decision" value="reject" class="rounded bg-red-700 px-3 py-2 text-white">Reject</button></form>@endif</article>@endforeach{{ $requests->links() }}</div></x-app-layout>
+<x-app-layout>
+    <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('admin.approvals_title', ['count' => $pendingCount]) }}</h2></x-slot>
+    <div class="mx-auto max-w-6xl space-y-4 px-4 py-8">
+        @forelse($requests as $request)
+            <article class="min-w-0 break-words rounded bg-white p-5 shadow space-y-2">
+                <div class="flex flex-wrap justify-between gap-2">
+                    <strong><x-ltr>{{ $request->order->order_number }}</x-ltr> · {{ $request->fromArea->path() }}</strong>
+                    <span>{{ \App\Support\UiLabels::label('admin.override_statuses', $request->status) }}</span>
+                </div>
+                <p>{{ __('admin.suggested_fee') }} <x-money :amount="$request->suggested_unit_fee" /> → {{ __('admin.requested_fee') }} <x-money :amount="$request->requested_unit_fee" /> (<x-ltr>{{ $request->difference_percent }}%</x-ltr>)</p>
+                <p>{{ $request->reason }} · {{ __('admin.requested_by') }} {{ $request->requester?->name }}</p>
+                <p>{{ __('admin.requested_at') }} <x-ltr>{{ $request->requested_at?->format('Y-m-d H:i') }}</x-ltr></p>
+                @if($request->resolved_at)
+                    <p>{{ __('admin.resolved_by') }} {{ $request->resolver?->name }} · {{ __('admin.resolved_at') }} <x-ltr>{{ $request->resolved_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p>{{ $request->resolution_reason }}</p>
+                @endif
+                @if($request->status === \App\Enums\DeliveryOverrideStatus::Pending)
+                    <form method="POST" action="{{ route('delivery-overrides.resolve',$request) }}" class="mt-3 flex flex-wrap gap-2">
+                        @csrf @method('PATCH')
+                        <x-text-input class="min-w-0 max-w-full" aria-label="{{ __('admin.ui.resolution_note') }}" name="resolution_reason" :placeholder="__('admin.ui.resolution_note')"/>
+                        <button name="decision" value="approve" class="rounded bg-green-700 px-3 py-2 text-white">{{ __('admin.ui.approve') }}</button>
+                        <button name="decision" value="reject" class="rounded bg-red-700 px-3 py-2 text-white">{{ __('admin.ui.reject') }}</button>
+                    </form>
+                @endif
+            </article>
+        @empty
+            <p>{{ __('admin.no_approvals') }}</p>
+        @endforelse
+        {{ $requests->links() }}
+    </div>
+</x-app-layout>

@@ -33,7 +33,7 @@ class ProductPriceService
 
         foreach (['product_id' => $product, 'shop_id' => $shop, 'unit_id' => $unit, 'currency_id' => $currency] as $field => $record) {
             if (! $record->is_active) {
-                throw ValidationException::withMessages([$field => 'New observations require an active record.']);
+                throw ValidationException::withMessages([$field => __('domain.new_observations_require_an_active_record')]);
             }
         }
 

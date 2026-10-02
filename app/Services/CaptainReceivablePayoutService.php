@@ -14,6 +14,7 @@ use App\Models\CaptainReceivablePayout;
 use App\Models\Currency;
 use App\Models\FinancialAccount;
 use App\Models\User;
+use App\Support\UiLabels;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -41,12 +42,12 @@ class CaptainReceivablePayoutService
             'note' => ['nullable', 'string'],
         ])->validate();
         if ($allocations === []) {
-            throw ValidationException::withMessages(['allocations' => 'Select the exact Receivable entries paid.']);
+            throw ValidationException::withMessages(['allocations' => __('domain.select_the_exact_receivable_entries_paid')]);
         }
         $metadata = $this->evidence->inspect($file);
         $occurredAt = CarbonImmutable::parse($data['occurred_at'])->utc();
         if ($occurredAt->isFuture()) {
-            throw ValidationException::withMessages(['occurred_at' => 'The payout time cannot be in the future.']);
+            throw ValidationException::withMessages(['occurred_at' => __('domain.the_payout_time_cannot_be_in_the_future')]);
         }
         $path = null;
         try {
@@ -59,12 +60,12 @@ class CaptainReceivablePayoutService
                     foreach ($allocations as $allocation) {
                         $entryId = filter_var($allocation['financial_entry_id'] ?? null, FILTER_VALIDATE_INT);
                         if (! $entryId || isset($allocationMap[$entryId])) {
-                            throw ValidationException::withMessages(['allocations' => 'Allocation entry identities must be unique and valid.']);
+                            throw ValidationException::withMessages(['allocations' => __('domain.allocation_entry_identities_must_be_unique_and_valid')]);
                         }
                         $allocationMap[$entryId] = $this->posting->validatePlannedAmount($currency, $allocation['amount'] ?? null);
                     }
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['amount' => UiLabels::error($exception->getMessage())]);
                 }
                 ksort($allocationMap, SORT_NUMERIC);
                 $total = array_reduce($allocationMap, fn (BigDecimal $carry, string $value): BigDecimal => $carry->plus($value), BigDecimal::zero());
@@ -83,14 +84,14 @@ class CaptainReceivablePayoutService
                     return $existing;
                 }
                 if (! $total->isEqualTo(BigDecimal::of($amount))) {
-                    throw ValidationException::withMessages(['allocations' => 'Allocation total must equal the payout amount.']);
+                    throw ValidationException::withMessages(['allocations' => __('domain.allocation_total_must_equal_the_payout_amount')]);
                 }
                 $account = FinancialAccount::query()->where('currency_id', $currency->id)
                     ->where('account_kind', FinancialAccountKind::CaptainCompanyReceivable->value)
                     ->whereHas('owner', fn ($query) => $query->where('owner_type', FinancialOwnerType::Captain->value)->where('captain_id', $captain->id))
                     ->lockForUpdate()->first();
                 if (! $account) {
-                    throw ValidationException::withMessages(['amount' => 'No attributable Captain Receivable exists in this Currency.']);
+                    throw ValidationException::withMessages(['amount' => __('domain.no_attributable_captain_receivable_exists_in_this_currency')]);
                 }
                 $branchBalance = BigDecimal::of($this->balances->captainBranchBalance($captain, $branch, $currency, FinancialAccountKind::CaptainCompanyReceivable));
                 $payable = $this->balances->payableReceivableEntries($captain, $branch, $currency)->keyBy('financial_entry_id');
@@ -104,12 +105,12 @@ class CaptainReceivablePayoutService
                 }
                 if (! $payableTotal->isGreaterThan(0) || $payableTotal->isLessThan(BigDecimal::of($amount))
                     || $branchBalance->isLessThan(BigDecimal::of($amount))) {
-                    throw ValidationException::withMessages(['amount' => 'Payout exceeds the payable Receivable in this Branch and Currency.']);
+                    throw ValidationException::withMessages(['amount' => __('domain.payout_exceeds_the_payable_receivable_in_this_branch_and_currency')]);
                 }
                 foreach ($allocationMap as $entryId => $value) {
                     $source = $payable->get($entryId);
                     if (! $source || BigDecimal::of($value)->isGreaterThan(BigDecimal::of((string) $source->remaining_amount))) {
-                        throw ValidationException::withMessages(['allocations' => 'A selected Receivable entry is unavailable or already paid.']);
+                        throw ValidationException::withMessages(['allocations' => __('domain.a_selected_receivable_entry_is_unavailable_or_already_paid')]);
                     }
                 }
                 $path = $this->evidence->store($file, $metadata);

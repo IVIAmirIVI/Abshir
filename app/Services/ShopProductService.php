@@ -27,14 +27,14 @@ class ShopProductService
             $currency = isset($data['currency_id']) ? Currency::query()->findOrFail($data['currency_id']) : null;
             foreach ([['product_id', $product], ['unit_id', $unit], ['currency_id', $currency]] as [$field, $record]) {
                 if ($record && ! $record->is_active && (! $listing->exists || $listing->{$field} !== $record->id)) {
-                    throw ValidationException::withMessages([$field => "An inactive {$record->getMorphClass()} cannot be selected."]);
+                    throw ValidationException::withMessages([$field => __('domain.inactive_record', ['record' => $record->getMorphClass()])]);
                 }
             }
             $duplicate = ShopProduct::query()->where('shop_id', $shop->id)
                 ->where('product_id', $product->id)->where('unit_id', $unit->id)
                 ->when($listing->exists, fn ($query) => $query->whereKeyNot($listing->id))->exists();
             if ($duplicate) {
-                throw ValidationException::withMessages(['product_id' => 'This Shop already has a listing for the Product and Unit.']);
+                throw ValidationException::withMessages(['product_id' => __('domain.this_shop_already_has_a_listing_for_the_product_and_unit')]);
             }
 
             $listing->fill($data);

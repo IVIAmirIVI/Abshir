@@ -22,7 +22,7 @@ class OrderCancellationIntentService
         Gate::forUser($actor)->authorize('order_cancellation_intents.create');
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
         if (! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $requestKey)) {
-            throw ValidationException::withMessages(['request_key' => 'A UUID request key is required.']);
+            throw ValidationException::withMessages(['request_key' => __('domain.a_uuid_request_key_is_required')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $reason, $notes, $requestKey): OrderCancellationIntent {
@@ -31,7 +31,7 @@ class OrderCancellationIntentService
             if ($existing) {
                 if ($existing->request_key !== $requestKey || $existing->reason !== $reason
                     || $existing->notes !== $notes || $existing->requested_by !== $actor->id) {
-                    throw ValidationException::withMessages(['request_key' => 'Cancellation intent already exists with different facts.']);
+                    throw ValidationException::withMessages(['request_key' => __('domain.cancellation_intent_already_exists_with_different_facts')]);
                 }
 
                 return $existing;
@@ -39,12 +39,12 @@ class OrderCancellationIntentService
             $this->safety->assertNoFinancialCorrectionRequiredLocked($order, true);
             if ($order->operational_status === OrderOperationalStatus::Cancelled || ($order->operational_status === OrderOperationalStatus::Delivered
                 && ! $this->safety->allowsRecoveredDeliveredCancellation($order, true))) {
-                throw ValidationException::withMessages(['order' => 'Delivered or cancelled Orders cannot start cancellation.']);
+                throw ValidationException::withMessages(['order' => __('domain.delivered_or_cancelled_orders_cannot_start_cancellation')]);
             }
             $this->safety->assertNoLegacyPurchaseCandidateLocked($order);
             $purchases = $order->purchaseConfirmations()->orderBy('id')->get();
             if ($purchases->isEmpty()) {
-                throw ValidationException::withMessages(['order' => 'AFTER_PURCHASE requires an authoritative purchase confirmation.']);
+                throw ValidationException::withMessages(['order' => __('domain.after_purchase_requires_an_authoritative_purchase_confirmation')]);
             }
             $intentId = DB::table('order_cancellation_intents')->insertGetId([
                 'order_id' => $order->id, 'classification' => OrderCancellationClassification::AfterPurchase->value,

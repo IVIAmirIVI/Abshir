@@ -60,7 +60,7 @@ class CorrectedOrderFinancialService
                 : null;
             if ($correction) {
                 if ($correction->state !== InvoiceFinancialCorrectionState::Completed) {
-                    throw ValidationException::withMessages(['order' => 'An unresolved Invoice financial correction blocks original Order posting.']);
+                    throw ValidationException::withMessages(['order' => __('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting')]);
                 }
 
                 return $this->correctionPosting->postIfDeliveredLocked($order, $correction);

@@ -22,18 +22,18 @@ class OrderStatusService
             $this->mutationGuard->assertNoCancellationIntentLocked($order);
             $previous = $order->operational_status;
             if ($previous->next() !== $target) {
-                throw ValidationException::withMessages(['operational_status' => 'This operational status transition is not allowed.']);
+                throw ValidationException::withMessages(['operational_status' => __('domain.this_operational_status_transition_is_not_allowed')]);
             } if ($target === OrderOperationalStatus::CaptainAssigned && ! $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', 'PRIMARY_COLLECTION')->exists()) {
-                throw ValidationException::withMessages(['operational_status' => 'Assign a Primary Collection Captain first.']);
+                throw ValidationException::withMessages(['operational_status' => __('domain.assign_a_primary_collection_captain_first')]);
             } if ($target === OrderOperationalStatus::Delivered) {
                 if (! $order->shops()->exists()) {
-                    throw ValidationException::withMessages(['operational_status' => 'At least one Shop is required before delivery.']);
+                    throw ValidationException::withMessages(['operational_status' => __('domain.at_least_one_shop_is_required_before_delivery')]);
                 }
                 $missingEvidence = $order->shops()->where(function ($shops): void {
                     $shops->whereNull('picked_up_at')->orWhereDoesntHave('receipts');
                 })->exists();
                 if ($missingEvidence) {
-                    throw ValidationException::withMessages(['operational_status' => 'Every Shop must be picked up and have receipt evidence before delivery.']);
+                    throw ValidationException::withMessages(['operational_status' => __('domain.every_shop_must_be_picked_up_and_have_receipt_evidence_before_delivery')]);
                 }
             } $order->forceFill(['operational_status' => $target])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);

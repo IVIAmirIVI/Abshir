@@ -45,7 +45,7 @@ class BranchController extends Controller
             $request->user()->branches()->syncWithoutDetaching([$branch->id]);
         }
 
-        return redirect()->route('admin.branches.index')->with('status', 'Branch created.');
+        return redirect()->route('admin.branches.index')->with('status', __('admin.ui.branch_created'));
     }
 
     public function update(BranchRequest $request, Branch $branch): RedirectResponse
@@ -53,7 +53,7 @@ class BranchController extends Controller
         abort_unless($request->user()->canAccessBranch($branch), 403);
         $branch->update($request->validated());
 
-        return redirect()->route('admin.branches.index')->with('status', 'Branch updated.');
+        return redirect()->route('admin.branches.index')->with('status', __('admin.ui.branch_updated'));
     }
 
     public function status(Request $request, Branch $branch): RedirectResponse
@@ -64,6 +64,6 @@ class BranchController extends Controller
         $branch->is_active = (bool) $data['is_active'];
         $branch->save();
 
-        return redirect()->route('admin.branches.index')->with('status', 'Branch status updated.');
+        return redirect()->route('admin.branches.index')->with('status', __('admin.ui.branch_status_updated'));
     }
 }

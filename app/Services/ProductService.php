@@ -22,12 +22,12 @@ class ProductService
             }
             $unit = Unit::query()->findOrFail($data['default_unit_id']);
             if (! $unit->is_active && $product->default_unit_id !== $unit->id) {
-                throw ValidationException::withMessages(['default_unit_id' => 'An inactive Unit cannot be selected as a new default.']);
+                throw ValidationException::withMessages(['default_unit_id' => __('domain.an_inactive_unit_cannot_be_selected_as_a_new_default')]);
             }
             if (isset($data['category_id'])) {
                 $category = Category::query()->findOrFail($data['category_id']);
                 if (! $category->is_active && $product->category_id !== $category->id) {
-                    throw ValidationException::withMessages(['category_id' => 'An inactive Category cannot be assigned to a Product.']);
+                    throw ValidationException::withMessages(['category_id' => __('domain.an_inactive_category_cannot_be_assigned_to_a_product')]);
                 }
             }
 

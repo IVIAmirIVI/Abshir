@@ -19,7 +19,7 @@ class CustomerPhoneService
         abort_unless($actor->canAccessCustomer($customer), 403);
         abort_if($phone->exists && $phone->customer_id !== $customer->id, 404);
         if ($this->duplicates->visibleMatches($actor, $data['phone'], $customer->id)->isNotEmpty() && ! ($data['duplicate_acknowledged'] ?? false)) {
-            throw ValidationException::withMessages(['phone' => 'This phone number already exists for another customer. Confirm that you want to continue.']);
+            throw ValidationException::withMessages(['phone' => __('domain.this_phone_number_already_exists_for_another_customer_confirm_that_you_want_to_continue')]);
         }
 
         return DB::transaction(function () use ($customer, $phone, $data): CustomerPhone {

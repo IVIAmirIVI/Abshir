@@ -23,18 +23,18 @@ class ShopService
             }
             $area = isset($data['area_id']) ? Area::query()->findOrFail($data['area_id']) : null;
             if (! $actor->isSuperAdmin() && ! $area) {
-                throw ValidationException::withMessages(['area_id' => 'A branch-scoped user must select an accessible Area.']);
+                throw ValidationException::withMessages(['area_id' => __('domain.a_branch_scoped_user_must_select_an_accessible_area')]);
             }
             if ($area) {
                 abort_unless($actor->canAccessArea($area), 403);
                 if (! $area->is_active && $shop->area_id !== $area->id) {
-                    throw ValidationException::withMessages(['area_id' => 'An inactive Area cannot be assigned to a Shop.']);
+                    throw ValidationException::withMessages(['area_id' => __('domain.an_inactive_area_cannot_be_assigned_to_a_shop')]);
                 }
             }
             if (isset($data['shop_type_id'])) {
                 $type = ShopType::query()->findOrFail($data['shop_type_id']);
                 if (! $type->is_active && $shop->shop_type_id !== $type->id) {
-                    throw ValidationException::withMessages(['shop_type_id' => 'An inactive Shop Type cannot be assigned to a Shop.']);
+                    throw ValidationException::withMessages(['shop_type_id' => __('domain.an_inactive_shop_type_cannot_be_assigned_to_a_shop')]);
                 }
             }
 

@@ -21,10 +21,10 @@ class CategoryService
             }
             $parent = isset($data['parent_id']) ? Category::query()->lockForUpdate()->findOrFail($data['parent_id']) : null;
             if ($parent && ! $parent->is_active && $category->parent_id !== $parent->id) {
-                throw ValidationException::withMessages(['parent_id' => 'An inactive category cannot be selected as a new parent.']);
+                throw ValidationException::withMessages(['parent_id' => __('domain.an_inactive_category_cannot_be_selected_as_a_new_parent')]);
             }
             if ($parent && $category->exists && ($parent->is($category) || $this->descendantIds($category)->contains($parent->id))) {
-                throw ValidationException::withMessages(['parent_id' => 'The selected parent would create a category hierarchy cycle.']);
+                throw ValidationException::withMessages(['parent_id' => __('domain.the_selected_parent_would_create_a_category_hierarchy_cycle')]);
             }
 
             $category->fill($data)->save();

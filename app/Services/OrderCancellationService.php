@@ -24,16 +24,16 @@ class OrderCancellationService
         return DB::transaction(function () use ($actor, $order, $classification, $reason, $notes): OrderCancellation {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
-                throw ValidationException::withMessages(['order' => 'Delivered or already cancelled Orders cannot be cancelled.']);
+                throw ValidationException::withMessages(['order' => __('domain.delivered_or_already_cancelled_orders_cannot_be_cancelled')]);
             }
             if ($classification !== OrderCancellationClassification::BeforePurchase) {
-                throw ValidationException::withMessages(['classification' => 'AFTER_PURCHASE requires cancellation intent and completed Shop returns.']);
+                throw ValidationException::withMessages(['classification' => __('domain.after_purchase_requires_cancellation_intent_and_completed_shop_returns')]);
             }
             $this->safety->assertNoIntentLocked($order);
             $this->safety->assertNoFinancialCorrectionRequiredLocked($order);
             $hasPurchaseEvidence = $order->shops()->whereNotNull('picked_up_at')->exists() || $order->shops()->whereHas('receipts')->exists();
             if ($hasPurchaseEvidence || $order->purchaseConfirmations()->exists()) {
-                throw ValidationException::withMessages(['classification' => 'BEFORE_PURCHASE conflicts with existing pickup or receipt evidence.']);
+                throw ValidationException::withMessages(['classification' => __('domain.before_purchase_conflicts_with_existing_pickup_or_receipt_evidence')]);
             }
             $previous = $order->operational_status;
             $cancellation = $order->cancellation()->create(['classification' => $classification, 'reason' => $reason, 'notes' => $notes, 'cancelled_by' => $actor->id, 'cancelled_at' => now()]);

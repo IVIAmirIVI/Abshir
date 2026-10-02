@@ -35,7 +35,7 @@ class DeliveryPricingRuleController extends Controller
     {
         $service->create($request->user(), $request->validated());
 
-        return redirect()->route('delivery-pricing-rules.index')->with('status', 'Delivery pricing rule created.');
+        return redirect()->route('delivery-pricing-rules.index')->with('status', __('admin.ui.delivery_pricing_rule_created'));
     }
 
     public function edit(DeliveryPricingRule $deliveryPricingRule): View
@@ -49,7 +49,7 @@ class DeliveryPricingRuleController extends Controller
     {
         $service->version($request->user(), $deliveryPricingRule, $request->validated());
 
-        return redirect()->route('delivery-pricing-rules.index')->with('status', 'New delivery pricing version created.');
+        return redirect()->route('delivery-pricing-rules.index')->with('status', __('admin.version_created'));
     }
 
     public function status(Request $request, DeliveryPricingRule $deliveryPricingRule, DeliveryPricingRuleService $service): RedirectResponse
@@ -57,7 +57,7 @@ class DeliveryPricingRuleController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $service->setActive($request->user(), $deliveryPricingRule, (bool) $data['is_active']);
 
-        return back()->with('status', 'Rule status updated.');
+        return back()->with('status', __('admin.ui.delivery_pricing_rule_status_updated'));
     }
 
     private function formData(): array

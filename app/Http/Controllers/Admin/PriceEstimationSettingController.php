@@ -22,6 +22,6 @@ class PriceEstimationSettingController extends Controller
     {
         $settings->updateWindowDays($request->user(), $request->integer('estimation_window_days'));
 
-        return back()->with('status', 'Price estimation window updated.');
+        return back()->with('status', __('admin.ui.price_estimation_window_updated'));
     }
 }

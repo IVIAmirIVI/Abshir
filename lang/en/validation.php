@@ -180,11 +180,7 @@ return [
     |
     */
 
-    'custom' => [
-        'attribute-name' => [
-            'rule-name' => 'custom-message',
-        ],
-    ],
+    'custom' => [],
 
     /*
     |--------------------------------------------------------------------------
@@ -197,6 +193,36 @@ return [
     |
     */
 
-    'attributes' => [],
+    'attributes' => [
+        'name' => 'name',
+        'email' => 'email',
+        'password' => 'password',
+        'password_confirmation' => 'password confirmation',
+        'current_password' => 'current password',
+        'phone' => 'phone',
+        'number' => 'number',
+        'branch' => 'branch',
+        'branch_id' => 'branch id',
+        'currency' => 'currency',
+        'currency_id' => 'currency id',
+        'amount' => 'amount',
+        'reason' => 'reason',
+        'evidence' => 'evidence',
+        'file' => 'file',
+        'address' => 'address',
+        'notes' => 'notes',
+        'code' => 'code',
+        'is_active' => 'is active',
+        'ordered_at' => 'ordered at',
+        'price' => 'price',
+        'quantity' => 'quantity',
+        'area_id' => 'area id',
+        'customer_id' => 'customer id',
+        'captain_id' => 'captain id',
+        'shop_id' => 'shop id',
+        'product_id' => 'product id',
+        'unit_id' => 'unit id',
+        'decimal_places' => 'decimal places',
+    ],
 
 ];

@@ -45,10 +45,10 @@ class InvoiceCorrectionFinancialPostingService
                 ->join('financial_entries as e', 'e.id', '=', 'a.financial_entry_id')
                 ->where('e.financial_transaction_id', $event->id)->exists();
             if ($paid) {
-                throw ValidationException::withMessages(['correction' => 'PAID_RECEIVABLE_CORRECTION_REQUIRED']);
+                throw ValidationException::withMessages(['correction' => __('domain.paid_receivable_correction_required')]);
             }
             if ($event->reversal()->exists()) {
-                throw ValidationException::withMessages(['correction' => 'Original financial event has another reversal.']);
+                throw ValidationException::withMessages(['correction' => __('domain.original_financial_event_has_another_reversal')]);
             }
             $reversal = $this->posting->reverse($event, 'INVOICE_FINANCIAL_CORRECTION_REVERSAL', $event->id,
                 FinancialEventType::InvoiceCorrectionReverseOriginal->value, 1, now(), $correction->reason,
@@ -69,7 +69,7 @@ class InvoiceCorrectionFinancialPostingService
             return [];
         }
         if ($correction->state !== InvoiceFinancialCorrectionState::Completed) {
-            throw ValidationException::withMessages(['correction' => 'Correction must be completed before corrected financial posting.']);
+            throw ValidationException::withMessages(['correction' => __('domain.correction_must_be_completed_before_corrected_financial_posting')]);
         }
         $snapshot = InvoiceCorrectionFinancialSnapshot::query()
             ->where('invoice_financial_correction_id', $correction->id)->firstOrFail();
@@ -78,7 +78,7 @@ class InvoiceCorrectionFinancialPostingService
         if (! hash_equals($snapshot->payload_hash, (string) $expectedHash)
             || $snapshot->branch_id !== $order->branch_id || $snapshot->currency_id !== $correction->currency_id
             || ($payload['proposal_hash'] ?? null) !== $correction->proposal_hash) {
-            throw ValidationException::withMessages(['correction' => 'Corrected financial source snapshot differs from its frozen facts.']);
+            throw ValidationException::withMessages(['correction' => __('domain.corrected_financial_source_snapshot_differs_from_its_frozen_facts')]);
         }
         $currency = Currency::query()->lockForUpdate()->findOrFail($correction->currency_id);
         $branch = Branch::query()->findOrFail($correction->branch_id);
@@ -89,7 +89,7 @@ class InvoiceCorrectionFinancialPostingService
             $company = collect($rows)->reduce(fn (BigDecimal $sum, array $row): BigDecimal => $sum->plus($row['company_collectible']), BigDecimal::zero());
             $primary = collect($rows)->firstWhere('captain_id', $payload['primary_captain_id']);
             if (! $primary) {
-                throw ValidationException::withMessages(['correction' => 'Historical Primary Collection Captain is missing.']);
+                throw ValidationException::withMessages(['correction' => __('domain.historical_primary_collection_captain_is_missing')]);
             }
             $concepts[FinancialEventType::InvoiceCorrectionCashDepositDebit->value] = $company->isGreaterThan(0)
                 ? [$this->movement($primary['captain_id'], FinancialAccountKind::CaptainDeposit, FinancialEntryDirection::Decrease, (string) $company->toScale(4), $currency)] : [];

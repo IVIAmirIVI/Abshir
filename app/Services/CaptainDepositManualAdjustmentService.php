@@ -12,6 +12,7 @@ use App\Models\Captain;
 use App\Models\CaptainDepositManualAdjustment;
 use App\Models\Currency;
 use App\Models\User;
+use App\Support\UiLabels;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -43,21 +44,21 @@ class CaptainDepositManualAdjustmentService
         $metadata = $this->evidence->inspect($file);
         $occurredAt = CarbonImmutable::parse($data['occurred_at'])->utc();
         if ($occurredAt->isFuture()) {
-            throw ValidationException::withMessages(['occurred_at' => 'Adjustment time cannot be in the future.']);
+            throw ValidationException::withMessages(['occurred_at' => __('domain.adjustment_time_cannot_be_in_the_future')]);
         }
         $path = null;
         try {
             $adjustment = DB::transaction(function () use ($actor, $captain, $branch, $currency, $data, $file, $metadata, $occurredAt, &$path): CaptainDepositManualAdjustment {
                 if (! DB::scalar("SELECT to_regprocedure('captain_manual_deposits_active()') IS NOT NULL")
                     || ! DB::scalar('SELECT captain_manual_deposits_active()')) {
-                    throw ValidationException::withMessages(['adjustment' => 'Manual Deposit adjustments are not activated.']);
+                    throw ValidationException::withMessages(['adjustment' => __('domain.manual_deposit_adjustments_are_not_activated')]);
                 }
                 // No Order lock: Currency precedes the existing globally ordered account locks.
                 $currency = Currency::query()->lockForUpdate()->findOrFail($currency->id);
                 try {
                     $amount = $this->posting->validatePlannedAmount($currency, $data['amount']);
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['amount' => UiLabels::error($exception->getMessage())]);
                 }
                 $facts = [
                     'captain_id' => $captain->id, 'branch_id' => $branch->id, 'currency_id' => $currency->id,
@@ -74,7 +75,7 @@ class CaptainDepositManualAdjustmentService
                     return $existing;
                 }
                 if (! DB::scalar('SELECT manual_deposit_branch_legitimate(?,?)', [$captain->id, $branch->id])) {
-                    throw ValidationException::withMessages(['branch_id' => 'Captain has no current, historical assignment or financial relationship with this Branch.']);
+                    throw ValidationException::withMessages(['branch_id' => __('domain.captain_has_no_current_historical_assignment_or_financial_relationship_with_this_branch')]);
                 }
                 $account = $this->accounts->getOrCreate($this->accounts->ownerForCaptain($captain), $currency, FinancialAccountKind::CaptainDeposit);
                 $path = $this->evidence->store($file, $metadata);

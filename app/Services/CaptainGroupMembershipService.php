@@ -19,7 +19,7 @@ class CaptainGroupMembershipService
         Gate::forUser($actor)->authorize('captain_groups.assign');
         abort_unless($actor->canAccessCaptain($captain), 403);
         if (! $group->is_active) {
-            throw ValidationException::withMessages(['captain_group_id' => 'An inactive group cannot receive new memberships.']);
+            throw ValidationException::withMessages(['captain_group_id' => __('domain.an_inactive_group_cannot_receive_new_memberships')]);
         }
 
         return DB::transaction(function () use ($actor, $captain, $group, $data): CaptainGroupMember {
@@ -27,7 +27,7 @@ class CaptainGroupMembershipService
             $joinedAt = Carbon::parse($data['joined_at']);
             $leftAt = isset($data['left_at']) ? Carbon::parse($data['left_at']) : null;
             if ($leftAt && $leftAt->lte($joinedAt)) {
-                throw ValidationException::withMessages(['left_at' => 'The membership end must be after its start.']);
+                throw ValidationException::withMessages(['left_at' => __('domain.the_membership_end_must_be_after_its_start')]);
             }
             $overlap = $captain->groupMemberships()->where('captain_group_id', $group->id)
                 ->where(fn (Builder $existing) => $existing->whereNull('left_at')->orWhere('left_at', '>', $joinedAt));
@@ -35,7 +35,7 @@ class CaptainGroupMembershipService
                 $overlap->where('joined_at', '<', $leftAt);
             }
             if ($overlap->exists()) {
-                throw ValidationException::withMessages(['joined_at' => 'This membership overlaps an existing membership in the group.']);
+                throw ValidationException::withMessages(['joined_at' => __('domain.this_membership_overlaps_an_existing_membership_in_the_group')]);
             }
 
             $membership = $captain->groupMemberships()->make([
@@ -56,7 +56,7 @@ class CaptainGroupMembershipService
         abort_unless($actor->canAccessCaptain($captain), 403);
         abort_if($membership->captain_id !== $captain->id, 404);
         if (! $membership->newQuery()->whereKey($membership)->activeAt(now())->exists()) {
-            throw ValidationException::withMessages(['membership' => 'Only a currently active membership can be ended.']);
+            throw ValidationException::withMessages(['membership' => __('domain.only_a_currently_active_membership_can_be_ended')]);
         }
 
         DB::transaction(function () use ($actor, $membership): void {

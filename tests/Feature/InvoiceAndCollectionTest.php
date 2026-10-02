@@ -227,7 +227,7 @@ class InvoiceAndCollectionTest extends TestCase
             app(InvoiceService::class)->issue($context['employee'], $context['order']->fresh(), $invoice);
             $this->fail('A READY Invoice was issued after Order cancellation.');
         } catch (ValidationException $exception) {
-            $this->assertSame('Cancelled Orders cannot create, refresh, or issue Invoices.', $exception->errors()['invoice'][0]);
+            $this->assertSame('لا يمكن إنشاء فواتير للطلبات الملغاة أو تحديثها أو إصدارها.', $exception->errors()['invoice'][0]);
         }
         $this->assertSame(InvoiceStatus::Ready, $invoice->fresh()->status);
     }
@@ -1161,7 +1161,7 @@ class InvoiceAndCollectionTest extends TestCase
             $service->prepare($c['admin'], $higher);
             $this->fail('A higher corrected customer obligation was prepared.');
         } catch (ValidationException $exception) {
-            $this->assertSame('ADDITIONAL_COLLECTION_REQUIRED', $exception->errors()['correction'][0]);
+            $this->assertSame('يلزم تحصيل إضافي (ADDITIONAL_COLLECTION_REQUIRED).', $exception->errors()['correction'][0]);
         }
         $service->abandon($c['admin'], $higher);
         $equal = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
@@ -1209,7 +1209,7 @@ class InvoiceAndCollectionTest extends TestCase
                 'Cannot unwind completed external bill payment', (string) Str::uuid());
             $this->fail('A completed external bill payment entered cancellation correction.');
         } catch (ValidationException $exception) {
-            $this->assertSame('COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE', $exception->errors()['correction'][0]);
+            $this->assertSame('لا يمكن إلغاء طلب اكتمل فيه تسديد فاتورة خارجية (COMPLETED_BILL_PAYMENT_ORDER_NOT_CANCELLABLE).', $exception->errors()['correction'][0]);
         }
         $this->assertDatabaseCount('invoice_financial_corrections', 0);
         $this->assertDatabaseCount('customer_refunds', 0);

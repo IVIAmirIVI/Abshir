@@ -47,7 +47,7 @@ class CaptainDepositManualAdjustmentController extends Controller
         try {
             $bytes = $evidence->bytes($adjustment->evidence_path, $adjustment->evidence_sha256, $adjustment->evidence_mime, $adjustment->evidence_size);
         } catch (\Throwable) {
-            abort(409, 'Adjustment evidence integrity check failed.');
+            abort(409, __('domain.adjustment_integrity'));
         }
 
         return response($bytes, 200, ['Content-Type' => $adjustment->evidence_mime,

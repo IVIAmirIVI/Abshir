@@ -28,33 +28,33 @@ class InvoiceCollectionService
         return DB::transaction(function () use ($actor, $invoice, $method, $amount, $currencyId, $collectedAt, $notes, $paymentReference): InvoiceCollection {
             $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
-                throw ValidationException::withMessages(['order' => 'Collection is blocked by an AFTER_PURCHASE cancellation intent.']);
+                throw ValidationException::withMessages(['order' => __('domain.collection_is_blocked_by_an_after_purchase_cancellation_intent')]);
             }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if (Schema::hasTable('invoice_financial_corrections')
                 && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
                     ->where('state', 'COMPLETED')->exists()) {
-                throw ValidationException::withMessages(['invoice' => 'Corrected Invoice payment is satisfied by the original Collection and CustomerRefund.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.corrected_invoice_payment_is_satisfied_by_the_original_collection_and_customerrefund')]);
             }
             if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => 'Collection requires the current ISSUED Invoice.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.collection_requires_the_current_issued_invoice')]);
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
-                throw ValidationException::withMessages(['invoice' => 'This Invoice is already collected.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.this_invoice_is_already_collected')]);
             }
             if ($currencyId !== $invoice->currency_id || ! BigDecimal::of($amount)->isEqualTo(BigDecimal::of($invoice->grand_total))) {
-                throw ValidationException::withMessages(['amount' => 'Collection must equal the full Invoice total in its Currency.']);
+                throw ValidationException::withMessages(['amount' => __('domain.collection_must_equal_the_full_invoice_total_in_its_currency')]);
             }
             $collectedAt = Carbon::parse($collectedAt);
             if ($collectedAt->lt($invoice->issued_at) || $collectedAt->isFuture()) {
-                throw ValidationException::withMessages(['collected_at' => 'Collection time must be between Invoice issue and now.']);
+                throw ValidationException::withMessages(['collected_at' => __('domain.collection_time_must_be_between_invoice_issue_and_now')]);
             }
             $captainId = null;
             $orderCaptainId = null;
             if ($method === InvoiceCollectionMethod::Cash) {
                 $primary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->first();
                 if (! $primary) {
-                    throw ValidationException::withMessages(['captain' => 'A CASH collection requires an active PRIMARY_COLLECTION Captain.']);
+                    throw ValidationException::withMessages(['captain' => __('domain.a_cash_collection_requires_an_active_primary_collection_captain')]);
                 }
                 $captainId = $primary->captain_id;
                 $orderCaptainId = $primary->id;

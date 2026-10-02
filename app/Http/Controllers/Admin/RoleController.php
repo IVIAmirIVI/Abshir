@@ -50,20 +50,20 @@ class RoleController extends Controller
             $role->permissions()->sync($request->validated('permission_ids', []));
         });
 
-        return redirect()->route('admin.roles.index')->with('status', 'Role created.');
+        return redirect()->route('admin.roles.index')->with('status', __('admin.ui.role_created'));
     }
 
     public function update(RoleRequest $request, Role $role): RedirectResponse
     {
         if ($role->is_system) {
-            throw ValidationException::withMessages(['role' => 'Core system roles are protected. Create a custom role to change access.']);
+            throw ValidationException::withMessages(['role' => __('domain.core_system_roles_are_protected_create_a_custom_role_to_change_access')]);
         }
         DB::transaction(function () use ($request, $role) {
             $role->update($request->safe()->only(['name', 'code']));
             $role->permissions()->sync($request->validated('permission_ids', []));
         });
 
-        return redirect()->route('admin.roles.index')->with('status', 'Role updated.');
+        return redirect()->route('admin.roles.index')->with('status', __('admin.ui.role_updated'));
     }
 
     public function permissions(): View

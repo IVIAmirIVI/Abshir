@@ -32,10 +32,10 @@ class OrderShopReceiptService
         abort_if($orderShop->order_id !== $order->id, 404);
         $mime = (string) $file->getMimeType();
         if (! $file->isValid() || ! isset(self::MIME_EXTENSIONS[$mime])) {
-            throw ValidationException::withMessages(['receipt' => 'Receipt evidence must be a JPEG, PNG, or WebP image.']);
+            throw ValidationException::withMessages(['receipt' => __('domain.receipt_evidence_must_be_a_jpeg_png_or_webp_image')]);
         }
         if (($file->getSize() ?? 0) > self::MAX_FILE_SIZE) {
-            throw ValidationException::withMessages(['receipt' => 'Receipt evidence may not exceed 5 MB.']);
+            throw ValidationException::withMessages(['receipt' => __('domain.receipt_evidence_may_not_exceed_5_mb')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $orderShop, $file, $note, $mime): OrderShopReceipt {
@@ -43,7 +43,7 @@ class OrderShopReceiptService
             $order->load('cancellation');
             if ($order->operational_status === OrderOperationalStatus::Cancelled) {
                 if ($order->cancellationIntent()->exists() || $order->cancellation?->classification !== OrderCancellationClassification::AfterPurchase) {
-                    throw ValidationException::withMessages(['receipt' => 'Receipt evidence may only be added after an AFTER_PURCHASE cancellation.']);
+                    throw ValidationException::withMessages(['receipt' => __('domain.receipt_evidence_may_only_be_added_after_an_after_purchase_cancellation')]);
                 }
             } else {
                 $this->mutationGuard->assertOperationalEvidenceMutableLocked($order);
@@ -52,7 +52,7 @@ class OrderShopReceiptService
             $filename = Str::uuid().'.'.self::MIME_EXTENSIONS[$mime];
             $path = $file->storeAs($order->id.'/'.$orderShop->id, $filename, self::DISK);
             if (! $path) {
-                throw ValidationException::withMessages(['receipt' => 'Receipt evidence could not be stored.']);
+                throw ValidationException::withMessages(['receipt' => __('domain.receipt_evidence_could_not_be_stored')]);
             }
 
             try {

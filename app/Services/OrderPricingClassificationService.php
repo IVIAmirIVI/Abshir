@@ -15,7 +15,7 @@ class OrderPricingClassificationService
             $shops->isEmpty() => null,
             $shops->count() >= 2 => OrderPricingClass::MultiShop,
             $shops->first()->business_classification_snapshot !== null => OrderPricingClass::fromShopClassification($shops->first()->business_classification_snapshot),
-            default => throw ValidationException::withMessages(['business_classification' => 'The Order Shop requires a Restaurant or Shop classification.']),
+            default => throw ValidationException::withMessages(['business_classification' => __('domain.the_order_shop_requires_a_restaurant_or_shop_classification')]),
         };
 
         if ($order->pricing_class === $classification) {

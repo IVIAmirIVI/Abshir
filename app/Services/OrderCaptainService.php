@@ -26,10 +26,10 @@ class OrderCaptainService
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
             if ($order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists()) {
-                throw ValidationException::withMessages(['captain_id' => 'Captain is already assigned.']);
+                throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_assigned')]);
             } $hasPrimary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->exists();
             if (($role === OrderCaptainRole::PrimaryCollection && $hasPrimary) || ($role === OrderCaptainRole::Support && ! $hasPrimary)) {
-                throw ValidationException::withMessages(['assignment_role' => $hasPrimary ? 'The Order already has a Primary Collection Captain.' : 'Assign a Primary Collection Captain before Support Captains.']);
+                throw ValidationException::withMessages(['assignment_role' => $hasPrimary ? __('domain.primary_exists') : __('domain.primary_first')]);
             }
 
             $assignment = $order->captainAssignments()->create(['captain_id' => $captain->id, 'assignment_role' => $role, 'assigned_at' => now(), 'assigned_by' => $actor->id]);
@@ -49,9 +49,9 @@ class OrderCaptainService
             $this->mutationGuard->assertMutableLocked($order);
             $assignment = OrderCaptain::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($assignment->id);
             if ($assignment->removed_at) {
-                throw ValidationException::withMessages(['assignment' => 'Assignment is already removed.']);
+                throw ValidationException::withMessages(['assignment' => __('domain.assignment_is_already_removed')]);
             } if ($assignment->assignment_role === OrderCaptainRole::PrimaryCollection && $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::Support->value)->exists()) {
-                throw ValidationException::withMessages(['assignment' => 'Switch the Primary Collection Captain before removing this assignment.']);
+                throw ValidationException::withMessages(['assignment' => __('domain.switch_the_primary_collection_captain_before_removing_this_assignment')]);
             } $assignment->update(['removed_at' => now(), 'removed_by' => $actor->id, 'removal_reason' => $reason]);
             $this->deliveryPricing->repriceAfterCaptainChangeLocked($actor, $order);
         });
@@ -69,7 +69,7 @@ class OrderCaptainService
             $this->mutationGuard->assertMutableLocked($order);
             $current = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->firstOrFail();
             if ($current->captain_id === $captain->id) {
-                throw ValidationException::withMessages(['captain_id' => 'Captain is already Primary Collection.']);
+                throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_primary_collection')]);
             } $target = $order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->lockForUpdate()->first();
             $current->update(['removed_at' => now(), 'removed_by' => $actor->id, 'removal_reason' => 'Primary switched: '.$reason]);
             if ($target) {
@@ -86,7 +86,7 @@ class OrderCaptainService
     private function eligible(Captain $captain, Order $order): void
     {
         if (! $captain->isEmployed() || ! $captain->user->is_active || $captain->operational_status !== CaptainOperationalStatus::Available || ! $captain->activeOperationalBranches()->contains('id', $order->branch_id)) {
-            throw ValidationException::withMessages(['captain_id' => 'Captain is not currently eligible for this Order Branch.']);
+            throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_not_currently_eligible_for_this_order_branch')]);
         }
     }
 

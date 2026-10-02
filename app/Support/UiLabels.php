@@ -21,6 +21,14 @@ final class UiLabels
         return Lang::has($key) ? __($key) : $identifier;
     }
 
+    /** Translate only known operational error text at its user-facing boundary. */
+    public static function error(string $message): string
+    {
+        $key = array_search($message, trans('domain', [], 'en'), true);
+
+        return $key === false ? $message : __('domain.'.$key);
+    }
+
     public static function role(string $code, ?string $customName = null): string
     {
         return Lang::has('admin.roles.'.$code) ? __('admin.roles.'.$code) : ($customName ?? $code);

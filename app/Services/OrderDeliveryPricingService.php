@@ -27,18 +27,18 @@ class OrderDeliveryPricingService
         $this->access($actor, $order);
         $currency = $order->branch->defaultCurrency;
         if (! $currency) {
-            throw ValidationException::withMessages(['currency' => 'The Order Branch requires a default Currency.']);
+            throw ValidationException::withMessages(['currency' => __('domain.the_order_branch_requires_a_default_currency')]);
         }
         $destination = $order->destinationArea;
         if (! $destination) {
-            throw ValidationException::withMessages(['destination_area_id' => 'Confirm the historical destination Area before pricing.']);
+            throw ValidationException::withMessages(['destination_area_id' => __('domain.confirm_the_historical_destination_area_before_pricing')]);
         }
         if (! $order->pricing_class) {
-            throw ValidationException::withMessages(['pricing_class' => 'Add and classify at least one Order Shop before delivery pricing.']);
+            throw ValidationException::withMessages(['pricing_class' => __('domain.add_and_classify_at_least_one_order_shop_before_delivery_pricing')]);
         }
         abort_unless(Area::query()->accessibleTo($actor)->whereKey($origin)->exists(), 403);
         if ($origin->branch_id !== $order->branch_id) {
-            throw ValidationException::withMessages(['from_area_id' => 'The origin Area must belong to the Order Branch.']);
+            throw ValidationException::withMessages(['from_area_id' => __('domain.the_origin_area_must_belong_to_the_order_branch')]);
         }
         $rule = $this->rules->applicable($origin->id, $destination->id, $currency->id, $order->pricing_class, $order->ordered_at);
 
@@ -51,14 +51,14 @@ class OrderDeliveryPricingService
         $this->access($actor, $order);
         abort_unless(Area::query()->accessibleTo($actor)->whereKey($destination)->exists(), 403);
         if ($destination->branch_id !== $order->branch_id || ! $destination->is_active) {
-            throw ValidationException::withMessages(['destination_area_id' => 'Select an active destination Area in the Order Branch.']);
+            throw ValidationException::withMessages(['destination_area_id' => __('domain.select_an_active_destination_area_in_the_order_branch')]);
         }
 
         DB::transaction(function () use ($actor, $order, $destination): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
             if ($order->destination_area_id) {
-                throw ValidationException::withMessages(['destination_area_id' => 'The Order already has a confirmed destination Area.']);
+                throw ValidationException::withMessages(['destination_area_id' => __('domain.the_order_already_has_a_confirmed_destination_area')]);
             }
             $order->update(['destination_area_id' => $destination->id, 'destination_area_confirmed_by' => $actor->id, 'destination_area_confirmed_at' => now()]);
         });
@@ -84,7 +84,7 @@ class OrderDeliveryPricingService
     {
         Gate::forUser($actor)->authorize('delivery_pricing.override');
         if (trim($reason) === '') {
-            throw ValidationException::withMessages(['reason' => 'Override reason is required.']);
+            throw ValidationException::withMessages(['reason' => __('domain.override_reason_is_required')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $origin, $requestedFee, $reason): OrderDeliveryPricing|DeliveryFeeOverrideRequest {
@@ -92,12 +92,12 @@ class OrderDeliveryPricingService
             $this->mutationGuard->assertMutableLocked($order);
             $preview = $this->preview($actor, $order, $origin);
             if (! $preview['rule']) {
-                throw ValidationException::withMessages(['from_area_id' => 'NO DELIVERY PRICE RULE']);
+                throw ValidationException::withMessages(['from_area_id' => __('domain.no_delivery_price_rule')]);
             }
             $suggested = BigDecimal::of($preview['rule']->delivery_unit_fee);
             $requested = BigDecimal::of($requestedFee);
             if ($requested->isLessThanOrEqualTo(0)) {
-                throw ValidationException::withMessages(['requested_unit_fee' => 'Applied fee must be positive.']);
+                throw ValidationException::withMessages(['requested_unit_fee' => __('domain.applied_fee_must_be_positive')]);
             }
             $this->validateCurrencyPrecision($requestedFee, $preview['currency']->decimal_places, 'requested_unit_fee');
             $difference = $requested->minus($suggested)->abs();
@@ -138,18 +138,18 @@ class OrderDeliveryPricingService
             $order = Order::query()->lockForUpdate()->findOrFail($request->order_id);
             $request = DeliveryFeeOverrideRequest::query()->lockForUpdate()->findOrFail($request->id);
             if ($request->status !== DeliveryOverrideStatus::Pending) {
-                throw ValidationException::withMessages(['override' => 'This override request is already resolved.']);
+                throw ValidationException::withMessages(['override' => __('domain.this_override_request_is_already_resolved')]);
             }
             $this->access($actor, $order);
             $this->mutationGuard->assertMutableLocked($order);
             if ($approve) {
                 if ($request->order_pricing_class_snapshot !== $order->pricing_class) {
-                    throw ValidationException::withMessages(['override' => 'The Order Pricing Class changed. Submit a new override request.']);
+                    throw ValidationException::withMessages(['override' => __('domain.the_order_pricing_class_changed_submit_a_new_override_request')]);
                 }
                 $origin = $request->fromArea;
                 $preview = $this->preview($actor, $order, $origin);
                 if (! $preview['rule'] || ! BigDecimal::of($preview['rule']->delivery_unit_fee)->isEqualTo(BigDecimal::of($request->suggested_unit_fee))) {
-                    throw ValidationException::withMessages(['override' => 'The applicable suggested delivery price changed. Submit a new override request.']);
+                    throw ValidationException::withMessages(['override' => __('domain.the_applicable_suggested_delivery_price_changed_submit_a_new_override_request')]);
                 }
                 $pricing = $this->priceFromPreviewLocked($actor, $order, $origin, $preview, $request->requested_unit_fee);
                 $request->order_delivery_pricing_id = $pricing->id;
@@ -163,7 +163,7 @@ class OrderDeliveryPricingService
         Gate::forUser($actor)->authorize('delivery_discounts.apply');
         $this->access($actor, $order);
         if (BigDecimal::of($amount)->isGreaterThan(0) && trim((string) $reason) === '') {
-            throw ValidationException::withMessages(['reason' => 'A reason is required for a non-zero discount.']);
+            throw ValidationException::withMessages(['reason' => __('domain.a_reason_is_required_for_a_non_zero_discount')]);
         }
 
         return DB::transaction(function () use ($actor, $order, $amount, $reason): OrderDeliveryPricing {
@@ -176,13 +176,13 @@ class OrderDeliveryPricingService
             $gross = BigDecimal::of($current->gross_delivery_total);
             $this->validateCurrencyPrecision($amount, $current->currency->decimal_places, 'discount_amount');
             if ($discount->isLessThan(0) || $discount->isGreaterThan($gross)) {
-                throw ValidationException::withMessages(['discount_amount' => 'Discount must be between zero and the gross delivery total.']);
+                throw ValidationException::withMessages(['discount_amount' => __('domain.discount_must_be_between_zero_and_the_gross_delivery_total')]);
             }
             if (! $actor->isSuperAdmin()) {
                 $limit = BigDecimal::of(DeliveryPricingUserLimit::query()->where('user_id', $actor->id)->value('max_discount_percent') ?? '0');
                 $percent = $gross->isZero() ? BigDecimal::zero() : $discount->multipliedBy(100)->dividedBy($gross, 4, RoundingMode::HalfUp);
                 if ($percent->isGreaterThan($limit)) {
-                    throw ValidationException::withMessages(['discount_amount' => 'Discount exceeds your configured limit.']);
+                    throw ValidationException::withMessages(['discount_amount' => __('domain.discount_exceeds_your_configured_limit')]);
                 }
             }
             $active = $order->captainAssignments()->whereNull('removed_at')->orderBy('id')->lockForUpdate()->get();
@@ -218,7 +218,7 @@ class OrderDeliveryPricingService
         $this->assertClassifiedRuleForOrder($order, $rule);
         $gross = BigDecimal::of($appliedFee)->multipliedBy($active->count());
         if (BigDecimal::of($discount)->isGreaterThan($gross)) {
-            throw ValidationException::withMessages(['discount_amount' => 'Discount exceeds gross delivery total.']);
+            throw ValidationException::withMessages(['discount_amount' => __('domain.discount_exceeds_gross_delivery_total')]);
         }
         $current = $order->currentDeliveryPricing()->lockForUpdate()->first();
         $version = ((int) $order->deliveryPricings()->max('version')) + 1;
@@ -245,17 +245,17 @@ class OrderDeliveryPricingService
     private function priceFromPreviewLocked(User $actor, Order $order, Area $origin, array $preview, ?string $appliedFee = null, string $discount = '0', ?string $discountReason = null): OrderDeliveryPricing
     {
         if (! $preview['rule']) {
-            throw ValidationException::withMessages(['from_area_id' => 'NO DELIVERY PRICE RULE']);
+            throw ValidationException::withMessages(['from_area_id' => __('domain.no_delivery_price_rule')]);
         }
         $this->validateCurrencyPrecision($appliedFee ?? $preview['rule']->delivery_unit_fee, $preview['currency']->decimal_places, 'applied_unit_fee');
         $this->validateCurrencyPrecision($discount, $preview['currency']->decimal_places, 'discount_amount');
         $share = $this->settings->captainSharePercent();
         if (! $share) {
-            throw ValidationException::withMessages(['captain_share' => 'Captain delivery-share percentage must be configured.']);
+            throw ValidationException::withMessages(['captain_share' => __('domain.captain_delivery_share_percentage_must_be_configured')]);
         }
         $active = $order->captainAssignments()->whereNull('removed_at')->orderBy('id')->lockForUpdate()->get();
         if ($active->isEmpty()) {
-            throw ValidationException::withMessages(['captains' => 'Final delivery pricing requires at least one active Captain.']);
+            throw ValidationException::withMessages(['captains' => __('domain.final_delivery_pricing_requires_at_least_one_active_captain')]);
         }
 
         return $this->createVersion($actor, $order, $preview['rule'], $origin, $preview['destination'], $preview['currency'], $active, $appliedFee ?? $preview['rule']->delivery_unit_fee, $share, $discount, $discountReason);
@@ -264,21 +264,21 @@ class OrderDeliveryPricingService
     private function assertReusablePricingSource(Order $order, OrderDeliveryPricing $pricing): void
     {
         if (! $order->pricing_class || $pricing->order_pricing_class_snapshot !== $order->pricing_class) {
-            throw ValidationException::withMessages(['pricing_class' => 'Classify and reprice this legacy Order before changing its delivery pricing.']);
+            throw ValidationException::withMessages(['pricing_class' => __('domain.classify_and_reprice_this_legacy_order_before_changing_its_delivery_pricing')]);
         }
         $this->assertClassifiedRuleForOrder($order, $pricing->rule);
         if ($pricing->from_area_id !== $pricing->rule->from_area_id || $pricing->to_area_id !== $pricing->rule->to_area_id || $pricing->currency_id !== $pricing->rule->currency_id) {
-            throw ValidationException::withMessages(['delivery_pricing' => 'Reprice the Order with an exact class-specific delivery rule before continuing.']);
+            throw ValidationException::withMessages(['delivery_pricing' => __('domain.reprice_the_order_with_an_exact_class_specific_delivery_rule_before_continuing')]);
         }
     }
 
     private function assertClassifiedRuleForOrder(Order $order, ?DeliveryPricingRule $rule): void
     {
         if (! $order->pricing_class) {
-            throw ValidationException::withMessages(['pricing_class' => 'Classify the Order Shops before creating a new delivery pricing version.']);
+            throw ValidationException::withMessages(['pricing_class' => __('domain.classify_the_order_shops_before_creating_a_new_delivery_pricing_version')]);
         }
         if (! $rule || $rule->order_pricing_class !== $order->pricing_class) {
-            throw ValidationException::withMessages(['delivery_pricing' => 'A new pricing version requires an exact class-specific delivery rule. Reprice the Order first.']);
+            throw ValidationException::withMessages(['delivery_pricing' => __('domain.a_new_pricing_version_requires_an_exact_class_specific_delivery_rule_reprice_the_order_first')]);
         }
     }
 
@@ -290,7 +290,7 @@ class OrderDeliveryPricingService
     private function validateCurrencyPrecision(string $amount, int $decimalPlaces, string $field): void
     {
         if (BigDecimal::of($amount)->strippedOfTrailingZeros()->getScale() > $decimalPlaces) {
-            throw ValidationException::withMessages([$field => "The amount exceeds the Currency's minor-unit precision."]);
+            throw ValidationException::withMessages([$field => __('domain.the_amount_exceeds_the_currency_s_minor_unit_precision')]);
         }
     }
 }

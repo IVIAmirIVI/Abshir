@@ -14,6 +14,7 @@ use App\Models\OrderBillPayment;
 use App\Models\OrderBillPaymentRequest;
 use App\Models\OrderCaptain;
 use App\Models\User;
+use App\Support\UiLabels;
 use Brick\Math\BigDecimal;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -45,16 +46,16 @@ class OrderBillPaymentService
         return DB::transaction(function () use ($actor, $order, $currencyId): OrderBillPaymentRequest {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
-                throw ValidationException::withMessages(['order' => 'Bill payment is blocked by a cancellation intent.']);
+                throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
             }
             if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
-                throw ValidationException::withMessages(['order' => 'New additional-service requests require an open Order.']);
+                throw ValidationException::withMessages(['order' => __('domain.new_additional_service_requests_require_an_open_order')]);
             }
             $currency = Currency::query()->lockForUpdate()->findOrFail($currencyId);
             $requestedAt = now();
             $rule = $currency->is_active ? $this->fees->applicable($currency->id, $requestedAt) : null;
             if (! $rule) {
-                throw ValidationException::withMessages(['currency_id' => 'No active bill-payment fee applies to this Currency.']);
+                throw ValidationException::withMessages(['currency_id' => __('domain.no_active_bill_payment_fee_applies_to_this_currency')]);
             }
 
             return $order->billPaymentRequests()->create([
@@ -72,14 +73,14 @@ class OrderBillPaymentService
     {
         $this->authorizeRecord($actor, $order);
         if (trim($reason) === '') {
-            throw ValidationException::withMessages(['reason' => 'A cancellation reason is required.']);
+            throw ValidationException::withMessages(['reason' => __('domain.a_cancellation_reason_is_required')]);
         }
 
         DB::transaction(function () use ($actor, $order, $request, $reason): void {
             Order::query()->lockForUpdate()->findOrFail($order->id);
             $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
             if ($request->status !== OrderBillPaymentRequestStatus::Requested) {
-                throw ValidationException::withMessages(['request' => 'Only a requested additional service can be cancelled.']);
+                throw ValidationException::withMessages(['request' => __('domain.only_a_requested_additional_service_can_be_cancelled')]);
             }
             $request->update(['status' => OrderBillPaymentRequestStatus::Cancelled, 'cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancellation_reason' => trim($reason)]);
         });
@@ -99,10 +100,10 @@ class OrderBillPaymentService
             'payment_reference' => ['required', 'string', 'max:191'],
         ])->validate();
         if ($images === []) {
-            throw ValidationException::withMessages(['evidence' => 'Successful Sham Cash payment evidence is required.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.successful_sham_cash_payment_evidence_is_required')]);
         }
         if (count($images) > 5) {
-            throw ValidationException::withMessages(['evidence' => 'At most five evidence images are allowed.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.at_most_five_evidence_images_are_allowed')]);
         }
         $extensions = [];
         $mimes = [];
@@ -110,13 +111,13 @@ class OrderBillPaymentService
         foreach ($images as $image) {
             $mime = $image instanceof UploadedFile && $image->isValid() ? (new \finfo(FILEINFO_MIME_TYPE))->file($image->getRealPath()) : '';
             if (! $image instanceof UploadedFile || ! $image->isValid() || ! isset(self::MIME_EXTENSIONS[$mime]) || ($image->getSize() ?? 0) > self::MAX_FILE_SIZE) {
-                throw ValidationException::withMessages(['evidence' => 'Evidence must be JPEG, PNG, or WebP and at most 5 MB per image.']);
+                throw ValidationException::withMessages(['evidence' => __('domain.evidence_must_be_jpeg_png_or_webp_and_at_most_5_mb_per_image')]);
             }
             $extensions[] = self::MIME_EXTENSIONS[$mime];
             $mimes[] = $mime;
             $digest = hash_file('sha256', $image->getRealPath());
             if (! is_string($digest)) {
-                throw ValidationException::withMessages(['evidence' => 'Evidence could not be read for integrity verification.']);
+                throw ValidationException::withMessages(['evidence' => __('domain.evidence_could_not_be_read_for_integrity_verification')]);
             }
             $digests[] = $digest;
         }
@@ -127,34 +128,34 @@ class OrderBillPaymentService
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
                 if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
-                    throw ValidationException::withMessages(['order' => 'Bill payment is blocked by a cancellation intent.']);
+                    throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
                 }
                 if ($request->status !== OrderBillPaymentRequestStatus::Requested) {
-                    throw ValidationException::withMessages(['request' => 'This bill-payment request has already been resolved.']);
+                    throw ValidationException::withMessages(['request' => __('domain.this_bill_payment_request_has_already_been_resolved')]);
                 }
                 if ($order->operational_status !== OrderOperationalStatus::Delivered) {
-                    throw ValidationException::withMessages(['order' => 'The Order must reach the customer before bill-payment completion.']);
+                    throw ValidationException::withMessages(['order' => __('domain.the_order_must_reach_the_customer_before_bill_payment_completion')]);
                 }
                 $deliveredAt = $order->statusHistory()->where('new_status', OrderOperationalStatus::Delivered->value)->orderByDesc('changed_at')->first()?->changed_at;
                 if (! $deliveredAt) {
-                    throw ValidationException::withMessages(['order' => 'The Order has no authoritative delivery timestamp.']);
+                    throw ValidationException::withMessages(['order' => __('domain.the_order_has_no_authoritative_delivery_timestamp')]);
                 }
                 $assignment = OrderCaptain::query()->where('order_id', $order->id)->whereNull('removed_at')->lockForUpdate()->find($data['order_captain_id']);
                 if (! $assignment) {
-                    throw ValidationException::withMessages(['order_captain_id' => 'Choose a participating Captain for this Order.']);
+                    throw ValidationException::withMessages(['order_captain_id' => __('domain.choose_a_participating_captain_for_this_order')]);
                 }
                 if ($assignment->assigned_at->gt($deliveredAt)) {
-                    throw ValidationException::withMessages(['order_captain_id' => 'The collector did not participate in this delivery.']);
+                    throw ValidationException::withMessages(['order_captain_id' => __('domain.the_collector_did_not_participate_in_this_delivery')]);
                 }
                 $currency = Currency::query()->lockForUpdate()->findOrFail($request->currency_id);
                 try {
                     $principal = $this->posting->validatePlannedAmount($currency, $data['principal_amount']);
                     $fee = $this->posting->validatePlannedAmount($currency, $request->service_fee);
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['principal_amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['principal_amount' => UiLabels::error($exception->getMessage())]);
                 }
                 if ((int) ($data['currency_id'] ?? 0) !== $currency->id) {
-                    throw ValidationException::withMessages(['currency_id' => 'The Currency must match the request snapshot.']);
+                    throw ValidationException::withMessages(['currency_id' => __('domain.the_currency_must_match_the_request_snapshot')]);
                 }
                 $total = (string) BigDecimal::of($principal)->plus($fee)->toScale(4);
                 $completedAt = now();
@@ -188,14 +189,14 @@ class OrderBillPaymentService
                 foreach ($images as $index => $image) {
                     $path = $image->storeAs($order->id.'/'.$request->id.'/'.$payment->id, Str::uuid().'.'.$extensions[$index], self::DISK);
                     if (! $path) {
-                        throw ValidationException::withMessages(['evidence' => 'Evidence could not be stored.']);
+                        throw ValidationException::withMessages(['evidence' => __('domain.evidence_could_not_be_stored')]);
                     }
                     $storedPaths[] = $path;
                     $storedBytes = Storage::disk(self::DISK)->get($path);
                     if (! hash_equals($digests[$index], hash('sha256', $storedBytes))
                         || strlen($storedBytes) !== $image->getSize()
                         || (new \finfo(FILEINFO_MIME_TYPE))->buffer($storedBytes) !== $mimes[$index]) {
-                        throw ValidationException::withMessages(['evidence' => 'Stored evidence failed its integrity check.']);
+                        throw ValidationException::withMessages(['evidence' => __('domain.stored_evidence_failed_its_integrity_check')]);
                     }
                     $payment->evidence()->create([
                         'storage_path' => $path,

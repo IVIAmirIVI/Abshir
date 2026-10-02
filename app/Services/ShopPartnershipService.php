@@ -29,7 +29,7 @@ class ShopPartnershipService
                 $overlap->where('starts_at', '<', $endsAt);
             }
             if ($overlap->exists()) {
-                throw ValidationException::withMessages(['starts_at' => 'This partnership overlaps an existing partnership period.']);
+                throw ValidationException::withMessages(['starts_at' => __('domain.this_partnership_overlaps_an_existing_partnership_period')]);
             }
 
             $partnership = $shop->partnerships()->make($data);
@@ -49,11 +49,11 @@ class ShopPartnershipService
         DB::transaction(function () use ($actor, $partnership): void {
             $partnership = ShopPartnership::query()->lockForUpdate()->findOrFail($partnership->id);
             if ($partnership->ends_at) {
-                throw ValidationException::withMessages(['partnership' => 'This partnership has already ended.']);
+                throw ValidationException::withMessages(['partnership' => __('domain.this_partnership_has_already_ended')]);
             }
             $endedAt = now();
             if ($endedAt->lte($partnership->starts_at)) {
-                throw ValidationException::withMessages(['partnership' => 'A partnership cannot end before it starts.']);
+                throw ValidationException::withMessages(['partnership' => __('domain.a_partnership_cannot_end_before_it_starts')]);
             }
             $partnership->ends_at = $endedAt;
             $partnership->status = ShopPartnershipStatus::Ended;

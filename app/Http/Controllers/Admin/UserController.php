@@ -50,14 +50,14 @@ class UserController extends Controller
     {
         $manager->save($request->user(), new User, $request->validated());
 
-        return redirect()->route('admin.users.index')->with('status', 'User created.');
+        return redirect()->route('admin.users.index')->with('status', __('admin.ui.user_created'));
     }
 
     public function update(UserRequest $request, User $user, ManageUser $manager): RedirectResponse
     {
         $manager->save($request->user(), $user, $request->validated());
 
-        return redirect()->route('admin.users.index')->with('status', 'User updated.');
+        return redirect()->route('admin.users.index')->with('status', __('admin.ui.user_updated'));
     }
 
     public function status(Request $request, User $user, ManageUser $manager): RedirectResponse
@@ -65,6 +65,6 @@ class UserController extends Controller
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $manager->setActive($request->user(), $user, (bool) $data['is_active']);
 
-        return redirect()->route('admin.users.index')->with('status', 'User status updated.');
+        return redirect()->route('admin.users.index')->with('status', __('admin.ui.user_status_updated'));
     }
 }

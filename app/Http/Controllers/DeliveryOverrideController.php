@@ -23,6 +23,6 @@ class DeliveryOverrideController extends Controller
     {
         $service->resolveOverride($request->user(), $override, $request->input('decision') === 'approve', $request->input('resolution_reason'));
 
-        return back()->with('status', 'Override request resolved.');
+        return back()->with('status', __('admin.ui.override_request_resolved'));
     }
 }

@@ -75,7 +75,7 @@ class ManageUser
         if ($user->is_active && $user->isSuperAdmin()
             && ! User::where('is_active', true)->whereKeyNot($user->id)
                 ->whereHas('roles', fn ($query) => $query->where('code', Role::SUPER_ADMIN))->exists()) {
-            throw ValidationException::withMessages(['roles' => 'At least one active super administrator must remain.']);
+            throw ValidationException::withMessages(['roles' => __('domain.at_least_one_active_super_administrator_must_remain')]);
         }
     }
 }

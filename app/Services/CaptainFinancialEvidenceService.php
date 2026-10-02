@@ -20,11 +20,11 @@ class CaptainFinancialEvidenceService
         $size = $file->getSize();
         $mime = $path ? (new \finfo(FILEINFO_MIME_TYPE))->file($path) : false;
         if (! $file->isValid() || ! $path || ! is_int($size) || $size < 1 || $size > 5 * 1024 * 1024 || ! is_string($mime) || ! isset(self::TYPES[$mime])) {
-            throw ValidationException::withMessages(['evidence' => 'Evidence must be a JPEG, PNG, or WebP image of at most 5 MB.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.evidence_must_be_a_jpeg_png_or_webp_image_of_at_most_5_mb')]);
         }
         $sha = hash_file('sha256', $path);
         if (! is_string($sha)) {
-            throw ValidationException::withMessages(['evidence' => 'Evidence could not be read.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.evidence_could_not_be_read')]);
         }
 
         return ['mime' => $mime, 'size' => $size, 'sha256' => $sha,
@@ -35,13 +35,13 @@ class CaptainFinancialEvidenceService
     {
         $path = 'captain-operations/'.Str::uuid().'.'.$metadata['extension'];
         if (! $file->storeAs('captain-operations', basename($path), self::DISK)) {
-            throw ValidationException::withMessages(['evidence' => 'Evidence could not be stored.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.evidence_could_not_be_stored')]);
         }
         try {
             $bytes = Storage::disk(self::DISK)->get($path);
             if (strlen($bytes) !== $metadata['size'] || ! hash_equals($metadata['sha256'], hash('sha256', $bytes))
                 || (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) !== $metadata['mime']) {
-                throw ValidationException::withMessages(['evidence' => 'Stored evidence failed integrity verification.']);
+                throw ValidationException::withMessages(['evidence' => __('domain.stored_evidence_failed_integrity_verification')]);
             }
         } catch (\Throwable $exception) {
             Storage::disk(self::DISK)->delete($path);
@@ -55,7 +55,7 @@ class CaptainFinancialEvidenceService
     {
         $bytes = Storage::disk(self::DISK)->get($path);
         if (! hash_equals($sha256, hash('sha256', $bytes))) {
-            throw ValidationException::withMessages(['evidence' => 'Evidence failed integrity verification.']);
+            throw ValidationException::withMessages(['evidence' => __('domain.evidence_failed_integrity_verification')]);
         }
 
         return $bytes;

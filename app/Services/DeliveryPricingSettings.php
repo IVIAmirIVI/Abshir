@@ -32,7 +32,7 @@ class DeliveryPricingSettings
         foreach (['captain_share_percent' => $share, 'override_threshold_percent' => $threshold] as $field => $value) {
             $decimal = BigDecimal::of($value);
             if ($decimal->isLessThan(0) || $decimal->isGreaterThan(100)) {
-                throw ValidationException::withMessages([$field => 'Percentage must be between 0 and 100.']);
+                throw ValidationException::withMessages([$field => __('domain.percentage_must_be_between_0_and_100')]);
             }
         }
         SystemSetting::query()->updateOrCreate(['key' => self::CAPTAIN_SHARE_KEY], ['value' => $share, 'updated_by' => $actor->id]);

@@ -12,6 +12,7 @@ use App\Models\Captain;
 use App\Models\CaptainDepositReceipt;
 use App\Models\Currency;
 use App\Models\User;
+use App\Support\UiLabels;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +42,7 @@ class CaptainDepositReceiptService
         $metadata = $this->evidence->inspect($file);
         $occurredAt = CarbonImmutable::parse($data['occurred_at'])->utc();
         if ($occurredAt->isFuture()) {
-            throw ValidationException::withMessages(['occurred_at' => 'The receipt time cannot be in the future.']);
+            throw ValidationException::withMessages(['occurred_at' => __('domain.the_receipt_time_cannot_be_in_the_future')]);
         }
         $path = null;
         try {
@@ -50,7 +51,7 @@ class CaptainDepositReceiptService
                 try {
                     $amount = $this->posting->validatePlannedAmount($currency, $data['amount']);
                 } catch (FinancialLedgerException $exception) {
-                    throw ValidationException::withMessages(['amount' => $exception->getMessage()]);
+                    throw ValidationException::withMessages(['amount' => UiLabels::error($exception->getMessage())]);
                 }
                 $facts = [
                     'captain_id' => $captain->id, 'branch_id' => $branch->id, 'currency_id' => $currency->id,

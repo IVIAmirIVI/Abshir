@@ -17,19 +17,19 @@ class InvoiceSnapshotService
     {
         $order->refresh();
         if ($order->pricing_status !== OrderPricingStatus::Confirmed) {
-            throw ValidationException::withMessages(['invoice' => 'All Order Item actual prices must be confirmed before the Invoice can become READY.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.all_order_item_actual_prices_must_be_confirmed_before_the_invoice_can_become_ready')]);
         }
         $items = OrderItem::query()->whereHas('orderShop', fn ($shops) => $shops->where('order_id', $order->id))->orderBy('id')->lockForUpdate()->get();
         if ($items->isEmpty()) {
-            throw ValidationException::withMessages(['invoice' => 'The Order requires at least one Item.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.the_order_requires_at_least_one_item')]);
         }
         $pricing = $order->currentDeliveryPricing()->with('currency')->lockForUpdate()->first();
         if (! $pricing) {
-            throw ValidationException::withMessages(['invoice' => 'Current Delivery Pricing is required.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.current_delivery_pricing_is_required')]);
         }
         $primary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->first();
         if (! $primary) {
-            throw ValidationException::withMessages(['invoice' => 'An active PRIMARY_COLLECTION Captain is required.']);
+            throw ValidationException::withMessages(['invoice' => __('domain.an_active_primary_collection_captain_is_required')]);
         }
 
         $currency = $pricing->currency;
@@ -38,10 +38,10 @@ class InvoiceSnapshotService
         $fingerprintItems = [];
         foreach ($items as $index => $item) {
             if ($item->actual_unit_price === null || $item->actual_currency_id === null || $item->actual_price_source === null || $item->actual_price_confirmed_by === null || $item->actual_price_confirmed_at === null) {
-                throw ValidationException::withMessages(['invoice' => 'Every Invoice Item requires complete actual-price evidence.']);
+                throw ValidationException::withMessages(['invoice' => __('domain.every_invoice_item_requires_complete_actual_price_evidence')]);
             }
             if ($item->actual_currency_id !== $currency->id) {
-                throw ValidationException::withMessages(['currency' => 'All Item actual prices and Delivery Pricing must use one Currency.']);
+                throw ValidationException::withMessages(['currency' => __('domain.all_item_actual_prices_and_delivery_pricing_must_use_one_currency')]);
             }
             $lineTotal = BigDecimal::of($item->current_quantity)->multipliedBy(BigDecimal::of($item->actual_unit_price))->toScale($currency->decimal_places, RoundingMode::HalfUp);
             $subtotal = $subtotal->plus($lineTotal);
@@ -50,7 +50,7 @@ class InvoiceSnapshotService
         }
         $delivery = BigDecimal::of($pricing->customer_delivery_total);
         if ($delivery->strippedOfTrailingZeros()->getScale() > $currency->decimal_places) {
-            throw ValidationException::withMessages(['currency' => 'Delivery total exceeds the Currency minor-unit precision.']);
+            throw ValidationException::withMessages(['currency' => __('domain.delivery_total_exceeds_the_currency_minor_unit_precision')]);
         }
         $grand = $subtotal->plus($delivery);
 

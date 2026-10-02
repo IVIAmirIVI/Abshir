@@ -16,7 +16,7 @@ class EnsureUserIsActive
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
-            return redirect()->route('login')->withErrors(['email' => 'Your account is inactive. Contact an administrator.']);
+            return redirect()->route('login')->withErrors(['email' => __('domain.inactive_account')]);
         }
 
         return $next($request);

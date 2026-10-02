@@ -18,7 +18,7 @@ class ProductGroupMembershipService
     {
         Gate::forUser($actor)->authorize('product_groups.assign');
         if (! $group->is_active) {
-            throw ValidationException::withMessages(['product_group_id' => 'An inactive Product Group cannot receive new memberships.']);
+            throw ValidationException::withMessages(['product_group_id' => __('domain.an_inactive_product_group_cannot_receive_new_memberships')]);
         }
 
         return DB::transaction(function () use ($actor, $product, $group, $data): ProductGroupMember {
@@ -31,7 +31,7 @@ class ProductGroupMembershipService
                 $overlap->where('joined_at', '<', $leftAt);
             }
             if ($overlap->exists()) {
-                throw ValidationException::withMessages(['joined_at' => 'This membership overlaps an existing membership in the Product Group.']);
+                throw ValidationException::withMessages(['joined_at' => __('domain.this_membership_overlaps_an_existing_membership_in_the_product_group')]);
             }
 
             $membership = $product->groupMemberships()->make([
@@ -54,7 +54,7 @@ class ProductGroupMembershipService
         DB::transaction(function () use ($actor, $membership): void {
             $membership = ProductGroupMember::query()->lockForUpdate()->findOrFail($membership->id);
             if (! $membership->isActiveAt()) {
-                throw ValidationException::withMessages(['membership' => 'Only a current membership can be ended.']);
+                throw ValidationException::withMessages(['membership' => __('domain.only_a_current_membership_can_be_ended')]);
             }
             $membership->left_at = now();
             $membership->ended_by_user_id = $actor->id;
