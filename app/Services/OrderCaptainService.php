@@ -8,6 +8,8 @@ use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptain;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +17,20 @@ use Illuminate\Validation\ValidationException;
 class OrderCaptainService
 {
     public function __construct(private readonly OrderDeliveryPricingService $deliveryPricing, private readonly OrderMutationGuard $mutationGuard) {}
+
+    public function eligibleForOrder(User $actor, Order $order): Collection
+    {
+        Gate::forUser($actor)->authorize('orders.view');
+        $this->access($actor, $order);
+
+        return Captain::query()->accessibleTo($actor)->with(['user', 'employmentPeriods', 'branchAssignments'])
+            ->where('operational_status', CaptainOperationalStatus::Available->value)
+            ->whereHas('user', fn (Builder $query) => $query->where('is_active', true))
+            ->whereHas('employmentPeriods', fn (Builder $query) => $query->whereNull('ended_at'))
+            ->get()
+            ->filter(fn (Captain $captain) => $captain->activeOperationalBranches()->contains('id', $order->branch_id))
+            ->values();
+    }
 
     public function assign(User $actor, Order $order, Captain $captain, OrderCaptainRole $role): OrderCaptain
     {

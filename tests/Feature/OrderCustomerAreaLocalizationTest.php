@@ -6,6 +6,7 @@ use App\Enums\CaptainOperationalStatus;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderOperationalStatus;
+use App\Livewire\Orders\CreateOrder;
 use App\Models\Area;
 use App\Models\Branch;
 use App\Models\Captain;
@@ -29,6 +30,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class OrderCustomerAreaLocalizationTest extends TestCase
@@ -57,6 +59,7 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         ]);
         $shop = app(OrderShopService::class)->add($actor, $order, [
             'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'محل Original',
+            'origin_area_id' => $root->id,
         ]);
         $unit = Unit::create(['name' => 'قطعة Piece', 'code' => 'PC', 'allows_decimal' => false]);
         $item = app(OrderItemService::class)->add($actor, $order, $shop, [
@@ -92,7 +95,7 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             ->assertSee('تم الاستلام من المحل')->assertSee('لم يُسجل بعد')
             ->assertSee('رفع فاتورة المحل')->assertSee('تأكيد إلغاء الطلب قبل الشراء')
             ->assertSee('إلغاء بطلب الزبون')->assertSee('value="CUSTOMER_CANCELLED"', false)
-            ->assertSee('value="BEFORE_PURCHASE"', false)->assertSee('value="PRIMARY_COLLECTION"', false)
+            ->assertSee('value="BEFORE_PURCHASE"', false)->assertSee(__('orders.ui_no_eligible_captains'))
             ->assertSee('منتج Original')->assertSee('12.3400');
         $xpath = $this->xpath($show->getContent());
         $this->assertSame(1, $xpath->query('//bdi[@dir="ltr" and text()="'.$c['order']->order_number.'"]')->length);
@@ -151,21 +154,24 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         $inactiveArea = Area::factory()->for($c['branch'])->create(['is_active' => false]);
         $c['customer']->addresses()->create(['area_id' => $inactiveArea->id, 'address_line_1' => 'Inactive area address']);
 
-        $response = $this->actingAs($c['actor'])->get(route('orders.create'))->assertOk()
-            ->assertSee($c['customer']->name)->assertSee($c['address']->address_line_1)
+        $this->actingAs($c['actor'])->get(route('orders.create'))->assertOk()
+            ->assertSee($c['customer']->name)->assertDontSee($c['address']->address_line_1)
             ->assertSee('إضافة طلب')->assertSee('رقم هاتف الزبون')->assertSee('عنوان التوصيل')
-            ->assertSee('dir="rtl"', false)
-            ->assertSee("\u{2066}".$c['phone']->phone."\u{2069}")
+            ->assertSee('dir="rtl"', false)->assertSee(__('orders.ui_choose_customer_first'))
             ->assertDontSee($hidden->name)->assertDontSee('Hidden address')->assertDontSee('999111222')
             ->assertDontSee($inactive->name)->assertDontSee('Inactive address')->assertDontSee('Inactive area address');
-        $customers = $response->viewData('customers');
-        $this->assertSame([$c['customer']->id], $customers->modelKeys());
-        $visible = $customers->sole();
-        $this->assertTrue($visible->relationLoaded('phones'));
-        $this->assertTrue($visible->relationLoaded('addresses'));
-        $this->assertSame([$c['phone']->id], $visible->phones->modelKeys());
-        $this->assertSame([$c['address']->id], $visible->addresses->modelKeys());
-        $this->assertSame($c['branch']->id, $visible->addresses->sole()->area->branch->id);
+
+        Livewire::actingAs($c['actor'])->test(CreateOrder::class)
+            ->assertSee($c['customer']->name)
+            ->assertDontSee($hidden->name)
+            ->assertDontSee($inactive->name)
+            ->set('customerId', (string) $c['customer']->id)
+            ->assertSet('customerPhoneId', (string) $c['phone']->id)
+            ->assertSet('customerAddressId', (string) $c['address']->id)
+            ->assertSee($c['phone']->phone)
+            ->assertSee($c['address']->address_line_1)
+            ->assertDontSee('Inactive address')
+            ->assertDontSee('Inactive area address');
     }
 
     public function test_read_only_user_cannot_gain_mutation_controls_or_cross_branch_access(): void
@@ -263,7 +269,7 @@ class OrderCustomerAreaLocalizationTest extends TestCase
 
     public function test_new_catalogs_match_and_english_fallback_remains_usable(): void
     {
-        foreach (['common', 'orders', 'customers', 'areas'] as $group) {
+        foreach (['common', 'domain', 'orders', 'customers', 'areas'] as $group) {
             $ar = Arr::dot(require lang_path('ar/'.$group.'.php'));
             $en = Arr::dot(require lang_path('en/'.$group.'.php'));
             $this->assertEqualsCanonicalizing(array_keys($ar), array_keys($en), $group);

@@ -105,6 +105,27 @@ class OrderItemService
         });
     }
 
+    public function remove(User $actor, Order $order, OrderShop $shop, OrderItem $item): void
+    {
+        Gate::forUser($actor)->authorize('orders.update');
+        $this->ownership($actor, $order, $shop, $item);
+
+        DB::transaction(function () use ($order, $shop, $item): void {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
+            OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($shop->id);
+            $item = OrderItem::query()->where('order_shop_id', $shop->id)->lockForUpdate()->findOrFail($item->id);
+            if ($item->actual_unit_price !== null || $item->actual_price_confirmed_at !== null || $item->changes()->exists()) {
+                throw ValidationException::withMessages(['item' => __('domain.an_item_with_price_or_change_history_cannot_be_removed')]);
+            }
+            if (DB::table('invoice_items')->where('order_item_id', $item->id)->exists()) {
+                throw ValidationException::withMessages(['item' => __('domain.an_item_referenced_by_invoice_history_cannot_be_removed')]);
+            }
+            $item->delete();
+            $this->pricingStatus->recalculate($order);
+        });
+    }
+
     private function estimate(User $actor, OrderShop $shop, ?Product $product, Unit $unit, array $data): array
     {
         if (! $product || empty($data['estimated_currency_id'])) {

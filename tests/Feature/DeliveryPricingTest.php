@@ -56,7 +56,7 @@ class DeliveryPricingTest extends TestCase
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
-        app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Test Shop']);
+        app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Test Shop', 'origin_area_id' => $from->id]);
         $order->refresh();
 
         return compact('currency', 'branch', 'from', 'to', 'customer', 'admin', 'employee', 'order');
@@ -120,9 +120,9 @@ class DeliveryPricingTest extends TestCase
             'ordered_at' => $historicalTime->format('Y-m-d H:i:s'),
         ])->assertSessionHasNoErrors();
         $order = Order::query()->latest('id')->firstOrFail();
-        $this->assertTrue($order->ordered_at->equalTo($historicalTime));
+        $this->assertSame($historicalTime->format('Y-m-d H:i:s'), $order->ordered_at->format('Y-m-d H:i:s'));
         $this->assertTrue($order->created_at->greaterThan($order->ordered_at));
-        app(OrderShopService::class)->add($context['employee'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Historical Shop']);
+        app(OrderShopService::class)->add($context['employee'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Historical Shop', 'origin_area_id' => $context['from']->id]);
         app(OrderCaptainService::class)->assign($context['employee'], $order, $this->captain($context), OrderCaptainRole::PrimaryCollection);
         $pricing = app(OrderDeliveryPricingService::class)->price($context['employee'], $order->fresh(), $context['from']);
         $this->assertSame($old->id, $pricing->delivery_pricing_rule_id);
@@ -248,7 +248,7 @@ class DeliveryPricingTest extends TestCase
     public function test_legacy_multi_shop_pricing_cannot_seed_a_classified_version(): void
     {
         $c = $this->context();
-        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'Second']);
+        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'Second', 'origin_area_id' => $c['from']->id]);
         $this->configure($c);
         $captains = app(OrderCaptainService::class);
         $captains->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
@@ -456,7 +456,7 @@ class DeliveryPricingTest extends TestCase
         app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
         $service = app(OrderDeliveryPricingService::class);
         $pending = $service->requestOverride($c['employee'], $c['order'], $c['from'], '190', 'Needs approval');
-        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Second']);
+        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Second', 'origin_area_id' => $c['from']->id]);
 
         try {
             $service->resolveOverride($c['admin'], $pending, true, 'Approved');

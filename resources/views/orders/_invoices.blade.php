@@ -3,7 +3,7 @@
         <div><h3 class="font-semibold">{{ __('financial.ui.customer_invoice') }}</h3><p class="text-sm">{{ __('financial.ui.financially_complete') }} {{ $order->isFinanciallyComplete() ? __('financial.ui.yes') : __('financial.ui.no') }}</p></div>
         @can('invoices.create')
             @if(!$order->currentInvoice)
-                <form method="POST" action="{{ route('orders.invoices.store', $order) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.create_draft') }}</x-primary-button></form>
+                <form x-data="{ submitting: false }" x-on:submit="if (submitting) { $event.preventDefault(); } else { submitting = true; }" method="POST" action="{{ route('orders.invoices.store', $order) }}">@csrf<x-primary-button x-bind:disabled="submitting" class="w-full justify-center sm:w-auto">{{ __('financial.ui.create_draft') }}</x-primary-button></form>
             @endif
         @endcan
     </div>
