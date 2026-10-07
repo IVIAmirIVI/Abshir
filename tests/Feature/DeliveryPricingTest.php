@@ -7,6 +7,7 @@ use App\Enums\DeliveryOverrideStatus;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
+use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderPricingClass;
 use App\Models\Area;
 use App\Models\Branch;
@@ -25,9 +26,11 @@ use App\Models\User;
 use App\Services\DeliveryAllocationService;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
+use App\Services\InvoiceService;
 use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderPricingService;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
 use Brick\Math\BigDecimal;
@@ -104,7 +107,7 @@ class DeliveryPricingTest extends TestCase
         return $c['order']->deliveryPricings()->create(['version' => 1, 'delivery_pricing_rule_id' => $rule->id, 'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id, 'currency_id' => $c['currency']->id, 'order_pricing_class_snapshot' => null, 'suggested_unit_fee' => '200', 'applied_unit_fee' => '200', 'captain_count_snapshot' => 1, 'captain_share_percent_snapshot' => '65', 'gross_delivery_total' => '200', 'discount_amount' => '0', 'customer_delivery_total' => '200', 'status' => 'PRICED', 'priced_at' => now(), 'created_by' => $c['admin']->id]);
     }
 
-    public function test_historical_http_creation_selects_the_rule_effective_at_ordered_at(): void
+    public function test_historical_http_entry_preserves_ordered_at_but_open_pricing_uses_current_rule(): void
     {
         $context = $this->context();
         $historicalTime = now()->subDays(5)->startOfMinute();
@@ -141,8 +144,9 @@ class DeliveryPricingTest extends TestCase
         app(OrderShopService::class)->add($context['employee'], $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Historical Shop', 'origin_area_id' => $context['from']->id]);
         app(OrderCaptainService::class)->assign($context['employee'], $order, $this->captain($context), OrderCaptainRole::PrimaryCollection);
         $pricing = app(OrderDeliveryPricingService::class)->price($context['employee'], $order->fresh(), $context['from']);
-        $this->assertSame($old->id, $pricing->delivery_pricing_rule_id);
-        $this->assertSame('80.0000', $pricing->suggested_unit_fee);
+        $this->assertNotSame($old->id, $pricing->delivery_pricing_rule_id);
+        $this->assertSame('120.0000', $pricing->suggested_unit_fee);
+        $this->assertSame($historicalTime->format('Y-m-d H:i:s'), $order->fresh()->ordered_at->format('Y-m-d H:i:s'));
     }
 
     public function test_cancelled_order_leaves_pending_override_inert_for_approval_rejection_and_new_requests(): void
@@ -201,7 +205,7 @@ class DeliveryPricingTest extends TestCase
         $this->assertSame($new->id, $service->applicable($c['from']->id, $c['to']->id, $c['currency']->id, OrderPricingClass::SingleShop, now()->addDays(2))->id);
     }
 
-    public function test_real_pricing_path_uses_ordered_at_and_honors_effective_until_boundary(): void
+    public function test_open_repricing_uses_current_time_and_honors_effective_until_boundary(): void
     {
         $c = $this->context();
         $historicalOrderTime = now()->subDay()->startOfMinute();
@@ -214,12 +218,15 @@ class DeliveryPricingTest extends TestCase
         $service = app(OrderDeliveryPricingService::class);
 
         $this->assertTrue($c['order']->created_at->greaterThan($c['order']->ordered_at));
+        $this->travelTo($boundary->copy()->subSecond());
         $this->assertSame($old->id, $service->preview($c['employee'], $c['order']->fresh(), $c['from'])['rule']->id);
         $this->assertSame('80.0000', $service->price($c['employee'], $c['order']->fresh(), $c['from'])->suggested_unit_fee);
 
-        $c['order']->update(['ordered_at' => $boundary]);
+        $this->travelTo($boundary);
         $this->assertSame($new->id, $service->preview($c['employee'], $c['order']->fresh(), $c['from'])['rule']->id);
         $this->assertSame('120.0000', $service->price($c['employee'], $c['order']->fresh(), $c['from'])->suggested_unit_fee);
+        $this->assertSame($historicalOrderTime->toDateTimeString(), $c['order']->fresh()->ordered_at->toDateTimeString());
+        $this->travelBack();
     }
 
     public function test_legacy_pricing_cannot_be_reused_and_valid_class_specific_repricing_restores_operations(): void
@@ -515,6 +522,159 @@ class DeliveryPricingTest extends TestCase
         $new = $service->price($c['employee'], $c['order']->fresh(), $c['from']);
         $this->assertSame('175.0000', $new->applied_unit_fee);
         $this->assertSame(3, $new->routes()->count());
+    }
+
+    public function test_same_area_single_shop_recovers_after_multi_shop_removal_using_current_state(): void
+    {
+        $c = $this->context();
+        $shops = app(OrderShopService::class);
+        $shops->remove($c['employee'], $c['order'], $c['order']->shops()->sole());
+        $first = $shops->add($c['employee'], $c['order'], [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+            'shop_name' => 'Saqba', 'origin_area_id' => $c['to']->id,
+        ]);
+        $singleRule = app(DeliveryPricingRuleService::class)->create($c['admin'], [
+            'from_area_id' => $c['to']->id, 'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id, 'order_pricing_class' => 'SINGLE_SHOP',
+            'delivery_unit_fee' => '100', 'effective_from' => now()->subMinute(),
+        ]);
+        $this->multiRule($c, $c['to'], '120');
+        $this->multiRule($c, $c['from'], '150');
+        $this->configure($c);
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+        $service = app(OrderDeliveryPricingService::class);
+        $singleOrder = $c['order']->fresh(['branch.defaultCurrency', 'destinationArea', 'shops']);
+        $this->assertSame($singleRule->id, $service->preview($c['employee'], $singleOrder)['rule']->id);
+        $second = $shops->add($c['employee'], $singleOrder, [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+            'shop_name' => 'Kafr Batna', 'origin_area_id' => $c['from']->id,
+        ]);
+        // Intentionally retain caller models/relations across both mutations.
+        $multiPreview = $service->preview($c['employee'], $singleOrder);
+        $this->assertTrue($multiPreview['is_multi_shop']);
+        $this->assertSame('150.0000', $multiPreview['rule']->delivery_unit_fee);
+        $multi = $service->price($c['employee'], $singleOrder, $c['from']);
+        $staleMultiOrder = $c['order']->fresh(['shops', 'currentDeliveryPricing.routes']);
+        $shops->remove($c['employee'], $staleMultiOrder, $second);
+        $preview = $service->preview($c['employee'], $staleMultiOrder);
+        $this->assertSame(OrderPricingClass::SingleShop, $c['order']->fresh()->pricing_class);
+        $this->assertTrue($preview['complete']);
+        $this->assertFalse($preview['is_multi_shop']);
+        $this->assertSame($singleRule->id, $preview['rule']->id);
+        $this->assertSame([$first->id], $preview['routes']->pluck('shop.id')->all());
+        $this->assertNull($c['order']->currentDeliveryPricing()->first());
+        $new = $service->price($c['employee'], $staleMultiOrder, $c['to']);
+        $this->assertSame('100.0000', $new->suggested_unit_fee);
+        $this->assertSame(1, $new->routes()->count());
+        $this->assertSame('150.0000', $multi->fresh()->suggested_unit_fee);
+        $this->assertSame(2, $multi->routes()->count());
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertDontSee(__('orders.ui_multi_shop_route_missing_rule'));
+    }
+
+    public function test_open_order_recovers_from_no_rule_when_matching_current_rule_is_created_later(): void
+    {
+        $c = $this->context();
+        $service = app(OrderDeliveryPricingService::class);
+        $this->assertFalse($service->preview($c['employee'], $c['order'])['complete']);
+        $later = app(DeliveryPricingRuleService::class)->create($c['admin'], [
+            'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id, 'order_pricing_class' => 'SINGLE_SHOP',
+            'delivery_unit_fee' => '150', 'effective_from' => now(),
+        ]);
+        $this->assertTrue($service->preview($c['employee'], $c['order'])['complete']);
+        app(DeliveryPricingRuleService::class)->setActive($c['admin'], $later, false);
+        $this->assertFalse($service->preview($c['employee'], $c['order'])['complete']);
+        app(DeliveryPricingRuleService::class)->setActive($c['admin'], $later, true);
+        $this->assertTrue($service->preview($c['employee'], $c['order'])['complete']);
+        $historical = app(DeliveryPricingRuleService::class)->create($c['admin'], [
+            'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id, 'order_pricing_class' => 'SINGLE_SHOP',
+            'delivery_unit_fee' => '100', 'effective_from' => now()->subDays(2),
+            'effective_until' => $later->effective_from,
+        ]);
+        $preview = $service->preview($c['employee'], $c['order']);
+        $this->assertTrue($preview['complete']);
+        $this->assertSame($later->id, $preview['rule']->id);
+        $this->assertNotSame($historical->id, $preview['rule']->id);
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertDontSee(__('orders.ui_multi_shop_route_missing_rule'));
+    }
+
+    public function test_issued_invoice_keeps_saved_pricing_when_current_rules_change(): void
+    {
+        $c = $this->context();
+        $rule = $this->rule($c, '100');
+        $this->configure($c);
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+        $service = app(OrderDeliveryPricingService::class);
+        $pricing = $service->price($c['employee'], $c['order'], $c['from']);
+        $c['order']->shops()->sole()->items()->create([
+            'item_type' => 'ONE_TIME_ITEM', 'product_name_snapshot' => 'Item', 'unit_name_snapshot' => 'Piece',
+            'requested_quantity' => '1', 'current_quantity' => '1', 'actual_unit_price' => '10',
+            'actual_price_source' => 'MANUAL_VERIFIED', 'actual_currency_id' => $c['currency']->id,
+            'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $c['employee']->id,
+        ]);
+        app(OrderPricingService::class)->recalculate($c['order']);
+        $invoices = app(InvoiceService::class);
+        $invoice = $invoices->createDraft($c['employee'], $c['order']);
+        $invoice = $invoices->refresh($c['employee'], $c['order'], $invoice);
+        $invoice = $invoices->issue($c['employee'], $c['order'], $invoice);
+        $invoiceBefore = $invoice->fresh()->getAttributes();
+        $pricingBefore = $pricing->fresh()->getAttributes();
+        $routesBefore = $pricing->routes()->get()->toArray();
+        app(DeliveryPricingRuleService::class)->version($c['admin'], $rule, [
+            'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id, 'order_pricing_class' => 'SINGLE_SHOP',
+            'delivery_unit_fee' => '250', 'effective_from' => now()->addMinute(),
+        ]);
+        $this->travel(2)->minutes();
+        $preview = $service->preview($c['employee'], $c['order']);
+        $this->assertTrue($preview['is_frozen']);
+        $this->assertSame($rule->id, $preview['rule']->id);
+        $this->assertSame('100.0000', $preview['suggested_unit_fee']);
+        foreach ([
+            fn () => $service->price($c['admin'], $c['order'], $c['from']),
+            fn () => app(OrderShopService::class)->remove($c['employee'], $c['order'], $c['order']->shops()->sole()),
+        ] as $mutation) {
+            try {
+                $mutation();
+                $this->fail('Frozen Order was mutated.');
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('order', $exception->errors());
+            }
+        }
+        $this->assertSame($invoiceBefore, $invoice->fresh()->getAttributes());
+        $this->assertSame($pricingBefore, $pricing->fresh()->getAttributes());
+        $this->assertSame($routesBefore, $pricing->routes()->get()->toArray());
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertDontSee(__('orders.ui_suggested_delivery_fee'))
+            ->assertDontSee(__('orders.ui_multi_shop_route_missing_rule'));
+        $this->travelBack();
+    }
+
+    public function test_delivered_order_preview_and_repricing_preserve_historical_snapshot(): void
+    {
+        $c = $this->context();
+        $rule = $this->rule($c, '100');
+        $this->configure($c);
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+        $service = app(OrderDeliveryPricingService::class);
+        $pricing = $service->price($c['employee'], $c['order'], $c['from']);
+        $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+        $before = $pricing->fresh()->getAttributes();
+        app(DeliveryPricingRuleService::class)->setActive($c['admin'], $rule, false);
+        $preview = $service->preview($c['employee'], $c['order']);
+        $this->assertTrue($preview['is_frozen']);
+        $this->assertSame('100.0000', $preview['suggested_unit_fee']);
+        try {
+            $service->price($c['admin'], $c['order'], $c['from']);
+            $this->fail('Delivered Order accepted repricing.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('order', $exception->errors());
+        }
+        $this->assertSame($before, $pricing->fresh()->getAttributes());
+        $this->assertSame(1, $c['order']->deliveryPricings()->count());
     }
 
     public function test_registered_shop_uses_its_historical_origin_snapshot_after_shop_changes(): void

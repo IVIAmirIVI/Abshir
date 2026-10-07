@@ -24,6 +24,10 @@ class OrderDeliveryPricingService
 
     public function preview(User $actor, Order $order, ?Area $origin = null): array
     {
+        // A caller may retain its Order across Shop mutations. Do not combine
+        // stale classification/dimensions with freshly queried Shop routes.
+        $order = Order::query()->findOrFail($order->id);
+
         return $this->proposal($actor, $order, $origin, false);
     }
 
@@ -31,6 +35,23 @@ class OrderDeliveryPricingService
     {
         Gate::forUser($actor)->authorize('delivery_pricing.view');
         $this->access($actor, $order);
+        if (! $lockShops && $this->mutationGuard->isPricingFrozen($order)) {
+            $pricing = $order->currentDeliveryPricing()->with(['rule', 'fromArea', 'toArea', 'currency', 'routes.rule', 'routes.fromArea', 'routes.toArea'])->first();
+            $routes = $pricing?->routes->map(fn ($route): array => [
+                'shop' => (object) ['id' => $route->order_shop_id, 'shop_name_snapshot' => $route->shop_name_snapshot],
+                'origin' => $route->fromArea, 'destination' => $route->toArea,
+                'rule' => $route->rule, 'proposed_unit_fee' => $route->proposed_unit_fee,
+                'is_selected_max' => $route->is_selected_max,
+            ]) ?? collect();
+
+            return [
+                'rule' => $pricing?->rule, 'currency' => $pricing?->currency,
+                'origin' => $pricing?->fromArea, 'destination' => $pricing?->toArea,
+                'routes' => $routes, 'complete' => $pricing !== null && $pricing->rule !== null,
+                'is_multi_shop' => $pricing?->order_pricing_class_snapshot === OrderPricingClass::MultiShop,
+                'is_frozen' => true, 'suggested_unit_fee' => $pricing?->suggested_unit_fee,
+            ];
+        }
         $currency = $order->branch->defaultCurrency;
         if (! $currency) {
             throw ValidationException::withMessages(['currency' => __('domain.the_order_branch_requires_a_default_currency')]);
@@ -57,7 +78,8 @@ class OrderDeliveryPricingService
             throw ValidationException::withMessages(['from_area_id' => __('domain.the_delivery_origin_must_match_the_order_shop_snapshot')]);
         }
 
-        $evaluated = $routes->map(function (array $route) use ($actor, $order, $destination, $currency): array {
+        $pricingAt = now();
+        $evaluated = $routes->map(function (array $route) use ($actor, $order, $destination, $currency, $pricingAt): array {
             $origin = $route['origin'];
             if ($origin) {
                 abort_unless(Area::query()->accessibleTo($actor)->whereKey($origin)->exists(), 403);
@@ -65,7 +87,7 @@ class OrderDeliveryPricingService
                     throw ValidationException::withMessages(['from_area_id' => __('domain.the_origin_area_must_belong_to_the_order_branch')]);
                 }
             }
-            $rule = $origin ? $this->rules->applicable($origin->id, $destination->id, $currency->id, $order->pricing_class, $order->ordered_at) : null;
+            $rule = $origin ? $this->rules->applicable($origin->id, $destination->id, $currency->id, $order->pricing_class, $pricingAt) : null;
 
             return [
                 'shop' => $route['shop'],
@@ -105,6 +127,8 @@ class OrderDeliveryPricingService
             'routes' => $evaluated,
             'complete' => $complete,
             'is_multi_shop' => $order->pricing_class === OrderPricingClass::MultiShop,
+            'is_frozen' => false,
+            'suggested_unit_fee' => $selected['proposed_unit_fee'] ?? null,
         ];
     }
 

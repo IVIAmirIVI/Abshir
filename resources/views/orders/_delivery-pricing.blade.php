@@ -13,7 +13,7 @@
         @endcan
     @endif
     @if($pricingProblem)<p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ $pricingProblem }}</p>@endif
-    @if($pricingPreview)
+    @if($pricingPreview && !$pricingPreview['is_frozen'])
         @if($pricingPreview['complete'])
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-3">
                 <p class="font-semibold text-green-950">{{ __('orders.ui_suggested_delivery_fee') }} <x-money :amount="$pricingPreview['rule']->delivery_unit_fee" /> <x-ltr>{{ $pricingPreview['currency']->code }}</x-ltr></p>

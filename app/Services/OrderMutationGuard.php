@@ -10,6 +10,13 @@ use Illuminate\Validation\ValidationException;
 
 class OrderMutationGuard
 {
+    public function isPricingFrozen(Order $order): bool
+    {
+        return in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)
+            || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())
+            || $order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->exists();
+    }
+
     public function assertMutableLocked(Order $order): void
     {
         $this->assertNoCancellationIntentLocked($order);
