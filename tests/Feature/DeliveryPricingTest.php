@@ -19,6 +19,8 @@ use App\Models\DeliveryPricingUserLimit;
 use App\Models\Order;
 use App\Models\OrderCaptain;
 use App\Models\Role;
+use App\Models\Shop;
+use App\Models\ShopType;
 use App\Models\User;
 use App\Services\DeliveryAllocationService;
 use App\Services\DeliveryPricingRuleService;
@@ -30,7 +32,9 @@ use App\Services\OrderService;
 use App\Services\OrderShopService;
 use Brick\Math\BigDecimal;
 use Database\Seeders\AuthorizationSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -65,6 +69,18 @@ class DeliveryPricingTest extends TestCase
     private function rule(array $c, string $fee = '200.0000', ?Area $from = null, ?Area $to = null): mixed
     {
         return app(DeliveryPricingRuleService::class)->create($c['admin'], ['from_area_id' => ($from ?? $c['from'])->id, 'to_area_id' => ($to ?? $c['to'])->id, 'currency_id' => $c['currency']->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value, 'delivery_unit_fee' => $fee, 'effective_from' => now()->subDays(2), 'effective_until' => null]);
+    }
+
+    private function multiRule(array $c, Area $from, string $fee): DeliveryPricingRule
+    {
+        return app(DeliveryPricingRuleService::class)->create($c['admin'], [
+            'from_area_id' => $from->id,
+            'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id,
+            'order_pricing_class' => OrderPricingClass::MultiShop->value,
+            'delivery_unit_fee' => $fee,
+            'effective_from' => now()->subDays(2),
+        ]);
     }
 
     private function captain(array $c): Captain
@@ -336,6 +352,190 @@ class DeliveryPricingTest extends TestCase
         $this->assertCount(3, $threeCaptainPricing->allocations);
         app(DeliveryPricingSettings::class)->update($c['admin'], '50', '10');
         $this->assertSame('65.0000', $threeCaptainPricing->fresh()->captain_share_percent_snapshot);
+    }
+
+    public function test_single_restaurant_keeps_its_existing_pricing_class(): void
+    {
+        $c = $this->context();
+        app(OrderShopService::class)->remove($c['employee'], $c['order'], $c['order']->shops()->sole());
+        app(OrderShopService::class)->add($c['employee'], $c['order']->fresh(), [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT',
+            'shop_name' => 'Only Restaurant', 'origin_area_id' => $c['from']->id,
+        ]);
+        $rule = app(DeliveryPricingRuleService::class)->create($c['admin'], [
+            'from_area_id' => $c['from']->id, 'to_area_id' => $c['to']->id,
+            'currency_id' => $c['currency']->id, 'order_pricing_class' => OrderPricingClass::SingleRestaurant->value,
+            'delivery_unit_fee' => '130', 'effective_from' => now()->subDays(2),
+        ]);
+
+        $order = $c['order']->fresh();
+        $this->assertSame(OrderPricingClass::SingleRestaurant, $order->pricing_class);
+        $this->assertSame($rule->id, app(OrderDeliveryPricingService::class)->preview($c['employee'], $order)['rule']->id);
+    }
+
+    public function test_two_same_area_shops_use_one_multi_shop_max_fee(): void
+    {
+        $c = $this->context();
+        app(OrderShopService::class)->add($c['employee'], $c['order'], [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+            'shop_name' => 'Same Area Second Shop', 'origin_area_id' => $c['from']->id,
+        ]);
+        $rule = $this->multiRule($c, $c['from'], '120');
+        $preview = app(OrderDeliveryPricingService::class)->preview($c['employee'], $c['order']->fresh());
+
+        $this->assertSame(OrderPricingClass::MultiShop, $c['order']->fresh()->pricing_class);
+        $this->assertTrue($preview['complete']);
+        $this->assertSame($rule->id, $preview['rule']->id);
+        $this->assertCount(2, $preview['routes']);
+        $this->assertSame(['120.0000', '120.0000'], $preview['routes']->pluck('proposed_unit_fee')->all());
+        $this->assertSame(1, $preview['routes']->where('is_selected_max', true)->count());
+    }
+
+    public function test_three_shop_routes_choose_max_and_keep_one_financial_fee_and_immutable_derivation(): void
+    {
+        $c = $this->context();
+        $secondOrigin = Area::factory()->for($c['branch'])->create(['name' => 'Second Origin']);
+        $thirdOrigin = Area::factory()->for($c['branch'])->create(['name' => 'Third Origin']);
+        foreach ([[$secondOrigin, 'Second Shop'], [$thirdOrigin, 'Third Shop']] as [$origin, $name]) {
+            app(OrderShopService::class)->add($c['employee'], $c['order'], [
+                'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+                'shop_name' => $name, 'origin_area_id' => $origin->id,
+            ]);
+        }
+        $this->multiRule($c, $c['from'], '120');
+        $this->multiRule($c, $secondOrigin, '150');
+        $winningRule = $this->multiRule($c, $thirdOrigin, '175');
+        $this->configure($c, '65', '10');
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+
+        $service = app(OrderDeliveryPricingService::class);
+        $preview = $service->preview($c['employee'], $c['order']->fresh());
+        $this->assertSame(['120.0000', '150.0000', '175.0000'], $preview['routes']->pluck('proposed_unit_fee')->all());
+        $this->assertSame($winningRule->id, $preview['rule']->id);
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertSee(__('orders.ui_suggested_delivery_fee'))->assertSee('175')
+            ->assertSee(__('orders.ui_multi_shop_highest_route_used'))
+            ->assertSee(__('orders.ui_route_from_to', ['from' => $secondOrigin->path(), 'to' => $c['to']->path()]))
+            ->assertDontSee('preview_from_area_id', false);
+        $pricing = $service->price($c['employee'], $c['order']->fresh(), $thirdOrigin);
+        $this->assertSame('175.0000', $pricing->suggested_unit_fee);
+        $this->assertSame('175.0000', $pricing->applied_unit_fee);
+        $this->assertSame('175.0000', $pricing->gross_delivery_total);
+        $this->assertSame('113.7500', $pricing->allocations()->sole()->captain_entitlement);
+        $this->assertSame(3, $pricing->routes()->count());
+        $this->assertSame(3, $pricing->route_count_snapshot);
+        $this->assertSame($winningRule->id, $pricing->routes()->where('is_selected_max', true)->sole()->delivery_pricing_rule_id);
+
+        $adjusted = $service->requestOverride($c['employee'], $c['order']->fresh(), $c['from'], '170', 'Supervisor adjustment');
+        $this->assertSame('175.0000', $adjusted->suggested_unit_fee);
+        $this->assertSame('170.0000', $adjusted->applied_unit_fee);
+        $this->assertSame(3, $adjusted->routes()->count());
+        $this->assertSame($thirdOrigin->id, DeliveryFeeOverrideRequest::query()->where('order_delivery_pricing_id', $adjusted->id)->sole()->from_area_id);
+        $discounted = $service->applyDiscount($c['admin'], $c['order']->fresh(), '10', 'Order discount');
+        $this->assertSame('160.0000', $discounted->customer_delivery_total);
+        $this->assertSame('110.5000', $discounted->allocations()->sole()->captain_entitlement);
+        $this->assertSame(3, $discounted->routes()->count());
+
+        try {
+            DB::transaction(fn () => DB::table('order_delivery_pricing_routes')->whereKey($pricing->routes()->first()->id)->update(['proposed_unit_fee' => '999']));
+            $this->fail('A delivery route derivation snapshot was mutated.');
+        } catch (QueryException) {
+            $this->addToAssertionCount(1);
+        }
+        try {
+            $route = $pricing->routes()->firstOrFail();
+            DB::table('order_delivery_pricing_routes')->insert([
+                ...$route->only(['order_delivery_pricing_id', 'shop_name_snapshot', 'from_area_id', 'to_area_id', 'delivery_pricing_rule_id', 'proposed_unit_fee']),
+                'order_shop_id' => 999999, 'is_selected_max' => false, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $this->fail('A completed delivery route derivation set accepted an extra route.');
+        } catch (QueryException) {
+            $this->addToAssertionCount(1);
+        }
+    }
+
+    public function test_shop_and_restaurant_are_multi_shop_and_missing_route_rule_fails_closed(): void
+    {
+        $c = $this->context();
+        $restaurantOrigin = Area::factory()->for($c['branch'])->create(['name' => 'Restaurant Origin']);
+        app(OrderShopService::class)->add($c['employee'], $c['order'], [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT',
+            'shop_name' => 'Restaurant', 'origin_area_id' => $restaurantOrigin->id,
+        ]);
+        $this->multiRule($c, $c['from'], '120');
+
+        $order = $c['order']->fresh();
+        $preview = app(OrderDeliveryPricingService::class)->preview($c['employee'], $order);
+        $this->assertSame(OrderPricingClass::MultiShop, $order->pricing_class);
+        $this->assertFalse($preview['complete']);
+        $this->assertNull($preview['rule']);
+        $this->assertSame(1, $preview['routes']->whereNull('rule')->count());
+        try {
+            app(OrderDeliveryPricingService::class)->price($c['employee'], $order, $c['from']);
+            $this->fail('A partial multi-Shop route set produced an automatic price.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('from_area_id', $exception->errors());
+        }
+        $this->assertSame(0, $order->deliveryPricings()->count());
+        $this->actingAs($c['employee'])->get(route('orders.show', $order))->assertOk()
+            ->assertSee(__('orders.ui_multi_shop_route_missing_rule'))
+            ->assertSee($restaurantOrigin->name)->assertSee(__('orders.ui_no_active_matching_rule_for_shop'));
+        $winningRule = $this->multiRule($c, $restaurantOrigin, '150');
+        $complete = app(OrderDeliveryPricingService::class)->preview($c['employee'], $order->fresh());
+        $this->assertTrue($complete['complete']);
+        $this->assertSame($winningRule->id, $complete['rule']->id);
+        $this->assertSame(['120.0000', '150.0000'], $complete['routes']->pluck('proposed_unit_fee')->all());
+    }
+
+    public function test_adding_third_shop_invalidates_multi_shop_price_without_rewriting_history(): void
+    {
+        $c = $this->context();
+        $shops = app(OrderShopService::class);
+        $shops->add($c['employee'], $c['order'], [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+            'shop_name' => 'Second', 'origin_area_id' => $c['from']->id,
+        ]);
+        $this->multiRule($c, $c['from'], '120');
+        $this->configure($c);
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+        $service = app(OrderDeliveryPricingService::class);
+        $old = $service->price($c['employee'], $c['order']->fresh(), $c['from']);
+        $third = Area::factory()->for($c['branch'])->create();
+        $shops->add($c['employee'], $c['order']->fresh(), [
+            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP',
+            'shop_name' => 'Third', 'origin_area_id' => $third->id,
+        ]);
+        $this->assertSame(OrderPricingClass::MultiShop, $c['order']->fresh()->pricing_class);
+        $this->assertNull($c['order']->currentDeliveryPricing()->first());
+        $this->assertNotNull($old->fresh()->superseded_at);
+        $this->assertSame('120.0000', $old->fresh()->applied_unit_fee);
+        $this->assertSame(2, $old->routes()->count());
+        $this->assertFalse($service->preview($c['employee'], $c['order']->fresh())['complete']);
+        $this->multiRule($c, $third, '175');
+        $new = $service->price($c['employee'], $c['order']->fresh(), $c['from']);
+        $this->assertSame('175.0000', $new->applied_unit_fee);
+        $this->assertSame(3, $new->routes()->count());
+    }
+
+    public function test_registered_shop_uses_its_historical_origin_snapshot_after_shop_changes(): void
+    {
+        $c = $this->context();
+        $registeredOrigin = Area::factory()->for($c['branch'])->create(['name' => 'Snapshotted Origin']);
+        $changedOrigin = Area::factory()->for($c['branch'])->create(['name' => 'Changed Later']);
+        $type = ShopType::create(['name' => 'Registered Type', 'business_classification' => 'SHOP']);
+        $shop = Shop::create(['name' => 'Registered Historical Shop', 'shop_type_id' => $type->id, 'area_id' => $registeredOrigin->id]);
+        $orderShop = app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $shop->id]);
+        $shop->update(['area_id' => $changedOrigin->id]);
+        $this->multiRule($c, $c['from'], '120');
+        $snapshottedRule = $this->multiRule($c, $registeredOrigin, '150');
+
+        $preview = app(OrderDeliveryPricingService::class)->preview($c['employee'], $c['order']->fresh());
+        $registeredRoute = $preview['routes']->first(fn (array $route): bool => $route['shop']->id === $orderShop->id);
+        $this->assertSame($registeredOrigin->id, $orderShop->fresh()->origin_area_id);
+        $this->assertSame($registeredOrigin->id, $registeredRoute['origin']->id);
+        $this->assertSame($snapshottedRule->id, $registeredRoute['rule']->id);
+        $this->assertTrue($preview['complete']);
+        $this->assertSame($snapshottedRule->id, $preview['rule']->id);
     }
 
     public function test_existing_snapshot_is_unchanged_after_rule_version_changes(): void

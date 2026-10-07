@@ -52,7 +52,7 @@ class DeliveryPricingOverrideConcurrencyTest extends TestCase
         $captain = Captain::create(['user_id' => $captainUser->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
         $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE', 'ordered_at' => now()]);
-        app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'First']);
+        app(OrderShopService::class)->add($employee, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'First', 'origin_area_id' => $from->id]);
         app(OrderCaptainService::class)->assign($employee, $order, $captain, OrderCaptainRole::PrimaryCollection);
         foreach ([OrderPricingClass::SingleShop->value => '100', OrderPricingClass::MultiShop->value => '200'] as $class => $fee) {
             app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id, 'currency_id' => $currency->id, 'order_pricing_class' => $class, 'delivery_unit_fee' => $fee, 'effective_from' => now()->subDay()]);
@@ -62,9 +62,10 @@ class DeliveryPricingOverrideConcurrencyTest extends TestCase
 
         try {
             $sql = sprintf(
-                "BEGIN; SELECT id FROM orders WHERE id = %d FOR UPDATE; INSERT INTO order_shops (order_id, shop_type, business_classification_snapshot, shop_name_snapshot, sort_order, created_at, updated_at) VALUES (%d, 'ONE_TIME', 'RESTAURANT', 'Concurrent second', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP); UPDATE orders SET pricing_class = 'MULTI_SHOP', updated_at = CURRENT_TIMESTAMP WHERE id = %d; SELECT pg_sleep(0.5); COMMIT;",
+                "BEGIN; SELECT id FROM orders WHERE id = %d FOR UPDATE; INSERT INTO order_shops (order_id, shop_type, business_classification_snapshot, shop_name_snapshot, origin_area_id, sort_order, created_at, updated_at) VALUES (%d, 'ONE_TIME', 'RESTAURANT', 'Concurrent second', %d, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP); UPDATE orders SET pricing_class = 'MULTI_SHOP', updated_at = CURRENT_TIMESTAMP WHERE id = %d; SELECT pg_sleep(0.5); COMMIT;",
                 $order->id,
                 $order->id,
+                $from->id,
                 $order->id,
             );
             $this->assertTrue(pg_send_query($concurrent, $sql));

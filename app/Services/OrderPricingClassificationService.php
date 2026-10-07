@@ -18,15 +18,13 @@ class OrderPricingClassificationService
             default => throw ValidationException::withMessages(['business_classification' => __('domain.the_order_shop_requires_a_restaurant_or_shop_classification')]),
         };
 
-        if ($order->pricing_class === $classification) {
-            return $classification;
-        }
-
         $current = $order->currentDeliveryPricing()->lockForUpdate()->first();
         if ($current) {
             $current->update(['superseded_at' => now()]);
         }
-        $order->update(['pricing_class' => $classification?->value]);
+        if ($order->pricing_class !== $classification) {
+            $order->update(['pricing_class' => $classification?->value]);
+        }
 
         return $classification;
     }

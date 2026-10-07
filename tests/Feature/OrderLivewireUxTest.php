@@ -274,7 +274,7 @@ class OrderLivewireUxTest extends TestCase
         $second = Shop::create(['name' => 'محل ثان', 'area_id' => $c['area']->id, 'shop_type_id' => $c['shop']->shop_type_id]);
 
         $single = $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))
-            ->assertSee(__('orders.ui_from_explicit'))->assertSee(__('orders.ui_to_explicit'))
+            ->assertSee(__('orders.ui_route_from_to', ['from' => $c['area']->path(), 'to' => $c['area']->path()]))
             ->assertDontSee('name="preview_from_area_id"', false);
         $this->assertStringContainsString($c['area']->name, $single->getContent());
         $this->assertSame($c['area']->id, $c['order']->destination_area_id);
@@ -442,7 +442,7 @@ class OrderLivewireUxTest extends TestCase
         $this->assertSame($reverse->id, app(DeliveryPricingRuleService::class)->applicable($c['area']->id, $origin->id, $c['currency']->id, $c['order']->fresh()->pricing_class, $c['order']->ordered_at)->id);
 
         $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
-            ->assertSee('من:')->assertSee('كفر بطنا')->assertSee('إلى:')->assertSee('سقبا')
+            ->assertSee(__('orders.ui_route_from_to', ['from' => 'كفر بطنا', 'to' => 'سقبا']))
             ->assertSee(__('orders.ui_suggested_delivery_fee'))->assertSee('120')
             ->assertDontSee('preview_from_area_id', false)->assertDontSee(__('orders.ui_preview_suggested'));
 
