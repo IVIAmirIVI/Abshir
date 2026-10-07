@@ -115,15 +115,24 @@ class OrderItemService
             $this->mutationGuard->assertMutableLocked($order);
             OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($shop->id);
             $item = OrderItem::query()->where('order_shop_id', $shop->id)->lockForUpdate()->findOrFail($item->id);
-            if ($item->actual_unit_price !== null || $item->actual_price_confirmed_at !== null || $item->changes()->exists()) {
-                throw ValidationException::withMessages(['item' => __('domain.an_item_with_price_or_change_history_cannot_be_removed')]);
-            }
-            if (DB::table('invoice_items')->where('order_item_id', $item->id)->exists()) {
-                throw ValidationException::withMessages(['item' => __('domain.an_item_referenced_by_invoice_history_cannot_be_removed')]);
+            if ($reason = $this->removalBlockReason($item)) {
+                throw ValidationException::withMessages(['item' => $reason]);
             }
             $item->delete();
             $this->pricingStatus->recalculate($order);
         });
+    }
+
+    public function removalBlockReason(OrderItem $item): ?string
+    {
+        if ($item->actual_unit_price !== null || $item->actual_price_confirmed_at !== null || $item->changes()->exists()) {
+            return __('domain.an_item_with_price_or_change_history_cannot_be_removed');
+        }
+        if (DB::table('invoice_items')->where('order_item_id', $item->id)->exists()) {
+            return __('domain.an_item_referenced_by_invoice_history_cannot_be_removed');
+        }
+
+        return null;
     }
 
     private function estimate(User $actor, OrderShop $shop, ?Product $product, Unit $unit, array $data): array

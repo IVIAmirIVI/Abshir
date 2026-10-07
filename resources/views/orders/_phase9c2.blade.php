@@ -1,8 +1,8 @@
 <section class="rounded bg-white p-5 shadow space-y-4">
     @php($purchaseCaptainAssignments = $order->captainAssignments->sortBy('assigned_at'))
     <div>
-        <h3 class="font-semibold">{{ __('orders.ui_returns') }}</h3>
-        <p class="text-sm text-gray-600">{{ __('orders.ui_returns_help') }}</p>
+        <h3 class="font-semibold">{{ $order->cancellationIntent || $order->shopReturns->isNotEmpty() ? __('orders.ui_returns') : __('orders.ui_purchase_progress') }}</h3>
+        <p class="text-sm text-gray-600">{{ $order->cancellationIntent || $order->shopReturns->isNotEmpty() ? __('orders.ui_returns_help') : __('orders.ui_purchase_progress_help') }}</p>
     </div>
 
     @if($order->cancellationIntent)

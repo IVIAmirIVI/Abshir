@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceFinancialCorrection;
 use App\Models\Order;
 use App\Services\CaptainReceivableRecoveryService;
+use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderFinancialSourceSnapshotService;
 use Illuminate\Database\Eloquent\Builder;
@@ -43,8 +44,9 @@ class InvoiceController extends Controller
             && $request->user()->can('invoice_corrections.request') ? $snapshots->read($invoice) : null;
 
         $recoverySummaries = $corrections->mapWithKeys(fn ($c) => [$c->id => app(CaptainReceivableRecoveryService::class)->summary($c)]);
+        $collectionAvailability = app(InvoiceCollectionService::class)->availability($request->user(), $invoice);
 
-        return view('invoices.show', compact('invoice', 'primaryCollector', 'corrections', 'settledCorrection', 'correctionSource', 'recoverySummaries'));
+        return view('invoices.show', compact('invoice', 'primaryCollector', 'corrections', 'settledCorrection', 'correctionSource', 'recoverySummaries', 'collectionAvailability'));
     }
 
     public function print(Request $request, Order $order, Invoice $invoice): View

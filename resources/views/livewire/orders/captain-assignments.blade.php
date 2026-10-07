@@ -7,7 +7,7 @@
 
     @if(session('order-action-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-action-status') }}</p>@endif
 
-    @can('orders.captains.assign')
+    @if($orderMutable)@can('orders.captains.assign')
         @if($this->eligibleCaptains->isEmpty())
             <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ __('orders.ui_no_eligible_captains') }}</p>
         @else
@@ -25,7 +25,7 @@
                 <x-primary-button wire:loading.attr="disabled" wire:target="assign" class="justify-center disabled:opacity-60">{{ __('common.actions.assign') }}</x-primary-button>
             </form>
         @endif
-    @endcan
+    @endcan @endif
 
     <div class="space-y-3">
         @forelse($order->captainAssignments->sortByDesc('assigned_at') as $assignment)
@@ -35,7 +35,7 @@
                     <p class="text-sm text-gray-600">{{ \App\Support\UiLabels::label('orders.captain_roles', $assignment->assignment_role) }} · {{ $assignment->removed_at ? __('orders.ui_removed').$assignment->removed_at->format('Y-m-d H:i') : __('common.operational_active') }}</p>
                 </div>
                 @can('captain_financials.view')<a href="{{ route('captains.financials.show', $assignment->captain) }}" class="mt-2 inline-block text-sm text-brand-primary underline">{{ __('captains.ui_receipts_payouts_and_outstanding_receivables') }}</a>@endcan
-                @if(! $assignment->removed_at)@can('orders.captains.remove')
+                @if($orderMutable && ! $assignment->removed_at)@can('orders.captains.remove')
                     <div class="mt-3 flex flex-col gap-2 sm:flex-row">
                         <input wire:model="removalReasons.{{ $assignment->id }}" placeholder="{{ __('orders.ui_removal_reason') }}" dir="auto" class="min-w-0 flex-1 rounded-lg border-gray-300">
                         <button type="button" wire:click="remove({{ $assignment->id }})" wire:loading.attr="disabled" wire:confirm="{{ __('orders.ui_confirm_remove_captain') }}" class="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">{{ __('common.actions.remove') }}</button>
@@ -49,7 +49,7 @@
     </div>
 
     @can('orders.captains.remove')
-        @can('orders.captains.assign')
+        @if($orderMutable)@can('orders.captains.assign')
         @if($order->captainAssignments->whereNull('removed_at')->isNotEmpty() && $this->switchCandidates->isNotEmpty())
             <details class="rounded-lg border border-gray-200 p-3">
                 <summary class="cursor-pointer font-medium">{{ __('orders.ui_switch_primary') }}</summary>
@@ -62,6 +62,6 @@
                 </form>
             </details>
         @endif
-        @endcan
+        @endcan @endif
     @endcan
 </section>

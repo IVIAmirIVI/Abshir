@@ -7,8 +7,8 @@
                 <p class="mt-1"><x-ltr>{{ $order->customer_phone_snapshot }}</x-ltr></p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <span class="rounded-full bg-brand-primary px-3 py-1 text-sm font-semibold text-white">{{ \App\Support\UiLabels::label('orders.statuses', $order->operational_status) }}</span>
-                <span class="rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-900">{{ \App\Support\UiLabels::label('orders.pricing_statuses', $order->pricing_status) }}</span>
+                <span class="rounded-full bg-brand-primary px-3 py-1 text-sm font-semibold text-white">{{ __('orders.ui_operational_status_label') }}: {{ \App\Support\UiLabels::label('orders.statuses', $order->operational_status) }}</span>
+                <span class="rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-900">{{ __('orders.ui_actual_price_status_label') }}: {{ \App\Support\UiLabels::label('orders.pricing_statuses', $order->pricing_status) }}</span>
             </div>
         </div>
     </div>

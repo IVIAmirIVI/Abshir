@@ -10,10 +10,15 @@ use Illuminate\Validation\ValidationException;
 
 class OrderMutationGuard
 {
+    public function isOperationalEvidenceMutable(Order $order): bool
+    {
+        return ! in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)
+            && ! (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists());
+    }
+
     public function isPricingFrozen(Order $order): bool
     {
-        return in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)
-            || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())
+        return ! $this->isOperationalEvidenceMutable($order)
             || $order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->exists();
     }
 

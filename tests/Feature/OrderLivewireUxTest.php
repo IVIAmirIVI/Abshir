@@ -3,10 +3,13 @@
 namespace Tests\Feature;
 
 use App\Enums\CaptainOperationalStatus;
+use App\Enums\OrderCancellationClassification;
+use App\Enums\OrderCancellationReason;
 use App\Enums\OrderCaptainRole;
 use App\Livewire\Orders\AddShop;
 use App\Livewire\Orders\CaptainAssignments;
 use App\Livewire\Orders\CreateOrder;
+use App\Livewire\Orders\NextAction;
 use App\Livewire\Orders\OrderShopItems;
 use App\Models\Area;
 use App\Models\Branch;
@@ -22,8 +25,14 @@ use App\Models\ShopType;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\DeliveryPricingRuleService;
+use App\Services\DeliveryPricingSettings;
+use App\Services\InvoiceService;
+use App\Services\OrderCancellationIntentService;
+use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryOriginService;
+use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderItemService;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
 use Database\Seeders\AuthorizationSeeder;
@@ -38,6 +47,109 @@ class OrderLivewireUxTest extends TestCase
     use RefreshDatabase;
 
     private static int $contextSequence = 0;
+
+    public function test_next_action_uses_current_state_and_permission_before_suggesting_mutations(): void
+    {
+        $c = $this->context();
+        $component = Livewire::actingAs($c['actor'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'shop')->assertSee(__('orders.next_steps.shop'))
+            ->assertViewHas('canTransition', true)->assertSee('name="operational_status"', false);
+        $shop = app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
+        $component->dispatch('order-updated')->assertViewHas('step', 'products');
+        $viewerRole = Role::create(['code' => 'NEXT_VIEWER', 'name' => 'Read only']);
+        $viewerRole->permissions()->attach(Permission::where('code', 'orders.view')->sole());
+        $viewer = User::factory()->create();
+        $viewer->roles()->attach($viewerRole);
+        $viewer->branches()->attach($c['branch']);
+        Livewire::actingAs($viewer)->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'waiting')->assertDontSee(__('orders.next_steps.products'));
+
+        app(OrderCancellationService::class)->cancel($c['actor'], $c['order'], OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, null);
+        Livewire::actingAs($c['actor'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'cancelled')->assertDontSee('name="operational_status"', false);
+        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertDontSee('wire:submit="add"', false)->assertDontSee('wire:submit="assign"', false)
+            ->assertDontSee(route('orders.shops.progress', [$c['order'], $shop]), false)
+            ->assertDontSee(route('orders.invoices.store', $c['order']), false);
+        $this->assertSame('CANCELLED', $c['order']->statusHistory()->reorder()->latest('id')->first()->new_status->value);
+    }
+
+    public function test_cancellation_intent_prioritizes_returns_and_hides_normal_mutation_controls(): void
+    {
+        $c = $this->context();
+        $shop = app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
+        $captain = $this->captain($c['branch'], 'كابتن الإلغاء');
+        $assignment = app(OrderCaptainService::class)->assign($c['actor'], $c['order'], $captain, OrderCaptainRole::PrimaryCollection);
+        $shop->purchaseConfirmation()->create([
+            'order_id' => $c['order']->id, 'order_captain_id' => $assignment->id, 'branch_id' => $c['branch']->id,
+            'currency_id' => $c['currency']->id, 'recorded_by' => $c['actor']->id, 'purchased_at' => now(),
+            'amount' => '10', 'request_key' => (string) Str::uuid(), 'evidence_path' => 'test/'.Str::uuid().'.png',
+            'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png', 'evidence_size' => 1, 'evidence_sha256' => str_repeat('a', 64),
+        ]);
+        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()->assertDontSee(__('orders.ui_returns'))->assertSee(__('orders.ui_purchase_progress'));
+        app(OrderCancellationIntentService::class)->create($c['actor'], $c['order'], OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+        Livewire::actingAs($c['actor'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'cancellation')->assertDontSee('name="operational_status"', false);
+        $this->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_returns'));
+        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertDontSee('wire:submit="add"', false)->assertDontSee('wire:submit="assign"', false)
+            ->assertDontSee('wire:click="remove(', false)
+            ->assertDontSee(route('orders.shops.progress', [$c['order'], $shop]), false);
+    }
+
+    public function test_next_action_skips_completed_prerequisites_and_keeps_issued_evidence_accessible(): void
+    {
+        $c = $this->context();
+        $shop = app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
+        $unit = Unit::create(['name' => 'قطعة متابعة', 'code' => 'NEXT_UNIT', 'symbol' => 'ق', 'allows_decimal' => false]);
+        $item = app(OrderItemService::class)->add($c['actor'], $c['order'], $shop, ['item_type' => 'ONE_TIME_ITEM', 'item_name' => 'منتج متابعة', 'unit_id' => $unit->id, 'quantity' => '1']);
+        $component = Livewire::actingAs($c['actor'])->test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'captain_unavailable');
+        $captain = $this->captain($c['branch'], 'كابتن متابعة');
+        $component->dispatch('order-updated')->assertViewHas('step', 'captain');
+        $assignment = app(OrderCaptainService::class)->assign($c['actor'], $c['order'], $captain, OrderCaptainRole::PrimaryCollection);
+        $component->dispatch('order-updated')->assertViewHas('step', 'purchase');
+        $shop->purchaseConfirmation()->create([
+            'order_id' => $c['order']->id, 'order_captain_id' => $assignment->id, 'branch_id' => $c['branch']->id,
+            'currency_id' => $c['currency']->id, 'recorded_by' => $c['actor']->id, 'purchased_at' => now(),
+            'amount' => '10', 'request_key' => (string) Str::uuid(), 'evidence_path' => 'test/'.Str::uuid().'.png',
+            'evidence_name' => 'proof.png', 'evidence_mime' => 'image/png', 'evidence_size' => 1, 'evidence_sha256' => str_repeat('a', 64),
+        ]);
+        $component->dispatch('order-updated')->assertViewHas('step', 'pricing_unavailable');
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        app(DeliveryPricingRuleService::class)->create($admin, [
+            'from_area_id' => $c['area']->id, 'to_area_id' => $c['area']->id, 'currency_id' => $c['currency']->id,
+            'order_pricing_class' => 'SINGLE_SHOP', 'delivery_unit_fee' => '5', 'effective_from' => now()->subDay(),
+        ]);
+        app(DeliveryPricingSettings::class)->update($admin, '65', '0');
+        $component->dispatch('order-updated')->assertViewHas('step', 'pricing');
+        $pricing = app(OrderDeliveryPricingService::class);
+        $pricing->price($c['actor'], $c['order'], $c['area']);
+        $component->dispatch('order-updated')->assertViewHas('step', 'actual_prices');
+        app(OrderItemService::class)->confirmActual($c['actor'], $c['order'], $shop, $item, [
+            'actual_unit_price' => '10', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice');
+        $invoices = app(InvoiceService::class);
+        $invoice = $invoices->createDraft($c['actor'], $c['order']);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_refresh');
+        $invoice = $invoices->refresh($c['actor'], $c['order'], $invoice);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_issue');
+        $pricing->price($c['actor'], $c['order'], $c['area']);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_refresh');
+        $invoice = $invoices->refresh($c['actor'], $c['order'], $invoice);
+        $invoices->issue($c['actor'], $c['order'], $invoice);
+        $component->dispatch('order-updated')->assertViewHas('step', 'evidence')
+            ->assertDontSee(__('orders.next_steps.purchase'))->assertDontSee(__('orders.next_steps.actual_prices'));
+        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertSee($item->product_name_snapshot)
+            ->assertSee(route('orders.shops.progress', [$c['order'], $shop]), false)
+            ->assertDontSee('wire:submit="add"', false)->assertDontSee('wire:submit="assign"', false)
+            ->assertDontSee('wire:click="removeItem(', false)->assertDontSee('wire:click="removeShop"', false)
+            ->assertDontSee('wire:click="remove(', false)->assertDontSee('wire:submit="switchPrimary"', false)
+            ->assertDontSee(route('orders.items.actual', [$c['order'], $shop, $item]), false)
+            ->assertDontSee(route('orders.items.change', [$c['order'], $shop, $item]), false);
+    }
 
     private function context(): array
     {
@@ -330,11 +442,11 @@ class OrderLivewireUxTest extends TestCase
         Livewire::actingAs($c['actor'])->test(CreateOrder::class)
             ->set('customerSearch', 'أمير')
             ->assertSee('أمير الحموي')->assertDontSee('أمير مخفي')
-            ->call('selectFirstCustomer')->assertSet('customerId', (string) $c['customer']->id)
+            ->call('selectSoleCustomer', 'أمير')->assertSet('customerId', (string) $c['customer']->id)
             ->set('customerSearch', '955000')
             ->assertSee('أمير الحموي')->assertDontSee('أمير مخفي')
-            ->call('selectFirstCustomer')->assertSet('customerId', (string) $c['customer']->id)
-            ->assertSee('x-on:keydown.enter.prevent', false);
+            ->call('selectSoleCustomer', '955000')->assertSet('customerId', (string) $c['customer']->id)
+            ->assertDontSee('wire:model.live.debounce.250ms="customerSearch"', false);
     }
 
     public function test_inline_customer_creation_uses_existing_services_preserves_state_and_requires_permission(): void
@@ -343,13 +455,14 @@ class OrderLivewireUxTest extends TestCase
         $initialCount = Customer::query()->count();
         $component = Livewire::actingAs($c['actor'])->test(CreateOrder::class)
             ->set('source', 'PHONE')->call('toggleCustomerCreate')
+            ->assertSee('role="dialog"', false)->assertSee('aria-modal="true"', false)
             ->set('newCustomerName', 'زبون من الطلب')->set('newCustomerPhone', $c['phone']->phone)
             ->set('newCustomerAddress', 'عنوان الزبون الجديد')->set('newCustomerAreaId', (string) $c['area']->id)
             ->call('createCustomer')->assertHasErrors('newCustomerPhone');
         $this->assertSame($initialCount, Customer::query()->count());
 
         $component->set('newCustomerDuplicateAcknowledged', true)->call('createCustomer')->assertHasNoErrors()
-            ->assertSet('source', 'PHONE')->assertSet('showCustomerCreate', false);
+            ->assertSet('source', 'PHONE')->assertSet('showCustomerCreate', false)->assertDontSee('role="dialog"', false);
         $created = Customer::where('name', 'زبون من الطلب')->sole();
         $component->assertSet('customerId', (string) $created->id)
             ->assertSet('customerPhoneId', (string) $created->phones()->sole()->id)
@@ -453,6 +566,25 @@ class OrderLivewireUxTest extends TestCase
         $c['shop']->update(['area_id' => $origin->id]);
         $registered = app(OrderShopService::class)->add($c['actor'], $registeredOrder, ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
         $this->assertSame($origin->id, $registered->origin_area_id);
+    }
+
+    public function test_operational_transition_is_available_before_preparation_but_respects_real_prerequisites(): void
+    {
+        $c = $this->context();
+        Livewire::actingAs($c['actor'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'shop')->assertViewHas('canTransition', true)
+            ->assertSee(route('orders.status', $c['order']), false)->assertSee('value="CONFIRMED"', false);
+        $this->actingAs($c['actor'])->patch(route('orders.status', $c['order']), ['operational_status' => 'HEADING_TO_SHOPS'])
+            ->assertSessionHasErrors('operational_status');
+        $this->patch(route('orders.status', $c['order']), ['operational_status' => 'CONFIRMED'])->assertSessionHasNoErrors();
+        Livewire::test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'shop')
+            ->assertViewHas('canTransition', false)->assertDontSee('name="operational_status"', false);
+        $this->patch(route('orders.status', $c['order']), ['operational_status' => 'CAPTAIN_ASSIGNED'])->assertSessionHasErrors('operational_status');
+        app(OrderCaptainService::class)->assign($c['actor'], $c['order'], $this->captain($c['branch'], 'كابتن الانتقال'), OrderCaptainRole::PrimaryCollection);
+        Livewire::test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'shop')
+            ->assertViewHas('canTransition', true)->assertSee('value="CAPTAIN_ASSIGNED"', false);
+        $this->patch(route('orders.status', $c['order']), ['operational_status' => 'CAPTAIN_ASSIGNED'])->assertSessionHasNoErrors();
+        $this->assertSame('CAPTAIN_ASSIGNED', $c['order']->fresh()->operational_status->value);
     }
 
     private function captain(Branch $branch, string $name): Captain

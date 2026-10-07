@@ -225,10 +225,10 @@ class OrderDeliveryPricingService
         DB::transaction(function () use ($actor, $request, $approve, $resolutionReason): void {
             $order = Order::query()->lockForUpdate()->findOrFail($request->order_id);
             $request = DeliveryFeeOverrideRequest::query()->lockForUpdate()->findOrFail($request->id);
+            $this->access($actor, $order);
             if ($request->status !== DeliveryOverrideStatus::Pending) {
                 throw ValidationException::withMessages(['override' => __('domain.this_override_request_is_already_resolved')]);
             }
-            $this->access($actor, $order);
             $this->mutationGuard->assertMutableLocked($order);
             if ($approve) {
                 if ($request->order_pricing_class_snapshot !== $order->pricing_class) {

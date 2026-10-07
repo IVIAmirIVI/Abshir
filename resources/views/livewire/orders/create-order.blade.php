@@ -1,4 +1,4 @@
-<form wire:submit="submit" class="space-y-6" novalidate>
+<form wire:submit="submit" data-order-create-select2 class="space-y-6" novalidate>
     <x-input-error :messages="$errors->all()" role="alert" />
     @if(session('order-create-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-create-status') }}</p>@endif
     <div class="rounded-xl border border-brand-primary/10 bg-white p-4 shadow-sm sm:p-6">
@@ -23,11 +23,11 @@
 
             <label class="block">
                 <span class="text-sm font-medium">{{ __('common.terms.customer') }}</span>
-                <input type="search" wire:model.live.debounce.250ms="customerSearch" x-on:keydown.enter.prevent="$wire.selectFirstCustomer()" placeholder="{{ __('orders.ui_search_customer') }}" class="mt-1 block w-full rounded-lg border-gray-300" autocomplete="off">
                 <select name="customer_id" wire:model.live="customerId" @class(['mt-1 block w-full rounded-lg shadow-sm', 'border-red-500 ring-red-200' => $errors->has('customerId'), 'border-gray-300' => ! $errors->has('customerId')])>
                     <option value="">{{ __('orders.ui_choose_customer') }}</option>
-                    @foreach($this->customers as $customer)<option value="{{ $customer->id }}">{{ $customer->name }}</option>@endforeach
+                    @foreach($this->customers as $customer)<option value="{{ $customer->id }}">{{ $customer->name }}@if($phone = $customer->phones->sortByDesc('is_primary')->first()) — {{ "\u{2066}".$phone->phone."\u{2069}" }}@endif @if($address = $customer->addresses->first()) — {{ $address->area->name }} · {{ $address->address_line_1 }}@endif</option>@endforeach
                 </select>
+                <p class="mt-1 text-xs text-gray-600">{{ __('orders.ui_search_selection_hint') }}</p>
                 <x-input-error :messages="$errors->get('customerId')" class="mt-1" />
                 @can('customers.create')<button type="button" wire:click="toggleCustomerCreate" class="mt-2 text-sm font-semibold text-brand-primary hover:underline">{{ __('orders.ui_add_new_customer') }}</button>@endcan
             </label>
@@ -65,14 +65,19 @@
 
         @if($showCustomerCreate)
             @can('customers.create')
-                <div class="mt-5 grid gap-4 rounded-lg border border-orange-200 bg-orange-50/50 p-4 sm:grid-cols-2">
-                    <h4 class="font-semibold text-brand-primary sm:col-span-2">{{ __('orders.ui_add_new_customer') }}</h4>
+                <div wire:key="create-customer-modal" role="dialog" aria-modal="true" aria-labelledby="create-customer-title" data-customer-create-modal x-data x-trap.inert.noscroll="true" x-on:keydown.escape.stop="$wire.closeCustomerCreate()" x-on:keydown.enter="if ($event.target.matches('input:not(.select2-search__field)')) { $event.preventDefault(); $wire.createCustomer(); }" class="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6">
+                    <button type="button" wire:click="closeCustomerCreate" class="fixed inset-0 bg-gray-900/50" tabindex="-1" aria-label="{{ __('common.actions.cancel') }}"></button>
+                    <div class="relative mx-auto w-full max-w-2xl rounded-xl bg-white p-5 shadow-xl sm:p-6">
+                        <div class="mb-5 flex items-center justify-between gap-3"><h4 id="create-customer-title" class="text-lg font-semibold text-brand-primary">{{ __('orders.ui_add_new_customer') }}</h4><button type="button" wire:click="closeCustomerCreate" class="rounded px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">{{ __('common.actions.cancel') }}</button></div>
+                        <div class="grid gap-4 sm:grid-cols-2">
                     <label><span class="text-sm font-medium">{{ __('common.fields.name') }}</span><input wire:model="newCustomerName" dir="auto" class="mt-1 block w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('newCustomerName')" /></label>
                     <label><span class="text-sm font-medium">{{ __('orders.ui_customer_phone') }}</span><input wire:model="newCustomerPhone" dir="ltr" class="mt-1 block w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('newCustomerPhone')" /></label>
                     <label><span class="text-sm font-medium">{{ __('orders.ui_delivery_address') }}</span><input wire:model="newCustomerAddress" dir="auto" class="mt-1 block w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('newCustomerAddress')" /></label>
                     <label><span class="text-sm font-medium">{{ __('common.terms.area') }}</span>@if($this->areas->count() === 1)<input type="hidden" wire:model="newCustomerAreaId"><p class="mt-1 rounded-lg bg-white p-3">{{ $this->areas->sole()->path() }}</p>@else<select wire:model="newCustomerAreaId" class="mt-1 block w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_area') }}</option>@foreach($this->areas as $area)<option value="{{ $area->id }}">{{ $area->path() }}</option>@endforeach</select>@endif<x-input-error :messages="$errors->get('newCustomerAreaId')" /></label>
                     <label class="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" wire:model="newCustomerDuplicateAcknowledged" class="mt-1 rounded border-gray-300"><span>{{ __('orders.ui_acknowledge_duplicate_phone') }}</span></label>
                     <div class="sm:col-span-2"><x-primary-button type="button" wire:click="createCustomer" wire:loading.attr="disabled" wire:target="createCustomer">{{ __('orders.ui_create_and_select_customer') }}</x-primary-button></div>
+                        </div>
+                    </div>
                 </div>
             @endcan
         @endif

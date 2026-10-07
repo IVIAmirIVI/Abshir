@@ -24,6 +24,7 @@ use Livewire\Component;
 class CreateOrder extends Component
 {
     use MapsDomainErrors;
+    use SelectsSoleSearchMatch;
 
     public string $branchId = '';
 
@@ -74,13 +75,53 @@ class CreateOrder extends Component
     #[Computed]
     public function customers(): Collection
     {
-        $search = trim($this->customerSearch);
+        $customers = $this->customerQuery(true)->get();
+        if ($this->customerId !== '' && ! $customers->contains('id', $this->customerId)) {
+            if ($selected = $this->customerQuery(true)->whereKey($this->customerId)->first()) {
+                $customers->push($selected);
+            }
+        }
+
+        return $customers;
+    }
+
+    #[Computed]
+    public function customerMatches(): Collection
+    {
+        return $this->customerQuery(false)->get();
+    }
+
+    public function searchCustomers(string $search): array
+    {
+        Gate::authorize('orders.create');
+        $this->skipRender();
+
+        return $this->customerQuery(false, $search)->get()->map(function (Customer $customer): array {
+            $label = $customer->name;
+            if ($phone = $customer->phones->sortByDesc('is_primary')->first()) {
+                $label .= ' — '."\u{2066}".$phone->phone."\u{2069}";
+            }
+            if ($address = $customer->addresses->first()) {
+                $label .= ' — '.$address->area->name.' · '.$address->address_line_1;
+            }
+
+            return ['id' => (string) $customer->id, 'text' => $label];
+        })->all();
+    }
+
+    private function customerQuery(bool $includeSelected, ?string $search = null): Builder
+    {
+        $search = trim($search ?? $this->customerSearch);
 
         return Customer::query()->accessibleTo(auth()->user())->where('is_active', true)
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $matches) => $matches
                 ->search($search, app(PhoneNormalizer::class))
-                ->when($this->customerId !== '', fn (Builder $selected) => $selected->orWhereKey($this->customerId))))
-            ->with('phones')->orderBy('name')->limit(50)->get();
+                ->when($includeSelected && $this->customerId !== '', fn (Builder $selected) => $selected->orWhereKey($this->customerId))))
+            ->with(['phones', 'addresses' => fn ($addresses) => $addresses->where('is_active', true)
+                ->whereHas('area', fn (Builder $areas) => $areas->accessibleTo(auth()->user())
+                    ->when($this->branchId !== '', fn (Builder $branches) => $branches->where('branch_id', $this->branchId)))
+                ->with('area')->orderByDesc('is_primary')->orderBy('id')->limit(1)])
+            ->orderBy('name')->limit(50);
     }
 
     #[Computed]
@@ -140,31 +181,42 @@ class CreateOrder extends Component
 
     public function updatedCustomerSearch(): void
     {
-        unset($this->customers);
+        unset($this->customers, $this->customerMatches);
     }
 
-    public function selectFirstCustomer(): void
+    public function selectSoleCustomer(string $query): void
     {
-        if ($customer = $this->customers->first()) {
-            $this->selectCustomer($customer->id);
-        }
+        Gate::authorize('orders.create');
+        $this->selectSoleSearchMatch($query, 'customerSearch', 'customerMatches', $this->selectCustomer(...));
     }
 
     public function selectCustomer(int $customerId): void
     {
+        Gate::authorize('orders.create');
         $customer = Customer::query()->accessibleTo(auth()->user())->where('is_active', true)->findOrFail($customerId);
+        $changed = $this->customerId !== (string) $customer->id;
         $this->customerId = (string) $customer->id;
         $this->customerSearch = $customer->name;
-        unset($this->customers);
-        $this->updatedCustomerId();
+        unset($this->customers, $this->customerMatches);
+        if ($changed) {
+            $this->updatedCustomerId();
+        }
     }
 
     public function toggleCustomerCreate(): void
     {
+        Gate::authorize('orders.create');
+        Gate::authorize('customers.create');
         $this->showCustomerCreate = ! $this->showCustomerCreate;
         if ($this->showCustomerCreate) {
             $this->selectSingleNewCustomerArea();
         }
+    }
+
+    public function closeCustomerCreate(): void
+    {
+        $this->showCustomerCreate = false;
+        $this->resetValidation(['newCustomerName', 'newCustomerPhone', 'newCustomerAddress', 'newCustomerAreaId', 'newCustomerDuplicateAcknowledged']);
     }
 
     public function createCustomer(CustomerService $customers, CustomerPhoneService $phones, CustomerAddressService $addresses): void

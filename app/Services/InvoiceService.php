@@ -182,11 +182,20 @@ class InvoiceService
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
     }
 
-    private function assertNotCancelled(Order $order): void
+    public function mutationProblem(Order $order): ?string
     {
         if ($order->operational_status === OrderOperationalStatus::Cancelled
             || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())) {
-            throw ValidationException::withMessages(['invoice' => __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices')]);
+            return __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices');
+        }
+
+        return null;
+    }
+
+    private function assertNotCancelled(Order $order): void
+    {
+        if ($problem = $this->mutationProblem($order)) {
+            throw ValidationException::withMessages(['invoice' => $problem]);
         }
     }
 

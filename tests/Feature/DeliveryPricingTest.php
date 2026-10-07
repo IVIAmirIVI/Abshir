@@ -19,6 +19,7 @@ use App\Models\DeliveryPricingRule;
 use App\Models\DeliveryPricingUserLimit;
 use App\Models\Order;
 use App\Models\OrderCaptain;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Shop;
 use App\Models\ShopType;
@@ -780,6 +781,52 @@ class DeliveryPricingTest extends TestCase
         $this->actingAs($c['admin'])->post(route('orders.delivery-pricing.discount', $c['order']), ['discount_amount' => '10', 'reason' => 'Super Admin correction'])->assertRedirect();
         $this->assertSame($before + 1, $c['order']->deliveryPricings()->count());
         $this->assertSame('10.0000', $c['order']->currentDeliveryPricing()->first()->discount_amount);
+    }
+
+    public function test_override_approval_list_and_pending_count_share_authorized_order_branch_scope(): void
+    {
+        $c = $this->context();
+        $this->rule($c);
+        $this->configure($c, '65', '0');
+        app(OrderCaptainService::class)->assign($c['employee'], $c['order'], $this->captain($c), OrderCaptainRole::PrimaryCollection);
+        $service = app(OrderDeliveryPricingService::class);
+        $own = $service->requestOverride($c['employee'], $c['order'], $c['from'], '150', 'OWN_BRANCH_REQUEST');
+
+        $foreignBranch = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        $foreignArea = Area::factory()->for($foreignBranch)->create();
+        $address = $c['customer']->addresses()->create(['area_id' => $foreignArea->id, 'address_line_1' => 'Foreign']);
+        $c['employee']->branches()->attach($foreignBranch);
+        $foreignOrder = app(OrderService::class)->create($c['employee'], [
+            'branch_id' => $foreignBranch->id, 'customer_id' => $c['customer']->id,
+            'customer_phone_id' => $c['customer']->phones()->sole()->id, 'customer_address_id' => $address->id,
+            'source' => 'MANUAL', 'entry_mode' => 'LIVE',
+        ]);
+        app(OrderShopService::class)->add($c['employee'], $foreignOrder, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Hidden Shop', 'origin_area_id' => $foreignArea->id]);
+        $foreignContext = array_replace($c, ['branch' => $foreignBranch, 'order' => $foreignOrder]);
+        app(OrderCaptainService::class)->assign($c['employee'], $foreignOrder, $this->captain($foreignContext), OrderCaptainRole::PrimaryCollection);
+        $this->rule($c, '200', $foreignArea, $foreignArea);
+        $foreign = $service->requestOverride($c['employee'], $foreignOrder->fresh(), $foreignArea, '150', 'FOREIGN_BRANCH_SECRET');
+        $c['employee']->branches()->detach($foreignBranch);
+        $approverRole = Role::create(['code' => 'SCOPED_APPROVER', 'name' => 'Scoped approver']);
+        $approverRole->permissions()->attach(Permission::where('code', 'delivery_pricing_overrides.approve')->sole());
+        $c['employee']->roles()->attach($approverRole);
+
+        $this->actingAs($c['employee']->fresh())->get(route('delivery-overrides.index'))->assertOk()
+            ->assertViewHas('pendingCount', 1)
+            ->assertViewHas('requests', fn ($requests) => $requests->pluck('id')->all() === [$own->id])
+            ->assertSee('OWN_BRANCH_REQUEST')->assertDontSee('FOREIGN_BRANCH_SECRET')
+            ->assertDontSee($foreignOrder->order_number);
+        foreach (['approve', 'reject'] as $decision) {
+            $this->patch(route('delivery-overrides.resolve', $foreign), ['decision' => $decision, 'resolution_reason' => 'Tampered'])->assertForbidden();
+        }
+        $this->assertSame(DeliveryOverrideStatus::Pending, $foreign->fresh()->status);
+        $this->actingAs($c['admin'])->get(route('delivery-overrides.index'))->assertOk()
+            ->assertViewHas('pendingCount', 2)
+            ->assertViewHas('requests', fn ($requests) => $requests->total() === 2)
+            ->assertSee('OWN_BRANCH_REQUEST')->assertSee('FOREIGN_BRANCH_SECRET');
+        $service->resolveOverride($c['admin'], $foreign, false, 'Admin rejection');
+        $this->assertSame(DeliveryOverrideStatus::Rejected, $foreign->fresh()->status);
+        $this->actingAs($c['employee']->fresh())->patch(route('delivery-overrides.resolve', $foreign), ['decision' => 'approve'])->assertForbidden();
     }
 
     public function test_override_threshold_pending_approval_and_double_resolution(): void

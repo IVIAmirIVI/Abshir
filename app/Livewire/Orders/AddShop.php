@@ -8,11 +8,13 @@ use App\Models\Area;
 use App\Models\Order;
 use App\Models\Shop;
 use App\Models\ShopType;
+use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
 use App\Services\ShopService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +25,7 @@ use Livewire\Component;
 class AddShop extends Component
 {
     use MapsDomainErrors;
+    use SelectsSoleSearchMatch;
 
     #[Locked]
     public Order $order;
@@ -65,14 +68,26 @@ class AddShop extends Component
     #[Computed]
     public function shops(): Collection
     {
+        return $this->shopQuery(true)->get();
+    }
+
+    #[Computed]
+    public function shopMatches(): Collection
+    {
+        return $this->shopQuery(false)->get();
+    }
+
+    private function shopQuery(bool $includeSelected): Builder
+    {
         return Shop::query()->with(['type', 'area'])->accessibleTo(auth()->user())->where('is_active', true)
             ->where(function (Builder $query): void {
                 $query->whereHas('area', fn (Builder $areas) => $areas->where('branch_id', $this->order->branch_id));
                 if (auth()->user()->isSuperAdmin()) {
                     $query->orWhereNull('area_id');
                 }
-            })->when(trim($this->shopSearch) !== '', fn (Builder $query) => $query->search($this->shopSearch))
-            ->orderBy('name')->limit(50)->get();
+            })->when(trim($this->shopSearch) !== '', fn (Builder $query) => $query->where(fn (Builder $matches) => $matches
+            ->search($this->shopSearch)->when($includeSelected && $this->shopId !== '', fn (Builder $selected) => $selected->orWhereKey($this->shopId))))
+            ->orderBy('name')->limit(50);
     }
 
     #[Computed]
@@ -115,12 +130,30 @@ class AddShop extends Component
 
     public function updatedShopSearch(): void
     {
-        unset($this->shops);
+        unset($this->shops, $this->shopMatches);
+    }
+
+    public function selectSoleShop(string $query): void
+    {
+        app(OrderService::class)->assertAccess(auth()->user(), $this->order);
+        Gate::authorize('orders.update');
+        if ($this->shopType === OrderShopType::Registered->value) {
+            $this->selectSoleSearchMatch($query, 'shopSearch', 'shopMatches', $this->selectShop(...));
+        }
+    }
+
+    public function selectShop(int $shopId): void
+    {
+        app(OrderService::class)->assertAccess(auth()->user(), $this->order);
+        Gate::authorize('orders.update');
+        $shop = $this->shopQuery(false)->findOrFail($shopId);
+        $this->shopId = (string) $shop->id;
     }
 
     public function createPermanentShop(ShopService $shops, OrderService $orders): void
     {
         $orders->assertAccess(auth()->user(), $this->order);
+        Gate::authorize('orders.update');
         Gate::authorize('shops.create');
         $data = $this->validate([
             'newShopName' => ['required', 'string', 'max:255'],
@@ -131,16 +164,21 @@ class AddShop extends Component
         ]);
         Area::query()->accessibleTo(auth()->user())->where('branch_id', $this->order->branch_id)
             ->where('is_active', true)->findOrFail($data['newShopAreaId']);
-        $shop = $this->domainAction(fn () => $shops->save(auth()->user(), new Shop, [
-            'name' => $data['newShopName'], 'shop_type_id' => $data['newShopTypeId'] ?: null,
-            'area_id' => $data['newShopAreaId'], 'phone' => $data['newShopPhone'] ?: null,
-            'address' => $data['newShopAddress'] ?: null, 'is_mobile_visible' => false,
-            'accepts_online_orders' => false,
-        ]), ['area_id' => 'newShopAreaId', 'shop_type_id' => 'newShopTypeId', 'name' => 'newShopName']);
+        $shop = $this->domainAction(fn () => DB::transaction(function () use ($shops, $data): Shop {
+            $order = Order::query()->lockForUpdate()->findOrFail($this->order->id);
+            app(OrderMutationGuard::class)->assertMutableLocked($order);
+
+            return $shops->save(auth()->user(), new Shop, [
+                'name' => $data['newShopName'], 'shop_type_id' => $data['newShopTypeId'] ?: null,
+                'area_id' => $data['newShopAreaId'], 'phone' => $data['newShopPhone'] ?: null,
+                'address' => $data['newShopAddress'] ?: null, 'is_mobile_visible' => false,
+                'accepts_online_orders' => false,
+            ]);
+        }), ['area_id' => 'newShopAreaId', 'shop_type_id' => 'newShopTypeId', 'name' => 'newShopName']);
         $this->shopType = OrderShopType::Registered->value;
         $this->shopId = (string) $shop->id;
         $this->shopSearch = $shop->name;
-        unset($this->shops);
+        unset($this->shops, $this->shopMatches);
         $this->reset('newShopName', 'newShopTypeId', 'newShopAreaId', 'newShopPhone', 'newShopAddress');
         session()->flash('order-action-status', __('orders.flash.permanent_shop_created'));
     }
@@ -222,6 +260,8 @@ class AddShop extends Component
         app(OrderService::class)->assertAccess(auth()->user(), $this->order);
         Gate::authorize('orders.update');
 
-        return view('livewire.orders.add-shop');
+        $orderMutable = ! app(OrderMutationGuard::class)->isPricingFrozen($this->order->fresh());
+
+        return view('livewire.orders.add-shop', compact('orderMutable'));
     }
 }

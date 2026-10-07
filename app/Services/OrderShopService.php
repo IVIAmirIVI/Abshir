@@ -87,19 +87,28 @@ class OrderShopService
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
             $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
-            if ($orderShop->items()->exists()) {
-                throw ValidationException::withMessages(['shop' => __('domain.remove_the_shop_items_before_removing_the_shop')]);
-            }
-            if ($orderShop->purchaseConfirmation()->exists() || $orderShop->receipts()->exists() || $orderShop->shopReturn()->exists()
-                || $orderShop->contacted_at || $orderShop->confirmed_at || $orderShop->ready_at || $orderShop->picked_up_at) {
-                throw ValidationException::withMessages(['shop' => __('domain.a_shop_with_operational_or_purchase_history_cannot_be_removed')]);
-            }
-            if ($order->invoices()->exists()) {
-                throw ValidationException::withMessages(['shop' => __('domain.an_order_shop_cannot_be_removed_after_invoice_history_exists')]);
+            if ($reason = $this->removalBlockReason($order, $orderShop)) {
+                throw ValidationException::withMessages(['shop' => $reason]);
             }
             $orderShop->delete();
             $this->classifications->recalculateLocked($order);
         });
+    }
+
+    public function removalBlockReason(Order $order, OrderShop $orderShop): ?string
+    {
+        if ($orderShop->items()->exists()) {
+            return __('domain.remove_the_shop_items_before_removing_the_shop');
+        }
+        if ($orderShop->purchaseConfirmation()->exists() || $orderShop->receipts()->exists() || $orderShop->shopReturn()->exists()
+            || $orderShop->contacted_at || $orderShop->confirmed_at || $orderShop->ready_at || $orderShop->picked_up_at) {
+            return __('domain.a_shop_with_operational_or_purchase_history_cannot_be_removed');
+        }
+        if ($order->invoices()->exists()) {
+            return __('domain.an_order_shop_cannot_be_removed_after_invoice_history_exists');
+        }
+
+        return null;
     }
 
     public function classifyLegacy(User $actor, Order $order, OrderShop $orderShop, string $classification): OrderShop

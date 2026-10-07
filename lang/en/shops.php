@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'ui_no_active_types' => 'No active Shop types are configured; type selection is optional.',
+    'ui_manage_types' => 'Add a Shop type',
     'ui_ends' => 'Ends:',
     'ui_open' => 'Open',
     'ui_starts_at' => 'Starts at',

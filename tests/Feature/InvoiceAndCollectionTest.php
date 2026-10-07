@@ -17,6 +17,8 @@ use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderPricingClass;
 use App\Enums\OrderShopType;
 use App\Enums\ShopBusinessClassification;
+use App\Livewire\Orders\NextAction;
+use App\Livewire\Orders\OrderShopItems;
 use App\Models\Area;
 use App\Models\Branch;
 use App\Models\Captain;
@@ -26,8 +28,11 @@ use App\Models\Invoice;
 use App\Models\InvoiceFinancialCorrection;
 use App\Models\OrderItem;
 use App\Models\OrderShop;
+use App\Models\Permission;
 use App\Models\Product;
 use App\Models\Role;
+use App\Models\Shop;
+use App\Models\ShopProduct;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
@@ -55,6 +60,7 @@ use App\Services\OrderShopReceiptService;
 use App\Services\OrderShopReturnService;
 use App\Services\OrderShopService;
 use App\Services\OrderStatusService;
+use App\Services\ShopProductService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -65,6 +71,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class InvoiceAndCollectionTest extends TestCase
@@ -89,7 +96,7 @@ class InvoiceAndCollectionTest extends TestCase
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
-        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'One-time Shop', 'sort_order' => 1]);
+        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'One-time Shop', 'origin_area_id' => $from->id, 'sort_order' => 1]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         $item = OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Snapshot Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '2.5', 'current_quantity' => '2.5', 'actual_unit_price' => '10.00', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
         app(OrderPricingService::class)->recalculate($order);
@@ -198,13 +205,25 @@ class InvoiceAndCollectionTest extends TestCase
     {
         Storage::fake('order_receipts');
         $context = $this->context();
-        $this->issued($context);
+        $invoice = $this->issued($context);
+        $invoiceBefore = (array) DB::table('invoices')->where('id', $invoice->id)->first();
+        $pricingBefore = (array) DB::table('order_delivery_pricings')->where('id', $invoice->source_order_delivery_pricing_id)->first();
+        $this->actingAs($context['employee'])->get(route('orders.show', $context['order']))->assertOk()
+            ->assertSee(route('orders.shops.progress', [$context['order'], $context['shop']]), false)
+            ->assertSee(route('orders.shops.receipts.store', [$context['order'], $context['shop']]), false)
+            ->assertDontSee('wire:submit="add"', false)
+            ->assertDontSee('wire:submit="assign"', false)
+            ->assertDontSee(route('orders.delivery-pricing.override', $context['order']), false)
+            ->assertDontSee(route('orders.delivery-pricing.discount', $context['order']), false);
         $statuses = app(OrderStatusService::class);
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer] as $status) {
             $statuses->transition($context['employee'], $context['order']->fresh(), $status, null);
         }
 
-        app(OrderShopProgressService::class)->record($context['employee'], $context['order']->fresh(), $context['shop'], 'picked_up_at');
+        $this->patch(route('orders.shops.progress', [$context['order'], $context['shop']]), ['marker' => 'picked_up_at'])->assertRedirect()->assertSessionHasNoErrors();
+        $pickedUpAt = $context['shop']->fresh()->picked_up_at;
+        $this->patch(route('orders.shops.progress', [$context['order'], $context['shop']]), ['marker' => 'picked_up_at'])->assertSessionHasErrors('marker');
+        $this->assertTrue($pickedUpAt->equalTo($context['shop']->fresh()->picked_up_at));
         app(OrderShopReceiptService::class)->upload($context['employee'], $context['order']->fresh(), $context['shop'], UploadedFile::fake()->createWithContent('issued.png', base64_decode(self::PNG)), null);
         try {
             app(OrderShopService::class)->add($context['employee'], $context['order']->fresh(), ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Financial mutation']);
@@ -214,6 +233,13 @@ class InvoiceAndCollectionTest extends TestCase
         }
         $statuses->transition($context['employee'], $context['order']->fresh(), OrderOperationalStatus::Delivered, null);
         $this->assertSame(OrderOperationalStatus::Delivered, $context['order']->fresh()->operational_status);
+        $this->assertEquals($invoiceBefore, (array) DB::table('invoices')->where('id', $invoice->id)->first());
+        $this->assertEquals($pricingBefore, (array) DB::table('order_delivery_pricings')->where('id', $invoice->source_order_delivery_pricing_id)->first());
+        $this->actingAs($context['employee'])->get(route('orders.show', $context['order']))->assertOk()
+            ->assertDontSee(route('orders.shops.progress', [$context['order'], $context['shop']]), false)
+            ->assertDontSee('wire:submit="add"', false)
+            ->assertSee(__('orders.next_steps.completed'));
+        $this->patch(route('orders.shops.progress', [$context['order'], $context['shop']]), ['marker' => 'ready_at'])->assertSessionHasErrors('order');
     }
 
     public function test_ready_invoice_becomes_non_issuable_specifically_because_order_is_cancelled(): void
@@ -238,7 +264,7 @@ class InvoiceAndCollectionTest extends TestCase
         $pricing = $c['order']->currentDeliveryPricing()->firstOrFail();
         $invoice = $this->ready($c);
 
-        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'Second Shop']);
+        app(OrderShopService::class)->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'Second Shop', 'origin_area_id' => $c['from']->id]);
 
         $this->assertSame(OrderPricingClass::MultiShop, $c['order']->fresh()->pricing_class);
         $this->assertNotNull($pricing->fresh()->superseded_at);
@@ -1000,6 +1026,7 @@ class InvoiceAndCollectionTest extends TestCase
 
     public function test_phase_9c3a_corrected_sham_receivable_remains_payable_and_paid_original_blocks_correction(): void
     {
+        $this->useMismatchedCorrectionTimezones();
         Storage::fake(CustomerRefundEvidenceService::DISK);
         Storage::fake('order_receipts');
         Storage::fake('captain_financial_evidence');
@@ -1023,6 +1050,7 @@ class InvoiceAndCollectionTest extends TestCase
         $source = $corrections->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice,
             $proposal, 'Wrong price', 'Correct SHAM price', (string) Str::uuid());
         $prepared = $corrections->prepare($c['admin'], $source);
+        $this->assertCorrectionInstantsMatch($prepared);
         app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
             'SHAM-REFUND', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
         $completed = $corrections->finalize($c['admin'], $prepared);
@@ -1048,6 +1076,7 @@ class InvoiceAndCollectionTest extends TestCase
 
     public function test_phase_9c3a_paid_original_receivable_requires_explicit_captain_recovery(): void
     {
+        $this->useMismatchedCorrectionTimezones();
         Storage::fake('order_receipts');
         Storage::fake('captain_financial_evidence');
         Storage::fake('customer_refunds');
@@ -1081,6 +1110,7 @@ class InvoiceAndCollectionTest extends TestCase
             'Product price correction', 'Captain has already received original amount', (string) Str::uuid());
         // 9C.3B.1 freezes the overpayment instead of rejecting preparation; completion still fails closed.
         $prepared = app(InvoiceFinancialCorrectionService::class)->prepare($c['admin'], $source);
+        $this->assertCorrectionInstantsMatch($prepared);
         $this->assertTrue($prepared->receivableDispositions()->where('recovery_required', '>', 0)->exists());
         app(CustomerRefundService::class)->record($c['admin'], $prepared, (string) Str::uuid(), now(),
             'RECOVERY-PENDING-REFUND', UploadedFile::fake()->createWithContent('refund.png', base64_decode(self::PNG)));
@@ -1226,5 +1256,263 @@ class InvoiceAndCollectionTest extends TestCase
         } catch (ValidationException) {
             $this->addToAssertionCount(1);
         }
+    }
+
+    private function uatEvidence(array $c): void
+    {
+        Storage::fake('order_returns');
+        Storage::fake('order_receipts');
+        $assignment = $c['order']->captainAssignments()->whereNull('removed_at')->sole();
+        app(OrderShopPurchaseConfirmationService::class)->record($c['employee'], $c['order'], $c['shop'], [
+            'order_captain_id' => $assignment->id, 'currency_id' => $c['currency']->id, 'amount' => '25.00',
+            'purchased_at' => now()->subMinute(), 'request_key' => (string) Str::uuid(),
+        ], UploadedFile::fake()->createWithContent('purchase.png', base64_decode(self::PNG)));
+        app(OrderShopProgressService::class)->record($c['employee'], $c['order'], $c['shop'], 'picked_up_at', null);
+        app(OrderShopReceiptService::class)->upload($c['employee'], $c['order'], $c['shop'], UploadedFile::fake()->createWithContent('receipt.png', base64_decode(self::PNG)), null);
+    }
+
+    public function test_uat_collection_availability_and_next_action_agree_before_and_after_delivery(): void
+    {
+        $c = $this->context();
+        $this->uatEvidence($c);
+        $invoice = $this->issued($c);
+        $availability = app(InvoiceCollectionService::class)->availability($c['employee'], $invoice);
+        $this->assertTrue($availability['available']);
+        $component = Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'status')->assertSee(__('financial.ui.record_collection'))
+            ->assertSee(route('orders.invoices.show', [$c['order'], $invoice]).'#invoice-collection', false);
+        $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()
+            ->assertSee(route('invoices.collection.store', $invoice), false);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        $component->dispatch('order-updated')->assertViewHas('step', 'status')->assertDontSee(__('financial.ui.record_collection'));
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
+            $this->patch(route('orders.status', $c['order']), ['operational_status' => $status->value])->assertSessionHasNoErrors();
+        }
+        $component->dispatch('order-updated')->assertViewHas('step', 'completed')->assertDontSee('name="operational_status"', false);
+        $this->assertSame(7, $c['order']->statusHistory()->count());
+        $this->assertSame('DELIVERED', $c['order']->statusHistory()->reorder()->latest('id')->first()->new_status->value);
+        $this->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_operational_history'))
+            ->assertSee(__('orders.ui_history_scope'))->assertSee(__('orders.ui_operational_status_label'))
+            ->assertSee(__('orders.ui_actual_price_status_label'))->assertDontSee(route('orders.shops.progress', [$c['order'], $c['shop']]), false);
+        $this->assertTrue(DB::table('financial_transactions')->where('source_type', 'INVOICE_COLLECTION')->exists());
+    }
+
+    public function test_uat_corrected_current_invoice_is_settled_not_collectible_and_open_order_can_finish(): void
+    {
+        $c = $this->context();
+        $this->uatEvidence($c);
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        $original = $invoice->fresh()->getRawOriginal();
+        $service = app(InvoiceFinancialCorrectionService::class);
+        $correction = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice, [
+            'items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '10']],
+            'delivery' => [['order_captain_id' => $c['order']->captainAssignments()->sole()->id, 'customer_amount' => '5']],
+        ], 'Verified same price', 'Explicit correction, no additional payment', (string) Str::uuid());
+        $correction = $service->finalize($c['admin'], $service->prepare($c['admin'], $correction));
+        $replacement = Invoice::findOrFail($correction->replacement_invoice_id);
+        $this->assertFalse(app(InvoiceCollectionService::class)->availability($c['employee'], $replacement)['available']);
+        $this->assertTrue(app(InvoiceCollectionService::class)->availability($c['employee'], $replacement)['payment_satisfied']);
+        Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'status')->assertDontSee(__('financial.ui.record_collection'))
+            ->assertSee(__('orders.ui_payment_settled_correction'));
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_payment_settled_correction'));
+        $this->get(route('orders.invoices.show', [$c['order'], $replacement]))->assertOk()->assertDontSee(route('invoices.collection.store', $replacement), false);
+        $this->expectValidation(fn () => app(InvoiceCollectionService::class)->record($c['employee'], $replacement, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order'], $status, null);
+        }
+        $this->assertSame('DELIVERED', $c['order']->fresh()->operational_status->value);
+        $this->assertSame($original['grand_total'], $invoice->fresh()->getRawOriginal('grand_total'));
+        $this->assertSame('10.0000', $invoice->items()->sole()->unit_price);
+        $this->assertTrue(DB::table('financial_transactions')->where('source_type', 'INVOICE_FINANCIAL_CORRECTION')->exists());
+    }
+
+    public function test_uat_mutable_authoritative_price_refresh_uses_55_without_catalog_rewriting_snapshots(): void
+    {
+        $c = $this->context();
+        $unit = Unit::create(['name' => 'Piece', 'code' => 'UAT_UNIT']);
+        $product = Product::create(['name' => 'Catalog item', 'default_unit_id' => $unit->id]);
+        $c['item']->update(['product_id' => $product->id, 'item_type' => OrderItemType::Catalog, 'unit_id' => $unit->id]);
+        app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], [
+            'actual_unit_price' => '50', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        $invoice = $this->ready($c);
+        $shop = Shop::create(['name' => 'Catalog Shop', 'area_id' => $c['from']->id]);
+        app(ShopProductService::class)->save($c['admin'], $shop, new ShopProduct, [
+            'product_id' => $product->id, 'unit_id' => $unit->id, 'listed_price' => '55', 'currency_id' => $c['currency']->id,
+            'is_available' => true, 'is_featured' => false,
+        ]);
+        $this->assertSame('50.0000', $c['item']->fresh()->actual_unit_price);
+        $this->assertSame('50.0000', $invoice->items()->sole()->unit_price);
+        app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], [
+            'actual_unit_price' => '55', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        $this->expectValidation(fn () => app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice));
+        $invoice = app(InvoiceService::class)->refresh($c['employee'], $c['order'], $invoice);
+        $this->assertSame('55.0000', $invoice->items()->sole()->unit_price);
+        $this->assertSame('137.5000', $invoice->items_subtotal);
+        $this->assertSame('142.5000', $invoice->grand_total);
+        $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice);
+        $before = $invoice->fresh()->getRawOriginal();
+        $this->expectValidation(fn () => app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], [
+            'actual_unit_price' => '56', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]));
+        $this->assertSame($before, $invoice->fresh()->getRawOriginal());
+    }
+
+    public function test_uat_collection_link_is_hidden_without_actual_collection_permission(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issued($c);
+        $c['employee']->roles()->sole()->permissions()->detach(Permission::where('code', 'invoice_collections.create')->sole());
+        $this->assertFalse(app(InvoiceCollectionService::class)->availability($c['employee'], $invoice)['available']);
+        Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])->assertDontSee(__('financial.ui.record_collection'));
+        $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertDontSee(route('invoices.collection.store', $invoice), false);
+    }
+
+    public function test_uat_next_action_requires_both_action_and_containing_view_permissions(): void
+    {
+        $c = $this->context();
+        $this->uatEvidence($c);
+        $role = Role::create(['code' => 'UX_CUSTOM_ACTION', 'name' => 'Custom action permissions']);
+        $role->permissions()->attach(Permission::whereIn('code', ['orders.view', 'orders.pricing.update'])->pluck('id'));
+        $user = User::factory()->create();
+        $user->roles()->attach($role);
+        $user->branches()->attach($c['branch']);
+        $c['order']->forceFill(['pricing_status' => 'PARTIALLY_CONFIRMED'])->save();
+        Livewire::actingAs($user)->test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'waiting');
+        Livewire::test(OrderShopItems::class, ['order' => $c['order'], 'orderShop' => $c['shop']])->assertForbidden();
+        $role->permissions()->attach(Permission::where('code', 'orders.update')->sole());
+        $this->assertTrue($user->fresh()->can('orders.update'));
+        $this->assertTrue($user->fresh()->can('orders.pricing.update'));
+        $this->assertSame('PARTIALLY_CONFIRMED', $c['order']->fresh()->pricing_status->value);
+        Livewire::actingAs($user->fresh())->test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'actual_prices');
+        $c['order']->forceFill(['pricing_status' => 'CONFIRMED'])->save();
+        $invoice = $this->ready($c);
+        $role->permissions()->sync(Permission::whereIn('code', ['orders.view', 'invoices.create', 'invoices.issue'])->pluck('id'));
+        Livewire::actingAs($user)->test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'waiting');
+        $this->actingAs($user)->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertForbidden();
+        $role->permissions()->attach(Permission::where('code', 'invoices.view')->sole());
+        Livewire::actingAs($user->fresh())->test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'invoice_issue');
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk();
+        app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], [
+            'actual_unit_price' => '11', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        Livewire::test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'invoice_refresh');
+        $role->permissions()->detach(Permission::where('code', 'invoices.view')->sole());
+        Livewire::test(NextAction::class, ['order' => $c['order']])->assertViewHas('step', 'waiting');
+    }
+
+    private function useMismatchedCorrectionTimezones(): void
+    {
+        $original = date_default_timezone_get();
+        config(['app.timezone' => 'UTC']);
+        date_default_timezone_set('UTC');
+        $this->beforeApplicationDestroyed(fn () => date_default_timezone_set($original));
+        DB::statement("SET LOCAL TIME ZONE 'Asia/Damascus'");
+        $this->assertSame('UTC', config('app.timezone'));
+        $this->assertSame('Asia/Damascus', DB::scalar('SHOW TIME ZONE'));
+    }
+
+    private function assertCorrectionInstantsMatch(InvoiceFinancialCorrection $correction): void
+    {
+        $this->assertGreaterThan(0, $correction->receivableDispositions()->count());
+        $this->assertSame(0, (int) DB::scalar('SELECT count(*) FROM invoice_correction_receivable_dispositions d JOIN invoice_financial_corrections c ON c.id=d.invoice_financial_correction_id WHERE c.id=? AND d.captured_at IS DISTINCT FROM c.prepared_at', [$correction->id]));
+        DB::select('SELECT validate_receivable_disposition_set(?)', [$correction->id]);
+        try {
+            DB::transaction(fn () => DB::update("UPDATE invoice_correction_receivable_dispositions SET captured_at=captured_at + interval '1 second' WHERE invoice_financial_correction_id=?", [$correction->id]));
+            $this->fail('A frozen disposition timestamp was changed.');
+        } catch (QueryException $exception) {
+            $this->assertSame('55000', $exception->errorInfo[0]);
+        }
+        DB::select('SELECT validate_receivable_disposition_set(?)', [$correction->id]);
+    }
+
+    public function test_uat_ready_recommendation_uses_full_item_and_pricing_staleness(): void
+    {
+        $c = $this->context();
+        $this->uatEvidence($c);
+        $invoice = $this->ready($c);
+        $component = Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'invoice_issue');
+        app(OrderItemService::class)->confirmActual($c['employee'], $c['order'], $c['shop'], $c['item'], [
+            'actual_unit_price' => '11', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_refresh');
+        $this->expectValidation(fn () => app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice));
+        $invoice = app(InvoiceService::class)->refresh($c['employee'], $c['order'], $invoice);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_issue');
+        app(OrderDeliveryPricingService::class)->price($c['employee'], $c['order'], $c['from']);
+        $component->dispatch('order-updated')->assertViewHas('step', 'invoice_refresh');
+        $this->expectValidation(fn () => app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice));
+        $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], app(InvoiceService::class)->refresh($c['employee'], $c['order'], $invoice));
+        $before = $invoice->getRawOriginal();
+        $component->dispatch('order-updated')->assertViewHas('step', 'status');
+        $this->assertSame($before, $invoice->fresh()->getRawOriginal());
+    }
+
+    public function test_uat_pending_correction_blocks_delivery_assessment_until_explicit_resolution(): void
+    {
+        $c = $this->context();
+        $this->uatEvidence($c);
+        $invoice = $this->issued($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now());
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer] as $status) {
+            app(OrderStatusService::class)->transition($c['employee'], $c['order'], $status, null);
+        }
+        $component = Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])
+            ->assertViewHas('step', 'status')->assertViewHas('canTransition', true);
+        $service = app(InvoiceFinancialCorrectionService::class);
+        $correction = $service->request($c['employee'], $invoice, InvoiceFinancialCorrectionKind::Reprice, [
+            'items' => [['invoice_item_id' => $invoice->items()->sole()->id, 'unit_price' => '10']],
+            'delivery' => [['order_captain_id' => $c['order']->captainAssignments()->sole()->id, 'customer_amount' => '5']],
+        ], 'Check price', 'Review before delivery', (string) Str::uuid());
+        $component->dispatch('order-updated')->assertViewHas('step', 'waiting')->assertViewHas('canTransition', false)
+            ->assertSee(__('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting'))
+            ->assertDontSee('name="operational_status"', false);
+        $this->expectValidation(fn () => app(OrderStatusService::class)->transition($c['employee'], $c['order'], OrderOperationalStatus::Delivered, null));
+        $this->assertSame(InvoiceFinancialCorrectionState::Requested, $correction->fresh()->state);
+        $service->abandon($c['admin'], $correction);
+        $component->dispatch('order-updated')->assertViewHas('step', 'status')->assertViewHas('canTransition', true);
+        app(OrderStatusService::class)->transition($c['employee'], $c['order'], OrderOperationalStatus::Delivered, null);
+        $component->dispatch('order-updated')->assertViewHas('step', 'completed')->assertViewHas('canTransition', false);
+    }
+
+    public function test_uat_invoice_controls_follow_cancellation_eligibility_but_allow_delivered_invoicing(): void
+    {
+        $c = $this->context();
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertSee(route('orders.invoices.store', $c['order']), false);
+        $invoice = $this->ready($c);
+        $page = route('orders.invoices.show', [$c['order'], $invoice]);
+        $this->get($page)->assertOk()->assertSee(route('orders.invoices.issue', [$c['order'], $invoice]), false)
+            ->assertSee(route('orders.invoices.refresh', [$c['order'], $invoice]), false);
+        app(OrderCancellationService::class)->cancel($c['employee'], $c['order'], OrderCancellationClassification::BeforePurchase, OrderCancellationReason::CustomerCancelled, null);
+        $this->get($page)->assertOk()->assertDontSee(route('orders.invoices.issue', [$c['order'], $invoice]), false)
+            ->assertDontSee(route('orders.invoices.refresh', [$c['order'], $invoice]), false);
+        $this->expectValidation(fn () => app(InvoiceService::class)->refresh($c['employee'], $c['order'], $invoice));
+
+        $intent = $this->context('INT');
+        $invoice = $this->ready($intent);
+        $this->uatEvidence($intent);
+        app(OrderCancellationIntentService::class)->create($intent['employee'], $intent['order'], OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
+        $this->actingAs($intent['employee'])->get(route('orders.invoices.show', [$intent['order'], $invoice]))->assertOk()
+            ->assertDontSee(route('orders.invoices.issue', [$intent['order'], $invoice]), false)
+            ->assertDontSee(route('orders.invoices.refresh', [$intent['order'], $invoice]), false);
+        $this->expectValidation(fn () => app(InvoiceService::class)->issue($intent['employee'], $intent['order'], $invoice));
+
+        $delivered = $this->context('DEL');
+        $this->uatEvidence($delivered);
+        foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
+            app(OrderStatusService::class)->transition($delivered['employee'], $delivered['order'], $status, null);
+        }
+        $this->actingAs($delivered['employee'])->get(route('orders.show', $delivered['order']))->assertOk()
+            ->assertSee(route('orders.invoices.store', $delivered['order']), false);
+        $invoice = $this->issued($delivered);
+        $this->get(route('orders.invoices.show', [$delivered['order'], $invoice]))->assertOk()
+            ->assertSee(route('invoices.collection.store', $invoice), false);
+        app(InvoiceCollectionService::class)->record($delivered['employee'], $invoice, InvoiceCollectionMethod::ShamCash, '30', $delivered['currency']->id, now());
+        $this->assertTrue(app(InvoiceCollectionService::class)->availability($delivered['employee'], $invoice)['payment_satisfied']);
     }
 }

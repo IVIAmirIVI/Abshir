@@ -13,6 +13,9 @@ class InvoiceFinancialCorrection extends Model
 {
     public $timestamps = false;
 
+    // These PostgreSQL columns are timestamptz: retain the offset at the write boundary.
+    protected $dateFormat = 'Y-m-d H:i:s.uP';
+
     protected $guarded = [];
 
     protected function casts(): array

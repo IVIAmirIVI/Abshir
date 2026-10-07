@@ -36,17 +36,17 @@
         </section>
 
         <section class="flex flex-wrap gap-3 rounded bg-white p-5 shadow">
-            @if(in_array($invoice->status, [\App\Enums\InvoiceStatus::Draft, \App\Enums\InvoiceStatus::Ready], true))
+            @if(!$invoice->superseded_at && ! app(\App\Services\InvoiceService::class)->mutationProblem($invoice->order) && in_array($invoice->status, [\App\Enums\InvoiceStatus::Draft, \App\Enums\InvoiceStatus::Ready], true))
                 @can('invoices.create')<form method="POST" action="{{ route('orders.invoices.refresh', [$invoice->order, $invoice]) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.refresh_ready') }}</x-primary-button></form>@endcan
             @endif
-            @if($invoice->status === \App\Enums\InvoiceStatus::Ready)
+            @if(!$invoice->superseded_at && ! app(\App\Services\InvoiceService::class)->mutationProblem($invoice->order) && $invoice->status === \App\Enums\InvoiceStatus::Ready)
                 @can('invoices.issue')<form method="POST" action="{{ route('orders.invoices.issue', [$invoice->order, $invoice]) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.issue_invoice') }}</x-primary-button></form>@endcan
             @endif
 
             @if($invoice->status === \App\Enums\InvoiceStatus::Issued)
                 @can('invoice_collections.create')
-                    @if(!$invoice->collection && !$settledCorrection)
-                        <form method="POST" action="{{ route('invoices.collection.store', $invoice) }}" class="grid w-full gap-3 sm:grid-cols-2" x-data="{ method: '{{ old('collection_method', 'CASH') }}' }">
+                    @if($collectionAvailability['available'])
+                        <form id="invoice-collection" method="POST" action="{{ route('invoices.collection.store', $invoice) }}" class="grid w-full gap-3 sm:grid-cols-2" x-data="{ method: '{{ old('collection_method', 'CASH') }}' }">
                             @csrf
                             <p class="sm:col-span-2">{{ __('financial.ui.full_collection') }} <strong><x-money :amount="$invoice->grand_total" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr></strong></p>
                             <label class="space-y-1"><span>{{ __('financial.ui.collection_method') }}</span><select name="collection_method" x-model="method" class="min-w-0 max-w-full w-full rounded border-gray-300" required><option value="CASH">{{ __('financial.collection_methods.CASH') }}</option><option value="SHAM_CASH">{{ __('financial.collection_methods.SHAM_CASH') }}</option></select></label>
@@ -63,13 +63,14 @@
                         </form>
                     @endif
                 @endcan
-                @if(!$invoice->collection && !$settledCorrection)
+                @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at)
                     @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.void_reason_required') }}" dir="auto"/><button class="rounded bg-red-700 px-3 py-2 text-white">{{ __('financial.ui.void_invoice') }}</button></form>@endcan
                     @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.replace_reason_required') }}" dir="auto"/><button class="rounded bg-amber-700 px-3 py-2 text-white">{{ __('financial.ui.create_replacement') }}</button></form>@endcan
                 @endif
             @endif
         </section>
 
+        @if(!$collectionAvailability['available'] && !$collectionAvailability['payment_satisfied'] && $invoice->status === \App\Enums\InvoiceStatus::Issued && !$invoice->superseded_at)<p class="rounded bg-amber-50 p-3 text-sm">{{ $collectionAvailability['reason'] }}</p>@endif
         @if($invoice->collection)
             <section class="rounded bg-green-50 p-5">
                 <h3 class="font-semibold">{{ __('financial.ui.collected_full') }} · {{ $invoice->collection->collection_method ? \App\Support\UiLabels::label('financial.collection_methods', $invoice->collection->collection_method) : __('financial.ui.legacy_method') }}</h3>

@@ -9,10 +9,26 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InvoiceSnapshotService
 {
+    /** Read the same locked source facts and fingerprint used by issuance, without changing them. */
+    public function currentSourcesAreStale(Invoice $invoice): bool
+    {
+        return DB::transaction(function () use ($invoice): bool {
+            $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
+
+            try {
+                return $this->isStale($invoice, $this->build($order));
+            } catch (ValidationException) {
+                return true;
+            }
+        });
+    }
+
     public function build(Order $order): array
     {
         $order->refresh();

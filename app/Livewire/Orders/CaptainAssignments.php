@@ -7,6 +7,7 @@ use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptain;
 use App\Services\OrderCaptainService;
+use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -122,6 +123,9 @@ class CaptainAssignments extends Component
         app(OrderService::class)->assertAccess(auth()->user(), $this->order);
         Gate::authorize('orders.view');
 
-        return view('livewire.orders.captain-assignments');
+        $this->order = $this->order->fresh()->load('captainAssignments.captain.user');
+        $orderMutable = ! app(OrderMutationGuard::class)->isPricingFrozen($this->order);
+
+        return view('livewire.orders.captain-assignments', compact('orderMutable'));
     }
 }

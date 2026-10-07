@@ -22,7 +22,7 @@
                     @endforeach
                 </div>
                 @can('orders.update')
-                    @if(!$order->cancellationIntent && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true) && $order->currentInvoice?->status !== \App\Enums\InvoiceStatus::Issued)
+                    @if(app(\App\Services\OrderMutationGuard::class)->isOperationalEvidenceMutable($order) && collect(\App\Services\OrderShopProgressService::MARKERS)->contains(fn ($marker) => !$orderShop->{$marker}))
                         <form x-data="{ submitting: false }" x-on:submit="if (submitting) { $event.preventDefault(); } else { submitting = true; }" method="POST" action="{{ route('orders.shops.progress', [$order, $orderShop]) }}" class="flex flex-wrap gap-2">@csrf @method('PATCH')
                             <select name="marker" class="min-w-0 max-w-full w-full sm:w-auto rounded border-gray-300">@foreach(\App\Services\OrderShopProgressService::MARKERS as $marker)@if(!$orderShop->{$marker})<option value="{{ $marker }}">{{ __('orders.ui_record_progress') }}: {{ \App\Support\UiLabels::label('orders.progress_markers', $marker) }}</option>@endif @endforeach</select>
                             <x-primary-button x-bind:disabled="submitting">{{ __('orders.ui_record_progress') }}</x-primary-button>
@@ -40,6 +40,7 @@
     </div>
 </section>
 
+@if($order->cancellation || $order->cancellationIntent || (auth()->user()->can('orders.cancel') && $order->purchaseConfirmations->isEmpty() && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true)))
 @if($order->cancellation || $order->cancellationIntent)
 <section class="rounded bg-white p-5 shadow space-y-4"><h3 class="font-semibold">{{ __('orders.ui_cancellation') }}</h3>
 @else
@@ -53,6 +54,7 @@
         @can('orders.cancel')<form x-data="{ submitting: false }" data-confirm="{{ __('orders.ui_confirm_sensitive_action') }}" x-on:submit="if (submitting) { $event.preventDefault(); } else { if (!confirm($el.dataset.confirm)) { $event.preventDefault(); return; } submitting = true; }" method="POST" action="{{ route('orders.cancel', $order) }}" class="grid gap-3 sm:grid-cols-2">@csrf<input type="hidden" name="classification" value="BEFORE_PURCHASE"><p class="text-sm sm:col-span-2">{{ __('orders.ui_before_help') }}</p><select name="reason" class="min-w-0 max-w-full w-full sm:w-auto rounded border-gray-300">@foreach(\App\Enums\OrderCancellationReason::cases() as $reason)<option value="{{ $reason->value }}">{{ \App\Support\UiLabels::label('orders.cancellation_reasons', $reason) }}</option>@endforeach</select><textarea name="notes" class="rounded border-gray-300 sm:col-span-2" placeholder="{{ __('orders.ui_cancel_notes') }}" dir="auto"></textarea><x-primary-button x-bind:disabled="submitting">{{ __('orders.ui_cancel_before') }}</x-primary-button></form>@endcan
     @endif
 @if($order->cancellation || $order->cancellationIntent)</section>@else</div></details>@endif
+@endif
 
 @if($order->operational_status === \App\Enums\OrderOperationalStatus::Delivered)
 <section class="rounded bg-white p-5 shadow space-y-4">
