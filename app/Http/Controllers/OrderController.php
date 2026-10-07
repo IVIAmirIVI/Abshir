@@ -10,7 +10,6 @@ use App\Models\Order;
 use App\Services\OrderCancellationSafetyService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -22,11 +21,8 @@ class OrderController extends Controller
     public function index(Request $r): View
     {
         Gate::authorize('orders.view');
-        $q = trim($r->string('search')->toString());
-        $term = '%'.mb_strtolower($q).'%';
-        $orders = Order::query()->accessibleTo($r->user())->with('branch')->when($q !== '', fn (Builder $b) => $b->where(fn (Builder $x) => $x->whereRaw('LOWER(order_number) LIKE ?', [$term])->orWhereRaw('LOWER(customer_name_snapshot) LIKE ?', [$term])->orWhere('customer_phone_snapshot', 'like', "%$q%")))->when($r->filled('branch_id'), fn (Builder $b) => $b->where('branch_id', $r->integer('branch_id')))->when($r->filled('operational_status'), fn (Builder $b) => $b->where('operational_status', $r->input('operational_status')))->when($r->filled('pricing_status'), fn (Builder $b) => $b->where('pricing_status', $r->input('pricing_status')))->when($r->filled('from'), fn (Builder $b) => $b->whereDate('ordered_at', '>=', $r->date('from')))->when($r->filled('to'), fn (Builder $b) => $b->whereDate('ordered_at', '<=', $r->date('to')))->latest('ordered_at')->paginate(25)->withQueryString();
 
-        return view('orders.index', ['orders' => $orders, 'branches' => $r->user()->availableBranches()->orderBy('name')->get()]);
+        return view('orders.index');
     }
 
     public function create(Request $r): View

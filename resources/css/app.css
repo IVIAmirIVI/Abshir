@@ -1,4 +1,5 @@
 @import 'select2/dist/css/select2.css';
+@import 'air-datepicker/air-datepicker.css';
 
 @tailwind base;
 @tailwind components;
@@ -28,3 +29,12 @@
 [data-order-create-select2] select.border-red-500 + .select2-container .select2-selection { border-color: #ef4444; }
 .abshir-order-select2.select2-container--disabled .select2-selection--single { background: #f3f4f6; }
 .select2-dropdown { z-index: 1050; }
+
+.abshir-order-date-calendar {
+    --adp-width: min(280px, calc(100vw - 24px));
+    --adp-z-index: 40;
+    --adp-accent-color: #164d3b;
+    --adp-cell-background-color-selected: #164d3b;
+    --adp-cell-background-color-selected-hover: #103c2e;
+    direction: inherit;
+}
