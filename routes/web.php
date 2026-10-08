@@ -14,6 +14,7 @@ use App\Http\Controllers\CaptainEmploymentController;
 use App\Http\Controllers\CaptainFinancialController;
 use App\Http\Controllers\CaptainGroupController;
 use App\Http\Controllers\CaptainGroupMembershipController;
+use App\Http\Controllers\CaptainInformationController;
 use App\Http\Controllers\CaptainReceivableRecoveryController;
 use App\Http\Controllers\CaptainStatusController;
 use App\Http\Controllers\CategoryController;
@@ -58,6 +59,7 @@ Route::get('/dashboard', DashboardController::class)
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::get('/my-captain-information', [CaptainInformationController::class, 'self'])->name('captain.self-information');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
 });
 
@@ -92,6 +94,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('areas', AreaController::class)->except(['show', 'destroy']);
     Route::patch('areas/{area}/status', [AreaController::class, 'status'])->name('areas.status');
     Route::resource('captains', CaptainController::class)->except('destroy');
+    Route::get('captains/{captain}/information', CaptainInformationController::class)->name('captains.information');
     Route::get('captain-financials', [CaptainFinancialController::class, 'index'])->name('captain-financials.index');
     Route::get('captains/{captain}/financials', [CaptainFinancialController::class, 'show'])->name('captains.financials.show');
     Route::post('captains/{captain}/financials/manual-deposit-adjustments', [CaptainDepositManualAdjustmentController::class, 'store'])->name('captains.manual-deposit-adjustments.store');

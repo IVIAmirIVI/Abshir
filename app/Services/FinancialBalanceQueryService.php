@@ -51,6 +51,26 @@ class FinancialBalanceQueryService
         return $balances;
     }
 
+    /** Global account balances: Currency ID => separate account kinds, across all Branch history. */
+    public function captainBalancesByCurrency(Captain $captain): array
+    {
+        $rows = DB::table('financial_accounts as a')
+            ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
+            ->leftJoin('financial_entries as e', 'e.financial_account_id', '=', 'a.id')
+            ->where('o.owner_type', FinancialOwnerType::Captain->value)->where('o.captain_id', $captain->id)
+            ->groupBy('a.currency_id', 'a.account_kind')
+            ->selectRaw('a.currency_id, a.account_kind, COALESCE(SUM(CASE WHEN e.direction = ? THEN e.amount ELSE -e.amount END), 0) AS balance', [FinancialEntryDirection::Increase->value])
+            ->get();
+        $balances = [];
+        foreach ($rows as $row) {
+            $balances[$row->currency_id] ??= collect(FinancialAccountKind::cases())
+                ->mapWithKeys(fn (FinancialAccountKind $kind): array => [$kind->value => '0.0000'])->all();
+            $balances[$row->currency_id][$row->account_kind] = (string) BigDecimal::of((string) $row->balance)->toScale(4);
+        }
+
+        return $balances;
+    }
+
     public function captainBranchBalance(Captain $captain, Branch $branch, Currency $currency, FinancialAccountKind $kind): string
     {
         $value = DB::table('financial_entries as e')

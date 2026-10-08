@@ -25,4 +25,3 @@
                         @endif
                     @endcan
                 @else<p class="text-sm text-gray-600">{{ __('orders.ui_no_purchase') }}</p>@endif
-

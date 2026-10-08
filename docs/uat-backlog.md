@@ -2,6 +2,15 @@
 
 Manual browser UAT and the full regression suite are deferred until the integrated design is complete. Component tests do not prove intermittent browser races resolved.
 
+## U5 read-only Captain information
+
+- Inspect the Captain profile information link and dashboard at 375px/tablet/1440px: Arabic RTL, Western digits, Gregorian dates, long amounts, current balance cards, GET period/Branch filters, chart and numeric fallback, keyboard focus and no page overflow.
+- Owner-approved self-view uses the `view-own-captain-information` Gate and `/my-captain-information`, resolving the fresh, unique `Captain.user_id` relationship from the authenticated active CAPTAIN User only. No seeder/permission activation is needed. Verify missing/revoked identity, mixed roles, manipulated query IDs and navigation visibility; no administrative permission is granted.
+- Check full Deposit, Company Receivable and Cash Custody separately per Currency across historical Branches, including negative Deposit, reversals, inactive Branches and transfers. Branch/period filters must not partition or change these full balances. SUPER_ADMIN sees global accounts; branch-scoped employees see only clearly labeled branch-attributed net entries, with full balances unavailable.
+- Delivery entitlement uses current collected/delivered immutable Invoice sources or completed correction allocations, never the customer's delivery charge, product reimbursement, Custody or an assertion of payout. Old history without reliable snapshots is excluded; incentives/deductions remain unavailable rather than fabricated.
+- Verify assignment-in-period and participation-at-final-transition with removed/replaced Captains, cancelled Orders, Damascus midnight boundaries and Today/7/30 filters. Administrative Financial and Order sections retain their existing separate permissions and Branch scopes. Self-view includes only the linked Captain's own history across Branches and has no profile-management link or mutation controls.
+- No Captain field actions, settlements, multi-Captain accounting, packages, migrations or financial writes were added. Comprehensive browser UAT and full regression suite remain deferred.
+
 ## Known limitations
 
 - **Wizard state loss remains unproven fixed.** Reproduce repeated immediate Step 2 Next / Back / forward with pending search and inline creation. Capture real browser request order and compare visible selections with server draft. Do not mark accepted from Livewire component tests alone.

@@ -7,6 +7,7 @@ return [
         'CAPTAIN' => 'الكابتن',
     ],
     'navigation' => [
+        'my_captain_information' => 'لوحتي',
         'dashboard' => 'لوحة العمل',
         'daily' => 'العمل اليومي',
         'finance' => 'المالية',

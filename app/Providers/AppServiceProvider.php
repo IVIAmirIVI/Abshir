@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Support\CaptainSelfView;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,9 +23,15 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('manage-authorization', fn (User $user): bool => $user->isSuperAdmin());
+        Gate::define(CaptainSelfView::ABILITY, fn (User $user): bool => app(CaptainSelfView::class)->resolve($user) !== null);
         Gate::before(function (User $user, string $ability): ?bool {
             if (! $user->is_active) {
                 return false;
+            }
+            // Even a mixed SUPER_ADMIN/CAPTAIN must resolve their own identity here.
+            // The existing administrative bypass remains unchanged for other abilities.
+            if ($ability === CaptainSelfView::ABILITY) {
+                return null;
             }
             if ($user->isSuperAdmin()) {
                 return true;

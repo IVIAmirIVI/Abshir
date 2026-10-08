@@ -11,6 +11,7 @@ class ApplicationNavigation
     {
         return [
             'daily' => [
+                [CaptainSelfView::ABILITY, 'captain.self-information', 'my_captain_information', ['captain.self-information']],
                 ['orders.view', 'orders.index', 'orders', ['orders.*']],
                 ['customers.view', 'customers.index', 'customers', ['customers.*']],
                 ['areas.view', 'areas.index', 'areas', ['areas.*']],

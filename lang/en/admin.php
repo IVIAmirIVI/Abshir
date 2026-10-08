@@ -7,6 +7,7 @@ return [
         'CAPTAIN' => 'Captain',
     ],
     'navigation' => [
+        'my_captain_information' => 'My dashboard',
         'dashboard' => 'Dashboard',
         'daily' => 'Daily operations',
         'finance' => 'Financials',
