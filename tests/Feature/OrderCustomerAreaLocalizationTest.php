@@ -90,12 +90,12 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             ->assertSee('value="HISTORICAL_MANUAL"', false);
         $this->assertSame(0, $this->xpath($create->getContent())->query('//option//bdi')->length);
         $show = $this->get(route('orders.show', $c['order']))->assertOk()
-            ->assertSee('محل لمرة واحدة')->assertSee('الكباتن المعيّنون')->assertSee('سجل حالات الطلب')
+            ->assertSee(__('orders.workflow.summary'))->assertSee(__('orders.workflow.captain'))->assertSee(__('orders.ui_history'))
             ->assertSee('تم التواصل مع المحل')->assertSee('أكد المحل الطلب')->assertSee('الطلب جاهز لدى المحل')
-            ->assertSee('تم الاستلام من المحل')->assertSee('لم يُسجل بعد')
-            ->assertSee('رفع فاتورة المحل')->assertSee('تأكيد إلغاء الطلب قبل الشراء')
-            ->assertSee('إلغاء بطلب الزبون')->assertSee('value="CUSTOMER_CANCELLED"', false)
-            ->assertSee('value="BEFORE_PURCHASE"', false)->assertSee(__('orders.ui_no_eligible_captains'))
+            ->assertSee('تم الاستلام من المحل')->assertSee(__('orders.workflow.not_recorded'))
+            ->assertDontSee(route('orders.shops.receipts.store', [$c['order'], $c['shop']]), false)
+            ->assertDontSee('action="'.route('orders.cancel', $c['order']).'"', false)
+            ->assertSee(route('orders.workflow', $c['order']), false)
             ->assertSee('منتج Original')->assertSee('12.3400');
         $xpath = $this->xpath($show->getContent());
         $this->assertSame(1, $xpath->query('//bdi[@dir="ltr" and text()="'.$c['order']->order_number.'"]')->length);
@@ -104,6 +104,8 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         $this->assertSame('NEW', $c['order']->fresh()->operational_status->value);
         $this->assertSame('MANUAL', $c['order']->fresh()->source->value);
         $this->assertSame('12.3400', $c['item']->fresh()->estimated_unit_price);
+        $this->get(route('orders.workflow', $c['order']))->assertOk()->assertSee('إلغاء بطلب الزبون')
+            ->assertSee('value="BEFORE_PURCHASE"', false);
     }
 
     public function test_customer_area_forms_and_hierarchy_preserve_user_entered_data(): void
@@ -155,7 +157,7 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         $c['customer']->addresses()->create(['area_id' => $inactiveArea->id, 'address_line_1' => 'Inactive area address']);
 
         $this->actingAs($c['actor'])->get(route('orders.create'))->assertOk()
-            ->assertSee($c['customer']->name)->assertDontSee($c['address']->address_line_1)
+            ->assertSee($c['customer']->name)->assertSee($c['address']->address_line_1)
             ->assertSee('إضافة طلب')->assertSee('رقم هاتف الزبون')->assertSee('عنوان التوصيل')
             ->assertSee('dir="rtl"', false)->assertSee(__('orders.ui_choose_customer_first'))
             ->assertDontSee($hidden->name)->assertDontSee('Hidden address')->assertDontSee('999111222')
@@ -212,13 +214,14 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             ->assertSee('link.textContent = match.name', false)
             ->assertDontSee('</script><script>injected()</script>', false);
         $this->assertStringContainsString('u003C', $form->getContent());
-        $this->post(route('customers.phones.store', $c['customer']), ['phone' => '963944123456', 'duplicate_acknowledged' => true])
+        $c['customer']->phones()->create(['phone' => '0944123456', 'normalized_phone' => '0944123456']);
+        $this->post(route('customers.phones.store', $c['customer']), ['phone' => '0944123456', 'duplicate_acknowledged' => true])
             ->assertSessionHasErrors('normalized_phone');
         $other = Customer::create(['name' => 'Intentional duplicate', 'created_by_user_id' => $c['actor']->id]);
         $other->forceFill(['created_by_user_id' => $c['actor']->id])->save();
-        $this->post(route('customers.phones.store', $other), ['phone' => '963944123456', 'duplicate_acknowledged' => true])
+        $this->post(route('customers.phones.store', $other), ['phone' => '0944123456', 'duplicate_acknowledged' => true])
             ->assertSessionHasNoErrors()->assertSessionHas('status', __('customers.flash.phone_added'));
-        $this->assertDatabaseHas('customer_phones', ['customer_id' => $other->id, 'normalized_phone' => '963944123456']);
+        $this->assertDatabaseHas('customer_phones', ['customer_id' => $other->id, 'normalized_phone' => '0944123456']);
     }
 
     public function test_flash_translation_keeps_redirect_session_and_request_fields(): void
@@ -249,9 +252,11 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             'purchased_at' => now()->subMinutes(5)->toIso8601String(), 'request_key' => (string) Str::uuid(),
         ], $image());
         $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
-            ->assertSee('الشراء المثبت:')->assertSee('عرض إثبات الشراء الخاص')->assertSee('بدء إلغاء الطلب وإرجاع المشتريات');
+            ->assertSee('الشراء المثبت:')->assertSee('عرض إثبات الشراء الخاص')->assertDontSee('بدء إلغاء الطلب وإرجاع المشتريات');
+        $this->get(route('orders.workflow', $c['order']))->assertOk()->assertSee('بدء إلغاء الطلب وإرجاع المشتريات');
         app(OrderCancellationIntentService::class)->create($c['actor'], $c['order'], OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());
-        $this->get(route('orders.show', $c['order']))->assertOk()->assertSee('الكابتن الذي أعاد المشتريات')
+        $this->get(route('orders.show', $c['order']))->assertOk()->assertDontSee('تسجيل اكتمال إرجاع المشتريات');
+        $this->get(route('orders.workflow', $c['order']))->assertOk()->assertSee('الكابتن الذي أعاد المشتريات')
             ->assertSee('المبلغ المسترد من المحل')->assertSee('إثبات مشترك للإرجاع ورد المبلغ')
             ->assertSee('تسجيل اكتمال إرجاع المشتريات')->assertDontSee(route('orders.status', $c['order']));
         app(OrderShopReturnService::class)->record($c['actor'], $c['order'], $c['shop'], [
@@ -260,7 +265,8 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             'refund_method' => 'CASH', 'request_key' => (string) Str::uuid(),
         ], ['RETURN_AND_REFUND_PROOF' => $image()]);
         $this->get(route('orders.show', $c['order']))->assertOk()->assertSee('إثبات إرجاع المشتريات ورد المبلغ')
-            ->assertSee('تأكيد الإلغاء النهائي للطلب');
+            ->assertDontSee('تأكيد الإلغاء النهائي للطلب');
+        $this->get(route('orders.workflow', $c['order']))->assertOk()->assertSee('تأكيد الإلغاء النهائي للطلب');
         $this->post(route('orders.cancellation-finalize', $c['order']))->assertSessionHasNoErrors()
             ->assertSessionHas('status', __('orders.flash.cancelled_after'));
         $this->get(route('orders.show', $c['order']))->assertOk()->assertSee('إلغاء بعد الشراء')->assertSee('إلغاء بطلب الزبون');
@@ -281,6 +287,7 @@ class OrderCustomerAreaLocalizationTest extends TestCase
         $c = $this->context();
         app()->setLocale('en');
         $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
-            ->assertSee('dir="ltr"', false)->assertSee('Shop progress and private receipt evidence')->assertSee('Cancel before purchase');
+            ->assertSee('dir="ltr"', false)->assertSee(__('orders.workflow.summary'))
+            ->assertSee('Estimated line total')->assertSee(__('orders.workflow.return'));
     }
 }

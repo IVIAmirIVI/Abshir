@@ -6,6 +6,7 @@ use App\Enums\DeliveryOverrideStatus;
 use App\Enums\DeliveryPricingStatus;
 use App\Enums\OrderPricingClass;
 use App\Models\Area;
+use App\Models\Currency;
 use App\Models\DeliveryFeeOverrideRequest;
 use App\Models\DeliveryPricingRule;
 use App\Models\DeliveryPricingUserLimit;
@@ -13,7 +14,9 @@ use App\Models\Order;
 use App\Models\OrderDeliveryPricing;
 use App\Models\User;
 use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -78,16 +81,24 @@ class OrderDeliveryPricingService
             throw ValidationException::withMessages(['from_area_id' => __('domain.the_delivery_origin_must_match_the_order_shop_snapshot')]);
         }
 
+        return $this->previewRoutes($actor, $routes, $destination, $currency, $order->pricing_class);
+    }
+
+    /** Shared read-only evaluator for pre-creation drafts and mutable Order proposals. */
+    public function previewRoutes(User $actor, Collection $routes, Area $destination, Currency $currency, OrderPricingClass $pricingClass): array
+    {
+        Gate::forUser($actor)->authorize('delivery_pricing.view');
+        abort_unless($actor->canAccessArea($destination), 403);
         $pricingAt = now();
-        $evaluated = $routes->map(function (array $route) use ($actor, $order, $destination, $currency, $pricingAt): array {
+        $evaluated = $routes->map(function (array $route) use ($actor, $destination, $currency, $pricingClass, $pricingAt): array {
             $origin = $route['origin'];
             if ($origin) {
                 abort_unless(Area::query()->accessibleTo($actor)->whereKey($origin)->exists(), 403);
-                if ($origin->branch_id !== $order->branch_id) {
+                if ($origin->branch_id !== $destination->branch_id) {
                     throw ValidationException::withMessages(['from_area_id' => __('domain.the_origin_area_must_belong_to_the_order_branch')]);
                 }
             }
-            $rule = $origin ? $this->rules->applicable($origin->id, $destination->id, $currency->id, $order->pricing_class, $pricingAt) : null;
+            $rule = $origin ? $this->rules->applicable($origin->id, $destination->id, $currency->id, $pricingClass, $pricingAt) : null;
 
             return [
                 'shop' => $route['shop'],
@@ -126,7 +137,7 @@ class OrderDeliveryPricingService
             'destination' => $destination,
             'routes' => $evaluated,
             'complete' => $complete,
-            'is_multi_shop' => $order->pricing_class === OrderPricingClass::MultiShop,
+            'is_multi_shop' => $pricingClass === OrderPricingClass::MultiShop,
             'is_frozen' => false,
             'suggested_unit_fee' => $selected['proposed_unit_fee'] ?? null,
         ];
@@ -182,15 +193,12 @@ class OrderDeliveryPricingService
                 throw ValidationException::withMessages(['from_area_id' => __('domain.no_delivery_price_rule')]);
             }
             $origin = $preview['origin'];
-            $suggested = BigDecimal::of($preview['rule']->delivery_unit_fee);
-            $requested = BigDecimal::of($requestedFee);
-            if ($requested->isLessThanOrEqualTo(0)) {
-                throw ValidationException::withMessages(['requested_unit_fee' => __('domain.applied_fee_must_be_positive')]);
-            }
-            $this->validateCurrencyPrecision($requestedFee, $preview['currency']->decimal_places, 'requested_unit_fee');
-            $difference = $requested->minus($suggested)->abs();
-            $percent = $difference->multipliedBy(100)->dividedBy($suggested, 4, RoundingMode::HalfUp);
-            if ($actor->isSuperAdmin() || $percent->isLessThanOrEqualTo($this->settings->overrideThresholdPercent())) {
+            $decision = $this->overrideDecision($actor, $preview['currency'], $preview['rule']->delivery_unit_fee, $requestedFee);
+            $suggested = $decision['suggested'];
+            $requested = $decision['requested'];
+            $difference = $decision['difference'];
+            $percent = $decision['percent'];
+            if ($decision['immediate']) {
                 $pricing = $this->priceFromPreviewLocked($actor, $order, $preview, $requestedFee);
                 DeliveryFeeOverrideRequest::query()->create([
                     'order_id' => $order->id,
@@ -217,6 +225,28 @@ class OrderDeliveryPricingService
 
             return DeliveryFeeOverrideRequest::query()->create(['order_id' => $order->id, 'order_delivery_pricing_id' => $currentPricingId, 'from_area_id' => $origin->id, 'order_pricing_class_snapshot' => $order->pricing_class, 'suggested_unit_fee' => (string) $suggested, 'requested_unit_fee' => $requestedFee, 'difference_amount' => (string) $difference, 'difference_percent' => (string) $percent, 'reason' => $reason, 'status' => DeliveryOverrideStatus::Pending, 'requested_by' => $actor->id, 'requested_at' => now()]);
         });
+    }
+
+    /** Preview and persistence share the existing threshold and exact decimal policy. */
+    public function overrideDecision(User $actor, Currency $currency, string $suggestedFee, string $requestedFee): array
+    {
+        Gate::forUser($actor)->authorize('delivery_pricing.override');
+        try {
+            $requested = BigDecimal::of($requestedFee);
+        } catch (MathException) {
+            throw ValidationException::withMessages(['requested_unit_fee' => __('domain.applied_fee_must_be_positive')]);
+        }
+        if ($requested->isLessThanOrEqualTo(0)) {
+            throw ValidationException::withMessages(['requested_unit_fee' => __('domain.applied_fee_must_be_positive')]);
+        }
+        $this->validateCurrencyPrecision($requestedFee, $currency->decimal_places, 'requested_unit_fee');
+        $suggested = BigDecimal::of($suggestedFee);
+        $difference = $requested->minus($suggested)->abs();
+        $percent = $difference->multipliedBy(100)->dividedBy($suggested, 4, RoundingMode::HalfUp);
+
+        return compact('suggested', 'requested', 'difference', 'percent') + [
+            'immediate' => $actor->isSuperAdmin() || $percent->isLessThanOrEqualTo($this->settings->overrideThresholdPercent()),
+        ];
     }
 
     public function resolveOverride(User $actor, DeliveryFeeOverrideRequest $request, bool $approve, ?string $resolutionReason): void

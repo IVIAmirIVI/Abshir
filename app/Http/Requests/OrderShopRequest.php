@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\OrderShopType;
 use App\Enums\ShopBusinessClassification;
+use App\Rules\MobilePhone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,7 +23,7 @@ class OrderShopRequest extends FormRequest
             'shop_id' => ['nullable', 'required_if:shop_type,REGISTERED', 'prohibited_if:shop_type,ONE_TIME', 'integer', 'exists:shops,id'],
             'origin_area_id' => ['nullable', 'required_if:shop_type,ONE_TIME', 'prohibited_if:shop_type,REGISTERED', 'integer', 'exists:areas,id'],
             'shop_name' => ['nullable', 'required_if:shop_type,ONE_TIME', 'prohibited_if:shop_type,REGISTERED', 'string', 'max:255'],
-            'shop_phone' => ['nullable', 'prohibited_if:shop_type,REGISTERED', 'string', 'max:50'],
+            'shop_phone' => ['nullable', 'prohibited_if:shop_type,REGISTERED', 'string', 'max:50', new MobilePhone],
             'shop_address' => ['nullable', 'prohibited_if:shop_type,REGISTERED', 'string', 'max:500'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'sort_order' => ['nullable', 'integer', 'min:0'],

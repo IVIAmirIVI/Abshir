@@ -59,7 +59,7 @@ class OrderSearchSelectionTest extends TestCase
             'source' => 'MANUAL', 'entry_mode' => 'LIVE',
         ]);
         $type = ShopType::create(['name' => 'نوع المحل', 'business_classification' => 'SHOP']);
-        $shop = Shop::create(['name' => 'محل مختار', 'area_id' => $area->id, 'shop_type_id' => $type->id]);
+        $shop = Shop::create(['business_classification' => 'SHOP', 'name' => 'محل مختار', 'area_id' => $area->id, 'shop_type_id' => $type->id]);
 
         return compact('currency', 'branch', 'area', 'actor', 'customer', 'order', 'type', 'shop');
     }
@@ -88,7 +88,7 @@ class OrderSearchSelectionTest extends TestCase
             ->set('customerSearch', 'لا يوجد')->call('selectSoleCustomer', 'لا يوجد')
             ->assertSet('customerId', (string) $c['customer']->id)
             ->assertSet('customerPhoneId', $phoneId)->assertSet('customerAddressId', $addressId)
-            ->assertDontSee('wire:model.live.debounce.250ms="customerSearch"', false)
+            ->assertSee('role="combobox"', false)
             ->assertDontSee('عنوان مخفي للزبون المختار')
             ->set('customerSearch', 'أمير')->call('selectSoleCustomer', 'أمير')
             ->assertSet('customerId', (string) $c['customer']->id)
@@ -97,7 +97,16 @@ class OrderSearchSelectionTest extends TestCase
             ->assertSee($first->name)->assertSee($second->name)->assertSee('963944222222')
             ->assertSee($c['area']->name)->assertDontSee($hidden->name)
             ->call('selectCustomer', $second->id)->assertSet('customerId', (string) $second->id);
-        $component->call('submit')->assertHasNoErrors()->assertRedirect();
+        $unit = Unit::create(['name' => 'قطعة إنشاء', 'code' => 'SEARCH_WIZARD', 'allows_decimal' => false]);
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        app(DeliveryPricingRuleService::class)->create($admin, [
+            'from_area_id' => $c['area']->id, 'to_area_id' => $c['area']->id, 'currency_id' => $c['currency']->id,
+            'order_pricing_class' => 'SINGLE_SHOP', 'delivery_unit_fee' => '5', 'effective_from' => now()->subDay(),
+        ]);
+        $component->call('nextStep')->call('selectShop', $c['shop']->id)->call('addDraftShop')
+            ->set('itemType', 'ONE_TIME_ITEM')->set('itemName', 'منتج مسودة')->set('unitId', (string) $unit->id)->call('addDraftItem')
+            ->call('goToStep', 4)->call('submit')->assertHasNoErrors()->assertRedirect();
         $created = Order::query()->latest('id')->first();
         $this->assertSame($second->id, $created->customer_id);
         $this->assertSame('مسودة محفوظة', $created->notes);
@@ -178,10 +187,10 @@ class OrderSearchSelectionTest extends TestCase
     public function test_shop_enter_selects_only_a_sole_match_and_explicit_choice_is_scoped(): void
     {
         $c = $this->context();
-        $first = Shop::create(['name' => 'متجر الأول', 'area_id' => $c['area']->id, 'shop_type_id' => $c['type']->id]);
-        $second = Shop::create(['name' => 'متجر الثاني', 'area_id' => $c['area']->id, 'shop_type_id' => $c['type']->id]);
+        $first = Shop::create(['business_classification' => 'SHOP', 'name' => 'متجر الأول', 'area_id' => $c['area']->id, 'shop_type_id' => $c['type']->id]);
+        $second = Shop::create(['business_classification' => 'SHOP', 'name' => 'متجر الثاني', 'area_id' => $c['area']->id, 'shop_type_id' => $c['type']->id]);
         $foreignArea = Area::factory()->for(Branch::factory()->create())->create();
-        $hidden = Shop::create(['name' => 'متجر مخفي', 'area_id' => $foreignArea->id, 'shop_type_id' => $c['type']->id]);
+        $hidden = Shop::create(['business_classification' => 'SHOP', 'name' => 'متجر مخفي', 'area_id' => $foreignArea->id, 'shop_type_id' => $c['type']->id]);
         $component = Livewire::actingAs($c['actor'])->test(AddShop::class, ['order' => $c['order']])
             ->set('shopType', 'REGISTERED')->set('notes', 'ملاحظة محل')
             ->call('selectSoleShop', 'متجر')->assertSet('shopId', '')
@@ -256,7 +265,7 @@ class OrderSearchSelectionTest extends TestCase
             ->set('notes', 'ملاحظات محفوظة')->set('shopType', 'CREATE_PERMANENT')
             ->assertSet('newShopAreaId', '')->assertSee('wire:model="newShopAreaId"', false)
             ->assertDontSee($hidden->name)->assertDontSee($inactive->name)
-            ->set('newShopName', 'محل جديد')->call('createPermanentShop')->assertHasErrors('newShopAreaId')
+            ->set('newShopClassification', 'SHOP')->set('newShopName', 'محل جديد')->call('createPermanentShop')->assertHasErrors('newShopAreaId')
             ->assertSet('notes', 'ملاحظات محفوظة')->assertSet('newShopName', 'محل جديد')
             ->set('newShopAreaId', (string) $c['area']->id)->call('createPermanentShop')->assertHasNoErrors()
             ->assertSet('shopType', 'REGISTERED')->assertSee('محل جديد')->assertSet('notes', 'ملاحظات محفوظة');
@@ -278,7 +287,7 @@ class OrderSearchSelectionTest extends TestCase
         $c['area']->save();
         Livewire::actingAs($c['actor'])->test(AddShop::class, ['order' => $c['order']])
             ->set('shopType', 'CREATE_PERMANENT')->assertSee(__('orders.ui_no_inline_shop_areas'))
-            ->set('newShopName', 'محل غير صالح')->call('createPermanentShop')->assertHasErrors('newShopAreaId');
+            ->set('newShopClassification', 'SHOP')->set('newShopName', 'محل غير صالح')->call('createPermanentShop')->assertHasErrors('newShopAreaId');
         $this->assertFalse(Shop::where('name', 'محل غير صالح')->exists());
     }
 
@@ -401,7 +410,7 @@ class OrderSearchSelectionTest extends TestCase
             ->set('newProductName', 'منتج ممنوع')->set('newProductUnitId', (string) $unit->id)
             ->call('createProduct')->assertHasErrors('order');
         Livewire::actingAs($c['actor'])->test(AddShop::class, ['order' => $c['order']])
-            ->set('newShopName', 'محل ممنوع')->set('newShopAreaId', (string) $c['area']->id)
+            ->set('newShopClassification', 'SHOP')->set('newShopName', 'محل ممنوع')->set('newShopAreaId', (string) $c['area']->id)
             ->call('createPermanentShop')->assertHasErrors('order');
         $this->assertFalse(Product::where('name', 'منتج ممنوع')->exists());
         $this->assertFalse(Shop::where('name', 'محل ممنوع')->exists());

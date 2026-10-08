@@ -14,6 +14,7 @@
         </div>
     @endif
 
+    @if(!($exceptionsOnly ?? false) || $order->cancellationIntent || $order->shopReturns->isNotEmpty())
     <div class="grid gap-4 lg:grid-cols-2">
         @foreach($order->shops as $orderShop)
             <article class="rounded border p-4 space-y-3 min-w-0">
@@ -21,7 +22,7 @@
                 @if($purchase = $orderShop->purchaseConfirmation)
                     <p class="text-sm">{{ __('orders.ui_verified_purchase') }} <strong><x-money :amount="$purchase->amount" /> <x-ltr>{{ $purchase->currency?->code }}</x-ltr></strong> · {{ __('orders.ui_payer_assignment') }}<x-ltr>{{ $purchase->order_captain_id }}</x-ltr> · <x-ltr>{{ $purchase->purchased_at->format('Y-m-d H:i') }}</x-ltr></p>
                     @can('order_shop_purchases.view')<a class="underline text-sm" href="{{ route('orders.shops.purchases.evidence', [$order, $orderShop, $purchase]) }}" target="_blank" rel="noopener">{{ __('orders.ui_purchase_evidence') }}</a>@endcan
-                @elseif(!$order->cancellationIntent && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true))
+                @elseif(!($summaryOnly ?? false) && !$order->cancellationIntent && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true))
                     @can('order_shop_purchases.confirm')
                         @if($purchaseCaptainAssignments->isEmpty())
                             <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ __('orders.ui_purchase_requires_order_captain') }}</p>
@@ -50,7 +51,7 @@
                             <a class="underline text-sm block" href="{{ route('orders.shops.returns.evidence', [$order, $orderShop, $return, $proof]) }}" target="_blank" rel="noopener">{{ \App\Support\UiLabels::label('orders.return_evidence', $proof->evidence_type) }}</a>
                         @endforeach
                     @endcan
-                @elseif($purchase && $order->cancellationIntent && $order->cancellationIntent->requiredShops->contains('order_shop_id', $orderShop->id))
+                @elseif(!($historyOnly ?? false) && $purchase && $order->cancellationIntent && $order->cancellationIntent->requiredShops->contains('order_shop_id', $orderShop->id))
                     @can('order_shop_returns.create')
                         <form x-data="{ submitting: false }" data-confirm="{{ __('orders.ui_confirm_sensitive_action') }}" x-on:submit="if (submitting) { $event.preventDefault(); } else { if (!confirm($el.dataset.confirm)) { $event.preventDefault(); return; } submitting = true; }" method="POST" enctype="multipart/form-data" action="{{ route('orders.shops.returns.store', [$order, $orderShop]) }}" class="grid gap-2 text-sm">@csrf
                             <input type="hidden" name="request_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
@@ -76,7 +77,8 @@
         @endforeach
     </div>
 
-    @if(!$order->cancellationIntent && !$order->cancellation && $order->purchaseConfirmations->isNotEmpty() && (!in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true) || ($recoveredCancellationAvailable ?? false)))
+    @endif
+    @if(!($historyOnly ?? false) && !($hideCancellationActions ?? false) && !$order->cancellationIntent && !$order->cancellation && $order->purchaseConfirmations->isNotEmpty() && (!in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true) || ($recoveredCancellationAvailable ?? false)))
         @can('order_cancellation_intents.create')
             <details class="rounded-lg border border-red-100 p-3"><summary class="cursor-pointer font-medium text-red-700">{{ __('orders.ui_start_return') }}</summary>
             <form x-data="{ submitting: false }" data-confirm="{{ __('orders.ui_confirm_sensitive_action') }}" x-on:submit="if (submitting) { $event.preventDefault(); } else { if (!confirm($el.dataset.confirm)) { $event.preventDefault(); return; } submitting = true; }" method="POST" action="{{ route('orders.cancellation-intent.store', $order) }}" class="grid gap-2 max-w-xl text-sm">@csrf
@@ -87,7 +89,7 @@
             </form>
             </details>
         @endcan
-    @elseif($order->cancellationIntent && !$order->cancellation && $order->shopReturns->count() === $order->cancellationIntent->requiredShops->count())
+    @elseif(!($historyOnly ?? false) && $order->cancellationIntent && !$order->cancellation && $order->shopReturns->count() === $order->cancellationIntent->requiredShops->count())
         @can('orders.cancel.finalize')<form x-data="{ submitting: false }" data-confirm="{{ __('orders.ui_confirm_sensitive_action') }}" x-on:submit="if (submitting) { $event.preventDefault(); } else { if (!confirm($el.dataset.confirm)) { $event.preventDefault(); return; } submitting = true; }" method="POST" action="{{ route('orders.cancellation-finalize', $order) }}">@csrf<x-primary-button x-bind:disabled="submitting">{{ __('orders.ui_finalize_cancel') }}</x-primary-button></form>@endcan
     @endif
 </section>

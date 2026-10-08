@@ -19,6 +19,7 @@ use App\Enums\OrderShopType;
 use App\Enums\ShopBusinessClassification;
 use App\Livewire\Orders\NextAction;
 use App\Livewire\Orders\OrderShopItems;
+use App\Livewire\Orders\Workflow;
 use App\Models\Area;
 use App\Models\Branch;
 use App\Models\Captain;
@@ -208,7 +209,7 @@ class InvoiceAndCollectionTest extends TestCase
         $invoice = $this->issued($context);
         $invoiceBefore = (array) DB::table('invoices')->where('id', $invoice->id)->first();
         $pricingBefore = (array) DB::table('order_delivery_pricings')->where('id', $invoice->source_order_delivery_pricing_id)->first();
-        $this->actingAs($context['employee'])->get(route('orders.show', $context['order']))->assertOk()
+        $this->actingAs($context['employee'])->get(route('orders.workflow', [$context['order'], 'step' => 'shops']))->assertOk()
             ->assertSee(route('orders.shops.progress', [$context['order'], $context['shop']]), false)
             ->assertSee(route('orders.shops.receipts.store', [$context['order'], $context['shop']]), false)
             ->assertDontSee('wire:submit="add"', false)
@@ -238,7 +239,7 @@ class InvoiceAndCollectionTest extends TestCase
         $this->actingAs($context['employee'])->get(route('orders.show', $context['order']))->assertOk()
             ->assertDontSee(route('orders.shops.progress', [$context['order'], $context['shop']]), false)
             ->assertDontSee('wire:submit="add"', false)
-            ->assertSee(__('orders.next_steps.completed'));
+            ->assertSee(__('orders.workflow.continue'));
         $this->patch(route('orders.shops.progress', [$context['order'], $context['shop']]), ['marker' => 'ready_at'])->assertSessionHasErrors('order');
     }
 
@@ -1316,12 +1317,17 @@ class InvoiceAndCollectionTest extends TestCase
         Livewire::actingAs($c['employee'])->test(NextAction::class, ['order' => $c['order']])
             ->assertViewHas('step', 'status')->assertDontSee(__('financial.ui.record_collection'))
             ->assertSee(__('orders.ui_payment_settled_correction'));
+        Livewire::actingAs($c['employee'])->test(Workflow::class, ['order' => $c['order']])->call('openStep', 'invoice')
+            ->assertViewHas('workflow', fn ($state) => ! $state['canCollect'] && $state['availability']['payment_satisfied'])
+            ->assertSee(__('orders.ui_payment_settled_correction'))->assertDontSee('wire:submit="collectInvoice"', false);
         $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_payment_settled_correction'));
         $this->get(route('orders.invoices.show', [$c['order'], $replacement]))->assertOk()->assertDontSee(route('invoices.collection.store', $replacement), false);
         $this->expectValidation(fn () => app(InvoiceCollectionService::class)->record($c['employee'], $replacement, InvoiceCollectionMethod::Cash, '30', $c['currency']->id, now()));
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
             app(OrderStatusService::class)->transition($c['employee'], $c['order'], $status, null);
         }
+        Livewire::actingAs($c['employee'])->test(Workflow::class, ['order' => $c['order']])
+            ->assertViewHas('workflow', fn ($state) => $state['complete'])->assertSee(__('orders.workflow.complete'));
         $this->assertSame('DELIVERED', $c['order']->fresh()->operational_status->value);
         $this->assertSame($original['grand_total'], $invoice->fresh()->getRawOriginal('grand_total'));
         $this->assertSame('10.0000', $invoice->items()->sole()->unit_price);
@@ -1471,6 +1477,9 @@ class InvoiceAndCollectionTest extends TestCase
         $component->dispatch('order-updated')->assertViewHas('step', 'waiting')->assertViewHas('canTransition', false)
             ->assertSee(__('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting'))
             ->assertDontSee('name="operational_status"', false);
+        Livewire::actingAs($c['employee'])->test(Workflow::class, ['order' => $c['order']])->call('openStep', 'delivery')
+            ->assertViewHas('workflow', fn ($state) => ! $state['canTransition'])
+            ->assertSee(__('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting'))->assertDontSee('wire:click="advance"', false);
         $this->expectValidation(fn () => app(OrderStatusService::class)->transition($c['employee'], $c['order'], OrderOperationalStatus::Delivered, null));
         $this->assertSame(InvoiceFinancialCorrectionState::Requested, $correction->fresh()->state);
         $service->abandon($c['admin'], $correction);
@@ -1482,8 +1491,8 @@ class InvoiceAndCollectionTest extends TestCase
     public function test_uat_invoice_controls_follow_cancellation_eligibility_but_allow_delivered_invoicing(): void
     {
         $c = $this->context();
-        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
-            ->assertSee(route('orders.invoices.store', $c['order']), false);
+        $this->actingAs($c['employee'])->get(route('orders.workflow', [$c['order'], 'step' => 'invoice']))->assertOk()
+            ->assertSee('wire:click="createInvoice"', false);
         $invoice = $this->ready($c);
         $page = route('orders.invoices.show', [$c['order'], $invoice]);
         $this->get($page)->assertOk()->assertSee(route('orders.invoices.issue', [$c['order'], $invoice]), false)
@@ -1507,8 +1516,8 @@ class InvoiceAndCollectionTest extends TestCase
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
             app(OrderStatusService::class)->transition($delivered['employee'], $delivered['order'], $status, null);
         }
-        $this->actingAs($delivered['employee'])->get(route('orders.show', $delivered['order']))->assertOk()
-            ->assertSee(route('orders.invoices.store', $delivered['order']), false);
+        $this->actingAs($delivered['employee'])->get(route('orders.workflow', [$delivered['order'], 'step' => 'invoice']))->assertOk()
+            ->assertSee('wire:click="createInvoice"', false);
         $invoice = $this->issued($delivered);
         $this->get(route('orders.invoices.show', [$delivered['order'], $invoice]))->assertOk()
             ->assertSee(route('invoices.collection.store', $invoice), false);

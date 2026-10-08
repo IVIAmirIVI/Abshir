@@ -8,6 +8,7 @@ use App\Models\Area;
 use App\Models\Order;
 use App\Models\Shop;
 use App\Models\ShopType;
+use App\Rules\MobilePhone;
 use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
@@ -52,6 +53,8 @@ class AddShop extends Component
 
     public string $newShopTypeId = '';
 
+    public string $newShopClassification = '';
+
     public string $newShopAreaId = '';
 
     public string $newShopPhone = '';
@@ -93,7 +96,7 @@ class AddShop extends Component
     #[Computed]
     public function shopTypes(): Collection
     {
-        return ShopType::query()->where('is_active', true)->orderBy('name')->get();
+        return ShopType::selectable();
     }
 
     #[Computed]
@@ -157,9 +160,10 @@ class AddShop extends Component
         Gate::authorize('shops.create');
         $data = $this->validate([
             'newShopName' => ['required', 'string', 'max:255'],
+            'newShopClassification' => ['required', Rule::enum(ShopBusinessClassification::class)],
             'newShopTypeId' => ['nullable', 'integer', 'exists:shop_types,id'],
             'newShopAreaId' => ['required', 'integer', 'exists:areas,id'],
-            'newShopPhone' => ['nullable', 'string', 'max:50'],
+            'newShopPhone' => ['nullable', 'string', 'max:50', new MobilePhone],
             'newShopAddress' => ['nullable', 'string', 'max:5000'],
         ]);
         Area::query()->accessibleTo(auth()->user())->where('branch_id', $this->order->branch_id)
@@ -169,17 +173,17 @@ class AddShop extends Component
             app(OrderMutationGuard::class)->assertMutableLocked($order);
 
             return $shops->save(auth()->user(), new Shop, [
-                'name' => $data['newShopName'], 'shop_type_id' => $data['newShopTypeId'] ?: null,
+                'business_classification' => $data['newShopClassification'], 'name' => $data['newShopName'], 'shop_type_id' => $data['newShopTypeId'] ?: null,
                 'area_id' => $data['newShopAreaId'], 'phone' => $data['newShopPhone'] ?: null,
                 'address' => $data['newShopAddress'] ?: null, 'is_mobile_visible' => false,
                 'accepts_online_orders' => false,
             ]);
-        }), ['area_id' => 'newShopAreaId', 'shop_type_id' => 'newShopTypeId', 'name' => 'newShopName']);
+        }), ['business_classification' => 'newShopClassification', 'area_id' => 'newShopAreaId', 'shop_type_id' => 'newShopTypeId', 'name' => 'newShopName']);
         $this->shopType = OrderShopType::Registered->value;
         $this->shopId = (string) $shop->id;
         $this->shopSearch = $shop->name;
         unset($this->shops, $this->shopMatches);
-        $this->reset('newShopName', 'newShopTypeId', 'newShopAreaId', 'newShopPhone', 'newShopAddress');
+        $this->reset('newShopName', 'newShopClassification', 'newShopTypeId', 'newShopAreaId', 'newShopPhone', 'newShopAddress');
         session()->flash('order-action-status', __('orders.flash.permanent_shop_created'));
     }
 
@@ -227,7 +231,7 @@ class AddShop extends Component
             'notes' => $data['notes'] ?: null,
         ]));
         session()->flash('status', __('orders.flash.shop_added'));
-        $this->redirectRoute('orders.show', $this->order);
+        $this->redirectRoute('orders.workflow', $this->order);
     }
 
     protected function rules(): array
@@ -237,7 +241,7 @@ class AddShop extends Component
             'businessClassification' => ['nullable', 'required_if:shopType,ONE_TIME', Rule::enum(ShopBusinessClassification::class)],
             'shopId' => ['nullable', 'required_if:shopType,REGISTERED', 'prohibited_if:shopType,ONE_TIME', 'integer', 'exists:shops,id'],
             'shopName' => ['nullable', 'required_if:shopType,ONE_TIME', 'prohibited_if:shopType,REGISTERED', 'string', 'max:255'],
-            'shopPhone' => ['nullable', 'prohibited_if:shopType,REGISTERED', 'string', 'max:50'],
+            'shopPhone' => ['nullable', 'prohibited_if:shopType,REGISTERED', 'string', 'max:50', new MobilePhone],
             'shopAddress' => ['nullable', 'prohibited_if:shopType,REGISTERED', 'string', 'max:500'],
             'originAreaId' => ['nullable', 'required_if:shopType,ONE_TIME', 'prohibited_if:shopType,REGISTERED', 'integer', 'exists:areas,id'],
             'notes' => ['nullable', 'string', 'max:2000'],

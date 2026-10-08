@@ -75,7 +75,7 @@ class InvoiceController extends Controller
     {
         $service->issue($request->user(), $order, $invoice);
 
-        return back()->with('status', __('financial.flash.invoice_issued'));
+        return redirect()->route('orders.workflow', [$order, 'step' => 'invoice'])->with('status', __('financial.flash.invoice_issued'));
     }
 
     public function void(InvoiceReasonRequest $request, Order $order, Invoice $invoice, InvoiceService $service): RedirectResponse

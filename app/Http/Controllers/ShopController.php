@@ -100,7 +100,7 @@ class ShopController extends Controller
     {
         return view('shops.form', [
             'shop' => $shop,
-            'types' => ShopType::query()->where('is_active', true)->orWhereKey($shop->shop_type_id)->orderBy('name')->get(),
+            'types' => ShopType::selectable($shop->shop_type_id),
             'areas' => Area::query()->accessibleTo($request->user())->where(function (Builder $query) use ($shop): void {
                 $query->where('is_active', true)->when($shop->area_id, fn (Builder $areas) => $areas->orWhereKey($shop->area_id));
             })->with('branch')->orderBy('name')->get(),

@@ -38,3 +38,44 @@
     --adp-cell-background-color-selected-hover: #103c2e;
     direction: inherit;
 }
+
+/* Shared shell only; operational tables, forms and page components keep their styles. */
+[x-cloak] { display: none !important; }
+.app-shell { --sidebar-width: 17rem; min-height: 100dvh; }
+.app-sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 30; width: var(--sidebar-width); flex-direction: column; border-inline-end: 1px solid #e4e5de; background: #fff; }
+.app-sidebar-brand { display: flex; align-items: center; min-height: 5rem; padding: 1.25rem 1.5rem; border-block-end: 1px solid #e4e5de; }
+.app-sidebar-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1rem; scrollbar-width: thin; }
+.app-nav-link { display: flex; align-items: center; gap: .75rem; min-height: 2.75rem; margin-block: .125rem; padding: .6rem .875rem; border-radius: .625rem; color: #375244; font-size: .875rem; text-decoration: none; overflow-wrap: anywhere; }
+.app-nav-link:hover { background: #f0f5f0; color: #164d3b; }
+.app-nav-link.is-active { background: #164d3b; color: #fff; font-weight: 700; }
+.app-nav-link:focus-visible, .app-nav-group summary:focus-visible, .app-icon-button:focus-visible, .app-account-link:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
+.app-nav-group { margin-block-start: .75rem; }
+.app-nav-group summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem .875rem; border-radius: .5rem; color: #5c655c; font-size: .75rem; font-weight: 700; cursor: pointer; list-style: none; }
+.app-nav-group summary::-webkit-details-marker { display: none; }
+.app-nav-group:not([open]) summary svg { transform: rotate(90deg); }
+.app-nav-account { border-block-start: 1px solid #e4e5de; margin-block-start: 1rem; padding-block-start: .75rem; }
+.app-workspace { min-width: 0; }
+.app-topbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 5rem; padding: .75rem 1rem; border-block-end: 1px solid #e4e5de; background: #fff; }
+.app-icon-button { align-items: center; justify-content: center; flex-shrink: 0; width: 2.75rem; height: 2.75rem; border-radius: .625rem; color: #164d3b; }
+.app-icon-button:hover { background: #f0f5f0; }
+.app-account-link { display: flex; align-items: center; gap: .5rem; padding: .5rem; border-radius: .625rem; color: #164d3b; }
+.app-page-heading { width: 100%; max-width: 88rem; margin-inline: auto; padding: 1.5rem 1rem 0; overflow-wrap: anywhere; }
+.app-main { min-width: 0; width: 100%; max-width: 88rem; margin-inline: auto; }
+.app-main:focus { outline: none; }
+.app-skip-link { position: fixed; inset-inline-start: 1rem; top: -10rem; z-index: 100; padding: .75rem 1rem; border-radius: .5rem; background: #164d3b; color: #fff; }
+.app-skip-link:focus { top: 1rem; }
+.app-mobile-drawer { position: fixed; inset-block: 0; inset-inline-start: 0; inset-inline-end: auto; width: min(20rem, calc(100vw - 2rem)); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; background: #fff; color: #172b24; }
+.app-mobile-drawer[open] { display: flex; flex-direction: column; }
+.app-mobile-drawer::backdrop { background: rgb(15 35 26 / .45); }
+@media (min-width: 1024px) {
+    .app-workspace { margin-inline-start: var(--sidebar-width); }
+    .app-topbar { padding-inline: 1.5rem; }
+    .app-page-heading { padding-inline: 2rem; }
+    .app-shell-collapsed .app-sidebar { display: none; }
+    .app-shell-collapsed .app-workspace { margin-inline-start: 0; }
+    .app-mobile-drawer[open] { display: none; }
+}
+@media (max-width: 399px) {
+    .app-topbar { gap: .25rem; padding-inline: .5rem; }
+    .app-topbar [data-shell-finder] .btn { font-size: .75rem; padding-inline: .5rem; gap: .25rem; }
+}

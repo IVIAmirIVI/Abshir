@@ -104,7 +104,7 @@ class CaptainAssignments extends Component
         unset($this->eligibleCaptains);
         $this->reset('captainId', 'switchCaptainId', 'switchReason');
         session()->flash('status', $message);
-        $this->redirectRoute('orders.show', $this->order);
+        $this->redirectRoute('orders.workflow', $this->order);
     }
 
     protected function validationAttributes(): array

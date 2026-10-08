@@ -62,6 +62,6 @@ class InvoiceCollectionController extends Controller
             $request->validated('payment_reference'),
         );
 
-        return back()->with('status', __('financial.flash.collection_recorded'));
+        return redirect()->route('orders.workflow', [$invoice->order_id, 'step' => 'invoice'])->with('status', __('financial.flash.collection_recorded'));
     }
 }

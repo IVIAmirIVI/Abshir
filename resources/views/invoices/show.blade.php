@@ -7,6 +7,8 @@
             <div class="rounded bg-red-50 p-4"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
         @endif
 
+        <a href="{{ route('orders.workflow', [$invoice->order, 'step' => 'invoice']) }}" class="inline-flex rounded-lg bg-brand-primary px-4 py-2 font-semibold text-white" data-invoice-workflow-return>{{ __('orders.workflow.return') }}</a>
+
         <section class="space-y-3 rounded bg-white p-5 shadow">
             <div class="flex flex-wrap justify-between gap-3">
                 <div><h3 class="font-semibold">{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }} · {{ __('financial.ui.version') }} <x-ltr>{{ $invoice->version }}</x-ltr></h3><p>{{ __('common.terms.order') }} <x-ltr>{{ $invoice->order_number_snapshot }}</x-ltr></p></div>
@@ -170,6 +172,7 @@
                 @endforeach
                 @if($correctionSource && !$corrections->contains(fn ($correction) => in_array($correction->state->value, ['REQUESTED','PREPARED','READY_TO_FINALIZE'], true)))
                     @can('invoice_corrections.request')
+                        <details data-invoice-correction-request class="rounded-lg border p-3"><summary class="cursor-pointer font-semibold text-red-700">{{ __('financial.ui.request_correction') }}</summary>
                         <form method="POST" action="{{ route('invoices.corrections.request', $invoice) }}" class="space-y-3 rounded border p-4">
                             @csrf
                             <input type="hidden" name="request_key" value="{{ \Illuminate\Support\Str::uuid() }}">
@@ -191,6 +194,7 @@
                             <label class="block">{{ __('financial.ui.explanation') }} <textarea name="explanation" required class="min-w-0 max-w-full w-full rounded border-gray-300"></textarea></label>
                             <x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.request_correction') }}</x-primary-button>
                         </form>
+                        </details>
                     @endcan
                 @endif
             </section>

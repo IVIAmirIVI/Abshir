@@ -86,6 +86,26 @@ class OrderBillPaymentService
         });
     }
 
+    public function preview(User $actor, Order $order, OrderBillPaymentRequest $request, string $principal): array
+    {
+        $this->authorizeRecord($actor, $order);
+        Validator::make(['principal_amount' => $principal], ['principal_amount' => ['required', 'regex:/^\d+(?:\.\d{1,4})?$/']])->validate();
+        $request = $order->billPaymentRequests()->findOrFail($request->id);
+        if ($request->status !== OrderBillPaymentRequestStatus::Requested || $order->cancellationIntent()->exists()
+            || $order->operational_status === OrderOperationalStatus::Cancelled) {
+            throw ValidationException::withMessages(['principal_amount' => __('domain.this_bill_payment_request_has_already_been_resolved')]);
+        }
+        try {
+            $currency = $request->currency;
+            $principal = $this->posting->validatePlannedAmount($currency, $principal);
+            $fee = $this->fees->calculate($request->feeRule, $currency, $principal);
+        } catch (FinancialLedgerException $exception) {
+            throw ValidationException::withMessages(['principal_amount' => UiLabels::error($exception->getMessage())]);
+        }
+
+        return ['principal' => $principal, 'fee' => $fee, 'total' => (string) BigDecimal::of($principal)->plus($fee)->toScale(4)];
+    }
+
     /** @param array<int, UploadedFile> $images */
     public function complete(User $actor, Order $order, OrderBillPaymentRequest $request, array $data, array $images): OrderBillPayment
     {
@@ -150,7 +170,7 @@ class OrderBillPaymentService
                 $currency = Currency::query()->lockForUpdate()->findOrFail($request->currency_id);
                 try {
                     $principal = $this->posting->validatePlannedAmount($currency, $data['principal_amount']);
-                    $fee = $this->posting->validatePlannedAmount($currency, $request->service_fee);
+                    $fee = $this->fees->calculate($request->feeRule, $currency, $principal);
                 } catch (FinancialLedgerException $exception) {
                     throw ValidationException::withMessages(['principal_amount' => UiLabels::error($exception->getMessage())]);
                 }

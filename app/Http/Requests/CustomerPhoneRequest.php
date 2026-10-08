@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\MobilePhone;
 use App\Services\PhoneNormalizer;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -27,7 +28,7 @@ class CustomerPhoneRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'phone' => ['required', 'string', 'max:50'],
+            'phone' => ['required', 'string', 'max:50', new MobilePhone],
             'normalized_phone' => [
                 'required', 'string', 'min:6', 'max:32',
                 Rule::unique('customer_phones')->where('customer_id', $this->route('customer')->id)->ignore($this->route('phone')),

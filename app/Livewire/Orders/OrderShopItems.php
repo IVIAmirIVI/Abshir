@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\Unit;
 use App\Services\InlineOrderProductService;
 use App\Services\OrderItemService;
+use App\Services\OrderLineTotalService;
 use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
@@ -219,7 +220,7 @@ class OrderShopItems extends Component
         Gate::authorize('orders.update');
         $this->domainAction(fn () => $shops->remove(auth()->user(), $this->order, $this->orderShop), ['shop' => 'removeShop']);
         session()->flash('status', __('orders.flash.shop_removed'));
-        $this->redirectRoute('orders.show', $this->order);
+        $this->redirectRoute('orders.workflow', $this->order);
     }
 
     public function add(OrderItemService $items, OrderService $orders): void
@@ -278,7 +279,10 @@ class OrderShopItems extends Component
             ->filter(fn ($item) => app(OrderItemService::class)->removalBlockReason($item) === null)->modelKeys() : [];
         $shopRemovable = $orderMutable && app(OrderShopService::class)->removalBlockReason($this->order, $this->orderShop) === null;
 
-        return view('livewire.orders.order-shop-items', compact('orderMutable', 'removableItemIds', 'shopRemovable'));
+        $draftCurrency = ctype_digit($this->estimatedCurrencyId) ? Currency::find($this->estimatedCurrencyId) : null;
+        $draftLineTotal = app(OrderLineTotalService::class)->calculate($this->quantity, $this->manualEstimatedUnitPrice, $draftCurrency);
+
+        return view('livewire.orders.order-shop-items', compact('orderMutable', 'removableItemIds', 'shopRemovable', 'draftLineTotal', 'draftCurrency'));
     }
 
     private function selectSingleOptions(): void

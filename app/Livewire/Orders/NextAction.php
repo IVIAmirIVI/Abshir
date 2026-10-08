@@ -14,6 +14,7 @@ use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
 use App\Services\OrderStatusService;
+use App\Services\OrderWorkflowState;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
@@ -52,7 +53,8 @@ class NextAction extends Component
         $transitionProblem = app(OrderStatusService::class)->nextTransitionProblem($this->order);
         $canTransition = Gate::allows('orders.status.update') && $transitionProblem === null;
         $step = match (true) {
-            $this->order->operational_status === OrderOperationalStatus::Delivered => 'completed',
+            $this->order->operational_status === OrderOperationalStatus::Delivered && app(OrderWorkflowState::class)->describe(auth()->user(), $this->order)['complete'] => 'completed',
+            $this->order->operational_status === OrderOperationalStatus::Delivered => $issued ? 'invoice' : ($this->order->currentInvoice ? 'invoice_refresh' : 'invoice'),
             $this->order->operational_status === OrderOperationalStatus::Cancelled => 'cancelled',
             ! $guard->isOperationalEvidenceMutable($this->order) => 'cancellation',
             $issued => $this->issuedStep(),

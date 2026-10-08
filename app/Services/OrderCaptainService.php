@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\CaptainOperationalStatus;
 use App\Enums\OrderCaptainRole;
+use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptain;
@@ -23,12 +24,21 @@ class OrderCaptainService
         Gate::forUser($actor)->authorize('orders.view');
         $this->access($actor, $order);
 
+        return $this->eligibleForBranch($actor, $order->branch);
+    }
+
+    /** The same eligibility used for assignment, available before an Order exists. */
+    public function eligibleForBranch(User $actor, Branch $branch): Collection
+    {
+        Gate::forUser($actor)->authorize('orders.view');
+        abort_unless($actor->canAccessBranch($branch), 403);
+
         return Captain::query()->accessibleTo($actor)->with(['user', 'employmentPeriods', 'branchAssignments'])
             ->where('operational_status', CaptainOperationalStatus::Available->value)
             ->whereHas('user', fn (Builder $query) => $query->where('is_active', true))
             ->whereHas('employmentPeriods', fn (Builder $query) => $query->whereNull('ended_at'))
             ->get()
-            ->filter(fn (Captain $captain) => $captain->activeOperationalBranches()->contains('id', $order->branch_id))
+            ->filter(fn (Captain $captain) => $captain->activeOperationalBranches()->contains('id', $branch->id))
             ->values();
     }
 

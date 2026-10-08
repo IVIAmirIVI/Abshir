@@ -9,8 +9,10 @@ use App\Models\Order;
 use App\Models\OrderShop;
 use App\Models\Shop;
 use App\Models\User;
+use App\Rules\MobilePhone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class OrderShopService
@@ -26,13 +28,14 @@ class OrderShopService
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
 
+            Validator::make($data, ['shop_phone' => ['nullable', 'string', new MobilePhone]])->validate();
             $type = OrderShopType::from($data['shop_type']);
             $explicit = isset($data['business_classification']) ? ShopBusinessClassification::from($data['business_classification']) : null;
             if ($type === OrderShopType::Registered) {
                 if (filled($data['shop_name'] ?? null) || filled($data['shop_phone'] ?? null) || filled($data['shop_address'] ?? null) || filled($data['origin_area_id'] ?? null)) {
                     throw ValidationException::withMessages(['shop_type' => __('domain.a_registered_shop_cannot_include_one_time_shop_identity_data')]);
                 }
-                $shop = Shop::query()->with(['area', 'type'])->findOrFail($data['shop_id']);
+                $shop = Shop::query()->with(['area', 'type'])->lockForUpdate()->findOrFail($data['shop_id']);
                 abort_unless($actor->canAccessShop($shop), 403);
                 if ($shop->area && $shop->area->branch_id !== $order->branch_id) {
                     throw ValidationException::withMessages(['shop_id' => __('domain.the_shop_is_outside_the_order_branch')]);
@@ -46,12 +49,12 @@ class OrderShopService
                 if ($order->shops()->where('shop_type', OrderShopType::Registered->value)->where('shop_id', $shop->id)->exists()) {
                     throw ValidationException::withMessages(['shop_id' => __('domain.the_registered_shop_is_already_on_this_order_add_products_to_its_existing_section')]);
                 }
-                $classification = $shop->type?->business_classification ?? $explicit;
+                $classification = $shop->business_classification;
                 if (! $classification) {
-                    throw ValidationException::withMessages(['business_classification' => __('domain.choose_restaurant_or_shop_because_this_registered_shop_type_is_not_configured')]);
+                    throw ValidationException::withMessages(['business_classification' => __('orders.wizard.missing_master_classification')]);
                 }
-                if ($shop->type?->business_classification && $explicit && $explicit !== $shop->type->business_classification) {
-                    throw ValidationException::withMessages(['business_classification' => __('domain.the_selected_classification_conflicts_with_the_registered_shop_type')]);
+                if ($explicit && $explicit !== $classification) {
+                    throw ValidationException::withMessages(['business_classification' => __('orders.wizard.master_classification_conflict')]);
                 }
                 $created = $order->shops()->create(['shop_type' => $type, 'business_classification_snapshot' => $classification, 'shop_id' => $shop->id, 'origin_area_id' => $shop->area->id, 'shop_name_snapshot' => $shop->name, 'shop_phone_snapshot' => $shop->phone, 'shop_address_snapshot' => $shop->address, 'area_name_snapshot' => $shop->area->name, 'notes' => $data['notes'] ?? null, 'sort_order' => $data['sort_order'] ?? 0]);
             } else {
@@ -123,6 +126,12 @@ class OrderShopService
             $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
             if ($orderShop->business_classification_snapshot) {
                 throw ValidationException::withMessages(['business_classification' => __('domain.the_order_shop_classification_snapshot_is_immutable')]);
+            }
+            if ($orderShop->shop_type === OrderShopType::Registered) {
+                $master = Shop::query()->lockForUpdate()->findOrFail($orderShop->shop_id)->business_classification;
+                if (! $master || $classification !== $master->value) {
+                    throw ValidationException::withMessages(['business_classification' => __('orders.wizard.missing_master_classification')]);
+                }
             }
             $orderShop->update(['business_classification_snapshot' => ShopBusinessClassification::from($classification)]);
             $this->classifications->recalculateLocked($order);

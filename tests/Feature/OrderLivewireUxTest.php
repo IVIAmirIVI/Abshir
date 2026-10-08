@@ -9,6 +9,7 @@ use App\Enums\OrderCaptainRole;
 use App\Livewire\Orders\AddShop;
 use App\Livewire\Orders\CaptainAssignments;
 use App\Livewire\Orders\CreateOrder;
+use App\Livewire\Orders\ItemLinePreview;
 use App\Livewire\Orders\NextAction;
 use App\Livewire\Orders\OrderShopItems;
 use App\Models\Area;
@@ -33,6 +34,7 @@ use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryOriginService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderItemService;
+use App\Services\OrderLineTotalService;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
 use Database\Seeders\AuthorizationSeeder;
@@ -47,6 +49,66 @@ class OrderLivewireUxTest extends TestCase
     use RefreshDatabase;
 
     private static int $contextSequence = 0;
+
+    public function test_line_previews_react_without_mutating_prices_quantities_or_financial_records(): void
+    {
+        $c = $this->context();
+        $shop = app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
+        $unit = Unit::create(['name' => 'كيلوغرام', 'code' => 'PREVIEW', 'allows_decimal' => true]);
+        $item = app(OrderItemService::class)->add($c['actor'], $c['order'], $shop, [
+            'item_type' => 'ONE_TIME_ITEM', 'item_name' => 'وزن', 'unit_id' => $unit->id,
+            'quantity' => '4', 'manual_estimated_unit_price' => '50', 'estimated_currency_id' => $c['currency']->id,
+        ]);
+        $before = $item->refresh()->getRawOriginal();
+        Livewire::actingAs($c['actor'])->test(ItemLinePreview::class, ['order' => $c['order'], 'item' => $item, 'mode' => 'QUANTITY'])
+            ->assertViewHas('total', '200.0000')->assertSee(__('order_ux.line_estimate'))
+            ->set('quantity', '5')->assertViewHas('total', '250.0000')
+            ->set('quantity', 'invalid')->assertViewHas('total', null);
+        Livewire::actingAs($c['actor'])->test(ItemLinePreview::class, ['order' => $c['order'], 'item' => $item, 'mode' => 'PRICE'])
+            ->set('price', '50')->assertViewHas('total', '200.0000')->assertSee(__('order_ux.line_actual'))
+            ->set('price', '60.125')->assertViewHas('total', '240.5000');
+        $this->assertSame($before, $item->fresh()->getRawOriginal());
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        app(OrderItemService::class)->confirmActual($c['actor'], $c['order'], $shop, $item, [
+            'actual_unit_price' => '60', 'actual_currency_id' => $c['currency']->id, 'actual_price_source' => 'MANUAL_VERIFIED',
+        ]);
+        Livewire::test(ItemLinePreview::class, ['order' => $c['order'], 'item' => $item->fresh(), 'mode' => 'QUANTITY'])
+            ->assertViewHas('total', '240.0000')->assertSee(__('order_ux.line_actual'))
+            ->set('quantity', '3')->assertViewHas('total', '180.0000');
+        $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'shops']))->assertOk()
+            ->assertSee(__('order_ux.line_actual'))->assertSee(__('order_ux.line_estimate'));
+    }
+
+    public function test_line_preview_denies_permission_and_cross_branch_nested_item_tampering(): void
+    {
+        $c = $this->context();
+        $shop = app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
+        $unit = Unit::create(['name' => 'قطعة', 'code' => 'SAFE_PREVIEW']);
+        $item = app(OrderItemService::class)->add($c['actor'], $c['order'], $shop, ['item_type' => 'ONE_TIME_ITEM', 'item_name' => 'عنصر', 'unit_id' => $unit->id, 'quantity' => '4']);
+        $viewer = User::factory()->create();
+        Livewire::actingAs($viewer)->test(ItemLinePreview::class, ['order' => $c['order'], 'item' => $item, 'mode' => 'PRICE'])->assertForbidden();
+        $other = $this->context();
+        Livewire::actingAs($other['actor'])->test(ItemLinePreview::class, ['order' => $c['order'], 'item' => $item, 'mode' => 'QUANTITY'])->assertNotFound();
+        Livewire::actingAs($c['actor'])->test(ItemLinePreview::class, ['order' => $other['order'], 'item' => $item, 'mode' => 'PRICE'])->assertNotFound();
+    }
+
+    public function test_decimal_line_totals_separate_currencies_and_never_present_incomplete_shop_totals(): void
+    {
+        $c = $this->context();
+        $calculator = app(OrderLineTotalService::class);
+        $this->assertSame('200.0000', $calculator->calculate('4', '50', $c['currency']));
+        $this->assertSame('0.0100', $calculator->calculate('0.1', '0.05', $c['currency']));
+        $this->assertNull($calculator->calculate('4', null, $c['currency']));
+        $other = new Currency(['code' => 'ALT', 'decimal_places' => 4]);
+        $rows = [
+            (object) ['current_quantity' => '4', 'estimated_unit_price' => '50', 'estimatedCurrency' => $c['currency']],
+            (object) ['current_quantity' => '2', 'estimated_unit_price' => '1.2345', 'estimatedCurrency' => $other],
+        ];
+        $this->assertSame([$c['currency']->code => '200.0000', 'ALT' => '2.4690'], $calculator->shop($rows, false));
+        $rows[] = (object) ['current_quantity' => '1', 'estimated_unit_price' => null, 'estimatedCurrency' => $c['currency']];
+        $this->assertSame([], $calculator->shop($rows, false));
+    }
 
     public function test_next_action_uses_current_state_and_permission_before_suggesting_mutations(): void
     {
@@ -141,9 +203,9 @@ class OrderLivewireUxTest extends TestCase
         $invoices->issue($c['actor'], $c['order'], $invoice);
         $component->dispatch('order-updated')->assertViewHas('step', 'evidence')
             ->assertDontSee(__('orders.next_steps.purchase'))->assertDontSee(__('orders.next_steps.actual_prices'));
-        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+        $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'shops']))->assertOk()
             ->assertSee($item->product_name_snapshot)
-            ->assertSee(route('orders.shops.progress', [$c['order'], $shop]), false)
+            ->assertSee('wire:click="pickup(', false)
             ->assertDontSee('wire:submit="add"', false)->assertDontSee('wire:submit="assign"', false)
             ->assertDontSee('wire:click="removeItem(', false)->assertDontSee('wire:click="removeShop"', false)
             ->assertDontSee('wire:click="remove(', false)->assertDontSee('wire:submit="switchPrimary"', false)
@@ -165,7 +227,7 @@ class OrderLivewireUxTest extends TestCase
         $phone = $customer->phones()->create(['phone' => '+963 955 000 111', 'normalized_phone' => '963955000111', 'is_primary' => true]);
         $address = $customer->addresses()->create(['area_id' => $area->id, 'address_line_1' => 'شارع تفاعلي', 'is_primary' => true]);
         $shopType = ShopType::create(['name' => 'متجر', 'business_classification' => 'SHOP']);
-        $shop = Shop::create(['name' => 'محل مسجل تفاعلي', 'area_id' => $area->id, 'shop_type_id' => $shopType->id]);
+        $shop = Shop::create(['business_classification' => 'SHOP', 'name' => 'محل مسجل تفاعلي', 'area_id' => $area->id, 'shop_type_id' => $shopType->id]);
         $order = app(OrderService::class)->create($actor, [
             'branch_id' => $branch->id, 'customer_id' => $customer->id,
             'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id,
@@ -182,6 +244,13 @@ class OrderLivewireUxTest extends TestCase
         $otherArea = Area::factory()->for($otherBranch)->create();
         $foreignAddress = $c['customer']->addresses()->create(['area_id' => $otherArea->id, 'address_line_1' => 'عنوان غير متاح']);
 
+        $unit = Unit::create(['name' => 'قطعة إنشاء', 'code' => 'CREATE_WIZARD', 'allows_decimal' => false]);
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        app(DeliveryPricingRuleService::class)->create($admin, [
+            'from_area_id' => $c['area']->id, 'to_area_id' => $c['area']->id, 'currency_id' => $c['currency']->id,
+            'order_pricing_class' => 'SINGLE_SHOP', 'delivery_unit_fee' => '5', 'effective_from' => now()->subDay(),
+        ]);
         Livewire::actingAs($c['actor'])->test(CreateOrder::class)
             ->call('submit')
             ->assertHasErrors(['customerId', 'customerPhoneId', 'customerAddressId', 'source'])
@@ -194,9 +263,11 @@ class OrderLivewireUxTest extends TestCase
             ->set('customerPhoneId', (string) $c['phone']->id)
             ->set('customerAddressId', (string) $c['address']->id)
             ->set('source', 'MANUAL')
-            ->call('submit')
-            ->assertHasNoErrors()
-            ->assertRedirect();
+            ->call('nextStep')
+            ->call('selectShop', $c['shop']->id)->call('addDraftShop')
+            ->set('itemType', 'ONE_TIME_ITEM')->set('itemName', 'منتج الطلب')
+            ->set('unitId', (string) $unit->id)->call('addDraftItem')
+            ->call('goToStep', 4)->call('submit')->assertHasNoErrors()->assertRedirect();
 
         $this->assertSame(2, Order::query()->count());
     }
@@ -236,7 +307,7 @@ class OrderLivewireUxTest extends TestCase
         }
         $foreignBranch = Branch::factory()->create();
         $foreignArea = Area::factory()->for($foreignBranch)->create();
-        $foreignShop = Shop::create([
+        $foreignShop = Shop::create(['business_classification' => 'SHOP',
             'name' => 'محل خارج الفرع', 'area_id' => $foreignArea->id, 'shop_type_id' => $c['shop']->shop_type_id,
         ]);
         Livewire::actingAs($c['actor'])->test(AddShop::class, ['order' => $c['order']])
@@ -262,7 +333,7 @@ class OrderLivewireUxTest extends TestCase
             ->set('assignmentRole', 'PRIMARY_COLLECTION')
             ->call('assign')
             ->assertHasNoErrors()
-            ->assertRedirect(route('orders.show', $c['order']));
+            ->assertRedirect(route('orders.workflow', $c['order']));
         $this->assertDatabaseHas('order_captains', ['order_id' => $c['order']->id, 'captain_id' => $eligible->id]);
 
         $viewerRole = Role::create(['code' => 'UX_VIEWER', 'name' => 'UX Viewer']);
@@ -282,7 +353,7 @@ class OrderLivewireUxTest extends TestCase
         app(OrderCaptainService::class)->remove($c['actor'], $c['order'], $assignment, 'استبدال تشغيلي');
         $unrelated = $this->captain($c['branch'], 'كابتن غير مرتبط بالطلب');
 
-        $response = $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+        $response = $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'shops']))->assertOk()
             ->assertSee($historical->user->name)
             ->assertSee(__('orders.ui_historical_assignment'))
             ->assertSee('wire:loading.attr="disabled"', false)
@@ -303,12 +374,12 @@ class OrderLivewireUxTest extends TestCase
         $this->assertFalse($cancelForm->hasAttribute('open'));
 
         app(OrderCaptainService::class)->assign($c['actor'], $c['order'], $unrelated, OrderCaptainRole::PrimaryCollection);
-        $multiple = $this->actingAs($c['actor'])->get(route('orders.show', $c['order']));
+        $multiple = $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'shops']));
         $multipleDom = new \DOMDocument;
         @$multipleDom->loadHTML('<?xml encoding="UTF-8">'.$multiple->getContent());
         $multipleXPath = new \DOMXPath($multipleDom);
         $this->assertSame(1, $multipleXPath->query('//select[@name="order_captain_id"]')->length);
-        $this->assertSame(2, $multipleXPath->query('//select[@name="order_captain_id"]/option')->length);
+        $this->assertSame(2, $multipleXPath->query('//select[@name="order_captain_id"]/option[@value!=""]')->length);
     }
 
     public function test_shop_modes_save_through_domain_service_and_show_required_classification(): void
@@ -383,9 +454,9 @@ class OrderLivewireUxTest extends TestCase
     {
         $c = $this->context();
         app(OrderShopService::class)->add($c['actor'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $c['shop']->id]);
-        $second = Shop::create(['name' => 'محل ثان', 'area_id' => $c['area']->id, 'shop_type_id' => $c['shop']->shop_type_id]);
+        $second = Shop::create(['business_classification' => 'SHOP', 'name' => 'محل ثان', 'area_id' => $c['area']->id, 'shop_type_id' => $c['shop']->shop_type_id]);
 
-        $single = $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))
+        $single = $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'captain']))
             ->assertSee(__('orders.ui_route_from_to', ['from' => $c['area']->path(), 'to' => $c['area']->path()]))
             ->assertDontSee('name="preview_from_area_id"', false);
         $this->assertStringContainsString($c['area']->name, $single->getContent());
@@ -407,7 +478,7 @@ class OrderLivewireUxTest extends TestCase
         $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
 
         Livewire::actingAs($admin)->test(AddShop::class, ['order' => $c['order']])
-            ->set('shopType', 'CREATE_PERMANENT')->set('newShopName', 'محل أنشئ داخل الطلب')
+            ->set('shopType', 'CREATE_PERMANENT')->set('newShopClassification', 'SHOP')->set('newShopName', 'محل أنشئ داخل الطلب')
             ->set('newShopTypeId', (string) $c['shop']->shop_type_id)->set('newShopAreaId', (string) $c['area']->id)
             ->call('createPermanentShop')->assertHasNoErrors()
             ->assertSet('shopType', 'REGISTERED')->assertSet('shopSearch', 'محل أنشئ داخل الطلب');
@@ -423,7 +494,7 @@ class OrderLivewireUxTest extends TestCase
         $outside = Area::factory()->for(Branch::factory()->create())->create();
 
         Livewire::actingAs($admin)->test(AddShop::class, ['order' => $c['order']])
-            ->set('shopType', 'CREATE_PERMANENT')->set('newShopName', 'محل خارج الفرع')
+            ->set('shopType', 'CREATE_PERMANENT')->set('newShopClassification', 'SHOP')->set('newShopName', 'محل خارج الفرع')
             ->set('newShopTypeId', (string) $c['shop']->shop_type_id)->set('newShopAreaId', (string) $outside->id)
             ->call('createPermanentShop')->assertNotFound();
         $this->assertDatabaseMissing('shops', ['name' => 'محل خارج الفرع']);
@@ -446,12 +517,13 @@ class OrderLivewireUxTest extends TestCase
             ->set('customerSearch', '955000')
             ->assertSee('أمير الحموي')->assertDontSee('أمير مخفي')
             ->call('selectSoleCustomer', '955000')->assertSet('customerId', (string) $c['customer']->id)
-            ->assertDontSee('wire:model.live.debounce.250ms="customerSearch"', false);
+            ->assertSee('role="combobox"', false);
     }
 
     public function test_inline_customer_creation_uses_existing_services_preserves_state_and_requires_permission(): void
     {
         $c = $this->context();
+        $c['phone'] = $c['customer']->phones()->create(['phone' => '0955000111', 'normalized_phone' => '0955000111']);
         $initialCount = Customer::query()->count();
         $component = Livewire::actingAs($c['actor'])->test(CreateOrder::class)
             ->set('source', 'PHONE')->call('toggleCustomerCreate')
@@ -506,7 +578,7 @@ class OrderLivewireUxTest extends TestCase
             ->set('productId', (string) $first->id)->set('unitId', (string) $unit->id)->call('add')->assertHasNoErrors();
         $component->call('removeItem', $otherShop->items()->sole()->id)->assertForbidden();
         Livewire::actingAs($c['actor'])->test(OrderShopItems::class, ['order' => $c['order'], 'orderShop' => $orderShop])
-            ->call('removeShop')->assertRedirect(route('orders.show', $c['order']));
+            ->call('removeShop')->assertRedirect(route('orders.workflow', $c['order']));
         $this->assertDatabaseMissing('order_shops', ['id' => $orderShop->id]);
     }
 
@@ -554,7 +626,7 @@ class OrderLivewireUxTest extends TestCase
         $this->assertSame($forward->id, app(DeliveryPricingRuleService::class)->applicable($origin->id, $c['area']->id, $c['currency']->id, $c['order']->fresh()->pricing_class, $c['order']->ordered_at)->id);
         $this->assertSame($reverse->id, app(DeliveryPricingRuleService::class)->applicable($c['area']->id, $origin->id, $c['currency']->id, $c['order']->fresh()->pricing_class, $c['order']->ordered_at)->id);
 
-        $this->actingAs($c['actor'])->get(route('orders.show', $c['order']))->assertOk()
+        $this->actingAs($c['actor'])->get(route('orders.workflow', [$c['order'], 'step' => 'captain']))->assertOk()
             ->assertSee(__('orders.ui_route_from_to', ['from' => 'كفر بطنا', 'to' => 'سقبا']))
             ->assertSee(__('orders.ui_suggested_delivery_fee'))->assertSee('120')
             ->assertDontSee('preview_from_area_id', false)->assertDontSee(__('orders.ui_preview_suggested'));

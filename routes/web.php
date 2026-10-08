@@ -146,6 +146,7 @@ Route::middleware('auth')->group(function () {
     Route::get('products/{product}/price-comparison', [ProductPriceController::class, 'comparison'])->name('products.price-comparison');
     Route::get('shops/{shop}/price-history', [ProductPriceController::class, 'shopHistory'])->name('shops.price-history');
     Route::get('price-estimate', [ProductPriceController::class, 'estimate'])->name('product-prices.estimate');
+    Route::get('orders/{order}/workflow', [OrderController::class, 'workflow'])->name('orders.workflow');
     Route::resource('orders', OrderController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('orders/{order}/bill-payment-requests', [OrderBillPaymentController::class, 'request'])->name('orders.bill-payment-requests.store');
     Route::post('orders/{order}/bill-payment-requests/{billPaymentRequest}/cancel', [OrderBillPaymentController::class, 'cancel'])->name('orders.bill-payment-requests.cancel');

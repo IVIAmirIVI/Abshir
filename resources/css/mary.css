@@ -1,0 +1,118 @@
+/* No Tailwind 4 preflight; all generated rules are scoped by postcss.config.js. */
+@import 'tailwindcss-ui/theme.css';
+@tailwind utilities source(none);
+@source '../views/livewire/shell';
+@source '../views/livewire/dashboard';
+@source '../views/components/dashboard';
+@source '../views/livewire/orders';
+@source '../views/components/orders';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Card.php';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Button.php';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Input.php';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Modal.php';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Header.php';
+@source '../../vendor/robsontenorio/mary/src/View/Components/Icon.php';
+
+/* Native search/select/file controls keep their existing Livewire lifecycle. */
+:is(.order-ux, .management-ux) :where(input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']), select, textarea) {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    border-radius: 0.625rem;
+    border-color: #c7d1cb;
+    background-color: #fff;
+    font-size: 0.875rem;
+}
+:is(.order-ux, .management-ux) :where(input, select, textarea)[aria-invalid='true'] { border-color: #b91c1c; }
+:is(.order-ux, .management-ux) :where(button, a, summary, input, select, textarea):focus-visible {
+    outline: 2px solid #164d3b;
+    outline-offset: 3px;
+}
+:is(.order-ux, .management-ux) :where(button:disabled, input:disabled, select:disabled) { opacity: 0.55; cursor: not-allowed; }
+:is(.order-ux, .management-ux) input[type='file'] { max-width: 100%; font-size: 0.875rem; }
+:is(.order-ux, .management-ux) input[type='file']::file-selector-button {
+    margin-inline-end: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid #c7d1cb;
+    border-radius: 0.625rem;
+    background: #fff;
+    color: #164d3b;
+    font-weight: 600;
+}
+
+@plugin 'daisyui' {
+    themes: false;
+    root: '.mary-surface';
+    include: button, input, fieldset, modal, card;
+    logs: false;
+}
+
+@plugin 'daisyui/theme' {
+    name: 'abshir';
+    default: true;
+    prefersdark: false;
+    color-scheme: light;
+    --color-base-100: #ffffff;
+    --color-base-200: #f5f5f0;
+    --color-base-300: #dedfd7;
+    --color-base-content: #172b24;
+    --color-primary: #164d3b;
+    --color-primary-content: #ffffff;
+    --color-secondary: #486957;
+    --color-secondary-content: #ffffff;
+    --color-accent: #e88a26;
+    --color-accent-content: #271b0a;
+    --color-neutral: #20372c;
+    --color-neutral-content: #ffffff;
+    --color-info: #075985;
+    --color-info-content: #ffffff;
+    --color-success: #166534;
+    --color-success-content: #ffffff;
+    --color-warning: #92400e;
+    --color-warning-content: #ffffff;
+    --color-error: #b91c1c;
+    --color-error-content: #ffffff;
+    --radius-selector: .5rem;
+    --radius-field: .625rem;
+    --radius-box: 1rem;
+    --size-selector: .25rem;
+    --size-field: .25rem;
+    --border: 1px;
+    --depth: 0;
+    --noise: 0;
+}
+
+.mary-surface { font-family: Tahoma, Arial, sans-serif; }
+.mary-surface .btn { min-height: 2.75rem; animation: none; }
+.mary-surface .btn:focus-visible,
+.mary-surface .input:focus-within { outline: 2px solid #164d3b; outline-offset: 3px; }
+.mary-surface .modal { animation: none; }
+.mary-surface .modal-box { width: min(34rem, calc(100vw - 2rem)); max-height: 85dvh; }
+
+@source '../views/components/management';
+@source '../views/customers';
+@source '../views/shops';
+@source '../views/products';
+@source '../views/shop-types';
+@source '../views/categories';
+@source '../views/units';
+@source '../views/product-groups';
+
+.management-ux :where(a, button) { overflow-wrap: anywhere; }
+.management-ux :where(a.underline, button.underline) { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.management-ux :where(form[method='GET']) { border: 1px solid #dedfd7; border-radius: 1rem; }
+.management-ux :where([role='alert']) { border: 1px solid #fecaca; }
+.management-ux :where(nav[role='navigation']) { max-width: 100%; overflow-x: auto; padding-block: .25rem; }
+
+@source '../views/captains';
+@source '../views/captain-groups';
+@source '../views/admin/users';
+@source '../views/admin/roles';
+@source '../views/admin/branches';
+
+.management-ux :where(fieldset:disabled) { opacity: .65; }
+.management-ux :where(fieldset) { min-width: 0; }
+.management-ux :where(label:has(input[type='checkbox'])) { min-height: 2.75rem; align-items: center; }
+
+.management-ux :where(p, h3, h4, legend) { overflow-wrap: anywhere; }
+.management-ux :where(legend) { max-width: 100%; }

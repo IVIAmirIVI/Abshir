@@ -18,6 +18,7 @@
         <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_ordered') }}</p><p class="mt-1"><x-ltr>{{ $order->ordered_at->format('Y-m-d H:i:s') }}</x-ltr></p></div>
         <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_pricing_class_label') }}</p><p class="mt-1 font-medium">{{ ($order->pricing_class ? \App\Support\UiLabels::label('orders.pricing_classes', $order->pricing_class) : null) ?? __('orders.ui_class_unavailable') }}</p></div>
     </div>
+    @if($order->notes)<p class="whitespace-pre-wrap break-words px-4 pb-3 text-sm">{{ $order->notes }}</p>@endif
     <div class="flex flex-col gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <span>{{ __('orders.ui_estimated_items') }} <strong><x-money :amount="$order->estimatedItemsTotal()" /></strong></span>
         <span>{{ __('orders.ui_actual_items') }} <strong><x-money :amount="$order->actualItemsTotal()" /></strong></span>

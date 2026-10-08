@@ -1,8 +1,8 @@
-<section class="rounded-xl border border-brand-primary/10 bg-white p-4 shadow-sm sm:p-5 space-y-5">
+<section data-theme="abshir" class="mary-surface order-ux rounded-xl border border-brand-primary/10 bg-white p-4 shadow-sm sm:p-5 space-y-5">
     <x-input-error :messages="$errors->all()" role="alert" />
     <div>
         <h3 class="text-lg font-bold text-brand-primary">{{ __('orders.ui_assignments') }}</h3>
-        <p class="mt-1 text-sm text-gray-600">{{ __('orders.ui_captain_eligibility_help') }}</p>
+        <p class="mt-1 text-sm text-gray-600">{{ __('orders.ui_captain_eligibility_help') }}</p><p class="mt-2 rounded-lg bg-stone-50 p-3 text-xs leading-6">{{ __('order_design.collector_help') }}</p>
     </div>
 
     @if(session('order-action-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-action-status') }}</p>@endif
@@ -14,15 +14,15 @@
             <form wire:submit="assign" class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                 <label class="block">
                     <span class="text-sm font-medium">{{ __('orders.ui_captain_label') }}</span>
-                    <select wire:model="captainId" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->eligibleCaptains as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select>
+                    <select aria-invalid="{{ $errors->has('captainId') ? 'true' : 'false' }}" wire:model="captainId" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->eligibleCaptains as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select>
                     <x-input-error :messages="$errors->get('captainId')" class="mt-1" />
                 </label>
                 <label class="block">
                     <span class="text-sm font-medium">{{ __('orders.ui_assignment_role') }}</span>
-                    <select wire:model="assignmentRole" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm">@if($order->captainAssignments->whereNull('removed_at')->where('assignment_role', \App\Enums\OrderCaptainRole::PrimaryCollection)->isEmpty())<option value="PRIMARY_COLLECTION">{{ __('orders.ui_primary_collection') }}</option>@else<option value="SUPPORT">{{ __('orders.ui_support') }}</option>@endif</select>
+                    <select aria-invalid="{{ $errors->has('assignmentRole') ? 'true' : 'false' }}" wire:model="assignmentRole" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm">@if($order->captainAssignments->whereNull('removed_at')->where('assignment_role', \App\Enums\OrderCaptainRole::PrimaryCollection)->isEmpty())<option value="PRIMARY_COLLECTION">{{ __('orders.ui_primary_collection') }}</option>@else<option value="SUPPORT">{{ __('orders.ui_support') }}</option>@endif</select>
                     <x-input-error :messages="$errors->get('assignmentRole')" class="mt-1" />
                 </label>
-                <x-primary-button wire:loading.attr="disabled" wire:target="assign" class="justify-center disabled:opacity-60">{{ __('common.actions.assign') }}</x-primary-button>
+                <x-orders.action wire:loading.attr="disabled" wire:target="assign" class="justify-center disabled:opacity-60">{{ __('common.actions.assign') }}</x-orders.action>
             </form>
         @endif
     @endcan @endif
@@ -54,9 +54,9 @@
             <details class="rounded-lg border border-gray-200 p-3">
                 <summary class="cursor-pointer font-medium">{{ __('orders.ui_switch_primary') }}</summary>
                 <form wire:submit="switchPrimary" class="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                    <select wire:model="switchCaptainId" class="block w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->switchCandidates as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select>
-                    <input wire:model="switchReason" placeholder="{{ __('orders.ui_switch_reason') }}" dir="auto" class="block w-full rounded-lg border-gray-300">
-                    <x-primary-button wire:loading.attr="disabled" wire:target="switchPrimary" class="justify-center">{{ __('orders.ui_switch_primary') }}</x-primary-button>
+                    <select aria-invalid="{{ $errors->has('switchCaptainId') ? 'true' : 'false' }}" wire:model="switchCaptainId" class="block w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->switchCandidates as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select>
+                    <input aria-invalid="{{ $errors->has('switchReason') ? 'true' : 'false' }}" wire:model="switchReason" placeholder="{{ __('orders.ui_switch_reason') }}" dir="auto" class="block w-full rounded-lg border-gray-300">
+                    <x-orders.action wire:loading.attr="disabled" wire:target="switchPrimary" class="justify-center">{{ __('orders.ui_switch_primary') }}</x-orders.action>
                     <x-input-error :messages="$errors->get('switchCaptainId')" />
                     <x-input-error :messages="$errors->get('switchReason')" />
                 </form>

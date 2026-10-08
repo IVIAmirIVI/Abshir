@@ -29,6 +29,21 @@ class InvoiceSnapshotService
         });
     }
 
+    /** Read-only eligibility using the exact production snapshot builder. */
+    public function readinessProblem(Order $order): ?string
+    {
+        return DB::transaction(function () use ($order): ?string {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            try {
+                $this->build($order);
+
+                return null;
+            } catch (ValidationException $exception) {
+                return collect($exception->errors())->flatten()->first();
+            }
+        });
+    }
+
     public function build(Order $order): array
     {
         $order->refresh();
