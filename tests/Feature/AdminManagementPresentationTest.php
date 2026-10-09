@@ -114,4 +114,31 @@ class AdminManagementPresentationTest extends TestCase
         $this->assertSame($branch->id, $captain->fresh()->home_branch_id);
         $this->assertSame(CaptainOperationalStatus::Unavailable, $captain->fresh()->operational_status);
     }
+
+    public function test_form_errors_are_associated_with_controls_and_parent_navigation_preserves_old_input(): void
+    {
+        $response = $this->withSession([
+            '_old_input' => ['name' => 'Preserved draft', 'email' => 'bad-email'],
+            'errors' => ['default' => ['format' => ':message', 'messages' => [
+                'email' => ['يجب أن يكون البريد الإلكتروني عنوان بريد إلكتروني صالحًا.'],
+            ]]],
+        ])
+            ->get(route('admin.users.create'))->assertOk()->assertSee('Preserved draft')->assertSee('bad-email');
+        $dom = $this->dom($response->getContent());
+        $this->assertSame(1, $dom->query('//input[@id="email"][@aria-invalid="true"][@aria-describedby="email-error"]')->length);
+        $this->assertSame(1, $dom->query('//ul[@id="email-error"]/li')->length);
+        $this->assertSame(1, $dom->query('//nav[@aria-label="'.__('common.breadcrumbs').'"]//a')->length);
+        $this->assertStringContainsString(__('common.required_field'), $response->getContent());
+    }
+
+    public function test_management_pagination_keeps_real_page_links_and_authorized_records(): void
+    {
+        User::factory()->count(23)->create();
+        $first = $this->get(route('admin.users.index'))->assertOk();
+        $second = $this->get(route('admin.users.index', ['page' => 2]))->assertOk();
+        $this->assertSame(1, $this->dom($first->getContent())->query('//nav[@role="navigation"]')->length);
+        $first->assertSee('page=2', false);
+        $second->assertSee('page=1', false);
+        $this->assertDatabaseCount('users', 24);
+    }
 }

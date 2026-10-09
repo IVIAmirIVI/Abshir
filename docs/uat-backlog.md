@@ -106,3 +106,11 @@ Original phase mapping and precise gaps: `phase-alignment-u6.md`. Numbered miles
 - Printed totals wrap without clipping amounts. Existing permissions, financial actions and unsupported shared transitions remain unchanged; no settlement workflow added.
 - Consolidated visual checks remain required at 375px, 768px and 1440px: tables, amount forms, long Arabic references, refunds/returns, Captain self-view and print/PDF. Markup checks are not browser acceptance.
 - Preserve the intermittent Wizard browser state-loss concern for consolidated UAT; this presentation batch does not resolve it.
+
+## Phase 9.5D administration presentation
+
+- Administration forms now associate field errors with controls, identify required fields without changing validation, and link to their existing parent lists.
+- Delivery settings display failed submissions and retain employee-limit input. Fee configuration, delivery rules and approvals reuse the existing management scope; delivery-rule filters have visible labels.
+- Unknown HTML conflict exception messages are not displayed. Existing translated evidence-integrity explanations remain visible; HTTP status and financial protections are unchanged.
+- Consolidated browser checks remain required at 375px/768px/1440px for labels/errors, checkbox groups, wrapped pagination, fee forms, approval buttons, existing PowerGrid sorting/filtering, modal/drawer keyboard navigation and long Arabic content. No browser acceptance claimed.
+- Intermittent Wizard state loss remains in the final browser backlog. Shared actual-payer returns/collected corrections and destructive demo-reset acceptance remain separate limitations, not new administration features.

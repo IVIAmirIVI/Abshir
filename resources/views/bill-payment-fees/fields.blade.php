@@ -8,7 +8,7 @@
         </select>
     </label>
     <div x-show="mode === 'FIXED'">
-        <x-text-input dir="ltr" name="fixed_fee" :value="$rule->fixed_fee ?? ''" :placeholder="__('admin.ui.fixed_fee')" x-bind:required="mode === 'FIXED'" x-bind:disabled="mode !== 'FIXED'" />
+        <label class="block text-sm">{{ __('admin.ui.fixed_fee') }}<x-text-input class="mt-1 block w-full" dir="ltr" name="fixed_fee" :value="$rule->fixed_fee ?? ''" :placeholder="__('admin.ui.fixed_fee')" x-bind:required="mode === 'FIXED'" x-bind:disabled="mode !== 'FIXED'" /></label>
     </div>
     <fieldset x-show="mode === 'TIERED'" x-cloak x-bind:disabled="mode !== 'TIERED'" class="min-w-0 space-y-3">
         @foreach($tiers as $index => $tier)

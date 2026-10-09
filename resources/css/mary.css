@@ -117,3 +117,13 @@
 
 .management-ux :where(p, h3, h4, legend) { overflow-wrap: anywhere; }
 .management-ux :where(legend) { max-width: 100%; }
+
+@source '../views/admin/pricing-settings';
+@source '../views/admin/delivery-pricing-settings';
+@source '../views/delivery-pricing-rules';
+@source '../views/delivery-overrides';
+@source '../views/bill-payment-fees';
+.management-ux :where(.grid > *, .flex > *, label) { min-width: 0; }
+.management-ux :where(input, select, textarea) { max-width: 100%; }
+.management-ux :where(nav[role='navigation'] > div) { flex-wrap: wrap; gap: .5rem; }
+.management-ux :where(nav[role='navigation'] a, nav[role='navigation'] span) { overflow-wrap: anywhere; }

@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold">{{ $rule->exists ? __('admin.ui.version_delivery_rule') : __('admin.ui.create_delivery_rule') }}</h2></x-slot>
-    <div class="mx-auto max-w-3xl px-4 py-8">
-        @if($errors->any())<div class="mb-4 rounded bg-red-50 p-4"><ul>@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul></div>@endif
+    <x-management.page>
+        @if($errors->any())<div role="alert" class="mb-4 rounded bg-red-50 p-4"><ul>@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul></div>@endif
         <form class="grid gap-4 rounded bg-white p-5 shadow sm:grid-cols-2" method="POST" action="{{ $rule->exists ? route('delivery-pricing-rules.update', $rule) : route('delivery-pricing-rules.store') }}">
             @csrf
             @if($rule->exists)@method('PUT')@endif
@@ -15,5 +15,5 @@
             <textarea name="notes" class="rounded border-gray-300 sm:col-span-2" placeholder="{{ __('admin.ui.notes') }}" aria-label="{{ __('admin.ui.notes') }}">{{ old('notes', $rule->notes) }}</textarea>
             <x-primary-button>{{ $rule->exists ? __('admin.ui.create_version') : __('admin.ui.create_rule') }}</x-primary-button>
         </form>
-    </div>
+    </x-management.page>
 </x-app-layout>

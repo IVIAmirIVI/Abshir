@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'required_field' => 'حقل مطلوب',
+    'breadcrumbs' => 'مسار التنقل',
     'brand' => [
         'name' => 'أبشر',
         'tagline' => 'طلبك علينا',
