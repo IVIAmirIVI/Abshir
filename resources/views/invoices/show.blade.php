@@ -20,8 +20,8 @@
             <div class="grid gap-2 sm:grid-cols-2">
                 <p>{{ $invoice->customer_name_snapshot }} · <x-ltr>{{ $invoice->customer_phone_snapshot }}</x-ltr></p>
                 <p>{{ $invoice->area_snapshot }} · {{ $invoice->address_snapshot }}</p>
-                <p>{{ __('financial.ui.ordered') }} <x-ltr>{{ $invoice->ordered_at_snapshot->format('Y-m-d H:i') }}</x-ltr></p>
-                <p>{{ __('financial.ui.issued_label') }} @if($invoice->issued_at)<x-ltr>{{ $invoice->issued_at->format('Y-m-d H:i') }}</x-ltr>@else{{ __('financial.ui.not_issued') }}@endif</p>
+                <p>{{ __('financial.ui.ordered') }} <x-ltr>{{ \App\Support\UiDate::datetime($invoice->ordered_at_snapshot) }}</x-ltr></p>
+                <p>{{ __('financial.ui.issued_label') }} @if($invoice->issued_at)<x-ltr>{{ \App\Support\UiDate::datetime($invoice->issued_at) }}</x-ltr>@else{{ __('financial.ui.not_issued') }}@endif</p>
             </div>
         </section>
 
@@ -68,8 +68,8 @@
                     @endif
                 @endcan
                 @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at && ! app(\App\Services\InvoiceService::class)->retirementProblem($invoice->order))
-                    @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.void_reason_required') }}" dir="auto"/><button class="rounded bg-red-700 px-3 py-2 text-white">{{ __('financial.ui.void_invoice') }}</button></form>@endcan
-                    @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.replace_reason_required') }}" dir="auto"/><button class="rounded bg-amber-700 px-3 py-2 text-white">{{ __('financial.ui.create_replacement') }}</button></form>@endcan
+                    @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.void_reason_required') }}" dir="auto"/><button class="app-button rounded bg-red-700 px-3 py-2 text-white">{{ __('financial.ui.void_invoice') }}</button></form>@endcan
+                    @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.replace_reason_required') }}" dir="auto"/><button class="app-button rounded bg-amber-700 px-3 py-2 text-white">{{ __('financial.ui.create_replacement') }}</button></form>@endcan
                 @endif
             @endif
         </section>
@@ -78,7 +78,7 @@
         @if($invoice->collection)
             <section class="rounded bg-green-50 p-5">
                 <h3 class="font-semibold">{{ __('financial.ui.collected_full') }} · {{ $invoice->collection->collection_method ? \App\Support\UiLabels::label('financial.collection_methods', $invoice->collection->collection_method) : __('financial.ui.legacy_method') }}</h3>
-                <p><x-money :amount="$invoice->collection->amount" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr> · <x-ltr>{{ $invoice->collection->collected_at->format('Y-m-d H:i') }}</x-ltr></p>
+                <p><x-money :amount="$invoice->collection->amount" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr> · <x-ltr>{{ \App\Support\UiDate::datetime($invoice->collection->collected_at) }}</x-ltr></p>
                 @if($invoice->collection->collection_method === \App\Enums\InvoiceCollectionMethod::Cash)
                     <p>{{ __('financial.ui.collector') }} {{ $invoice->collection->captain?->user?->name }}</p>
                 @elseif($invoice->collection->collection_method === \App\Enums\InvoiceCollectionMethod::ShamCash)
@@ -138,7 +138,7 @@
                                 @if($correction->refund->refunding_captain_id) {{ __('financial.ui.historical_refund_captain') }} #{{ $correction->refund->refunding_captain_id }}. @else {{ __('financial.ui.company_refund') }} @endif
                                 @can('customer_refunds.view_evidence')<a class="underline" href="{{ route('customer-refunds.evidence', $correction->refund) }}">{{ __('financial.ui.customer_refund_evidence') }}</a>@endcan
                             </p>
-                            <p class="text-sm">{{ __('common.terms.currency') }}: <x-ltr>{{ $invoice->currency->code }}</x-ltr> · {{ __('financial.ui.refunded_at') }}: <x-ltr>{{ $correction->refund->refunded_at->format('Y-m-d H:i') }}</x-ltr> · {{ __('financial.ui.reference') }}: <x-ltr>{{ $correction->refund->reference }}</x-ltr> · {{ __('financial.ui.authorized_by') }}: <x-ltr>{{ $correction->refund->authorized_by }}</x-ltr></p>
+                            <p class="text-sm">{{ __('common.terms.currency') }}: <x-ltr>{{ $invoice->currency->code }}</x-ltr> · {{ __('financial.ui.refunded_at') }}: <x-ltr>{{ \App\Support\UiDate::datetime($correction->refund->refunded_at) }}</x-ltr> · {{ __('financial.ui.reference') }}: <x-ltr>{{ $correction->refund->reference }}</x-ltr> · {{ __('financial.ui.authorized_by') }}: <x-ltr>{{ $correction->refund->authorized_by }}</x-ltr></p>
                         @elseif($correction->state === \App\Enums\InvoiceFinancialCorrectionState::Prepared)
                             <p>{{ __('financial.ui.required_refund') }} <x-money :amount="(string) \Brick\Math\BigDecimal::of($correction->customer_delta)->negated()" /> {{ __('financial.ui.original_method') }} {{ $invoice->collection->collection_method ? \App\Support\UiLabels::label('financial.collection_methods', $invoice->collection->collection_method) : __('financial.ui.legacy_method') }}.
                                 @if($invoice->collection->captain_id) {{ __('financial.ui.historical_refund_captain') }} #<x-ltr>{{ $invoice->collection->captain_id }}</x-ltr>. @endif
@@ -158,13 +158,13 @@
                             @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.prepare', $correction) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.prepare_correction') }}</x-primary-button></form>@endcan
                         @endif
                         @if(in_array($correction->state, [\App\Enums\InvoiceFinancialCorrectionState::Requested, \App\Enums\InvoiceFinancialCorrectionState::Prepared], true) && !$correction->refund)
-                            @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.abandon', $correction) }}">@csrf<button class="rounded bg-gray-700 px-3 py-2 text-white">{{ __('financial.ui.abandon_request') }}</button></form>@endcan
+                            @can('invoice_corrections.prepare')<form method="POST" action="{{ route('invoice-corrections.abandon', $correction) }}">@csrf<button class="app-button rounded bg-gray-700 px-3 py-2 text-white">{{ __('financial.ui.abandon_request') }}</button></form>@endcan
                         @endif
                         @if($correction->state === \App\Enums\InvoiceFinancialCorrectionState::ReadyToFinalize)
                             @can('invoice_corrections.finalize')
                                 @if(collect($recoverySummaries[$correction->id])->contains(fn($r)=>!$r['receipt']))
                                     <p>{{ __('financial.ui.finalization_awaits') }}</p>
-                                    <button disabled class="rounded border p-2">{{ __('financial.ui.finalize_correction') }}</button>
+                                    <button disabled class="app-button rounded border p-2">{{ __('financial.ui.finalize_correction') }}</button>
                                 @else
                                     <form method="POST" action="{{ route('invoice-corrections.finalize', $correction) }}">@csrf<x-primary-button class="w-full justify-center sm:w-auto">{{ __('financial.ui.finalize_correction') }}</x-primary-button></form>
                                 @endif

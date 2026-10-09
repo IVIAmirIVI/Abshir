@@ -13,7 +13,7 @@
         <div class="grid gap-4 lg:grid-cols-2">
             @forelse($collections as $collection)
                 <article class="space-y-1 rounded bg-white p-5 shadow">
-                    <p class="text-sm"><x-ltr>{{ $collection->collected_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p class="text-sm"><x-ltr>{{ \App\Support\UiDate::datetime($collection->collected_at) }}</x-ltr></p>
                     <a class="font-semibold underline" href="{{ route('orders.invoices.show', [$collection->order, $collection->invoice]) }}"><x-ltr>{{ $collection->invoice->invoice_number }}</x-ltr></a>
                     <p>{{ __('common.terms.order') }} <x-ltr>{{ $collection->order->order_number }}</x-ltr> · {{ $collection->invoice->customer_name_snapshot }}</p>
                     <p>{{ __('common.terms.branch') }}: {{ $collection->order->branch->name }}</p>

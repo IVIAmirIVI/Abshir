@@ -12,7 +12,7 @@
                     <p><x-ltr>{{ $collection->order->order_number }}</x-ltr> · {{ $collection->invoice->customer_name_snapshot }}</p>
                     <p>{{ $collection->order->branch->name }} · <strong>{{ $collection->collection_method ? \App\Support\UiLabels::label('financial.collection_methods', $collection->collection_method) : __('financial.ui.legacy_method') }}</strong></p>
                     @if($collection->collection_method === \App\Enums\InvoiceCollectionMethod::Cash)<p>{{ __('financial.ui.collector') }} {{ $collection->captain?->user?->name }}</p>@elseif($collection->collection_method === \App\Enums\InvoiceCollectionMethod::ShamCash)<p>{{ __('financial.ui.direct_sham') }}</p>@endif
-                    <p><x-money :amount="$collection->amount" /> <x-ltr>{{ $collection->currency->code }}</x-ltr> · <x-ltr>{{ $collection->collected_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p><x-money :amount="$collection->amount" /> <x-ltr>{{ $collection->currency->code }}</x-ltr> · <x-ltr>{{ \App\Support\UiDate::datetime($collection->collected_at) }}</x-ltr></p>
                     @if($collection->payment_reference)<p class="break-all text-sm">{{ __('financial.ui.reference') }}: <x-ltr>{{ $collection->payment_reference }}</x-ltr></p>@endif
                     <p class="text-sm">{{ __('financial.ui.recorded_by') }} {{ $collection->recordedBy?->name }}</p>
                 </article>

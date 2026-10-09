@@ -21,7 +21,7 @@
                         <button type="button" class="app-icon-button hidden lg:inline-flex" @click="collapsed = !collapsed" :aria-expanded="(!collapsed).toString()" :aria-label="collapsed ? @js(__('shell.expand')) : @js(__('shell.collapse'))" aria-controls="desktop-navigation">
                             <x-mary-icon name="o-bars-3" class="h-5 w-5" />
                         </button>
-                        <a href="{{ route('dashboard') }}" class="shrink-0"><x-application-logo /></a>
+                        <a href="{{ route('dashboard') }}" class="app-topbar-brand shrink-0"><x-application-logo /></a>
                     </div>
                     <div class="flex min-w-0 items-center gap-2">
                         <livewire:shell.navigation-finder />

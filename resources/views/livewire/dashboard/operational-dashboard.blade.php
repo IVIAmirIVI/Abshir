@@ -7,7 +7,7 @@
         <label class="block min-w-0 flex-1 sm:flex-none"><span class="mb-1 block text-xs font-semibold">{{ __('dashboard.period') }}</span><select wire:model.live="period" class="min-h-11 w-full rounded-lg border-stone-300 text-sm">@foreach(['today', '7days', '30days'] as $periodOption)<option value="{{ $periodOption }}">{{ __('dashboard.'.$periodOption) }}</option>@endforeach</select></label>
         <label class="block min-w-0 flex-1"><span class="mb-1 block text-xs font-semibold">{{ __('common.terms.branch') }}</span><select wire:model.live="branchId" class="min-h-11 w-full rounded-lg border-stone-300 text-sm"><option value="">{{ __('dashboard.all_branches') }}</option>@foreach($branches as $branch)<option value="{{ $branch->id }}">{{ $branch->name }}</option>@endforeach</select></label>
         <x-mary-button :label="__('dashboard.refresh')" icon="o-arrow-path" wire:click="$refresh" wire:loading.attr="disabled" class="btn-ghost" />
-        <p class="w-full text-xs text-gray-600">{{ __('dashboard.timezone') }}@if($snapshot) · <x-ltr>{{ $snapshot['from'] }} — {{ $snapshot['to'] }}</x-ltr>@endif</p>
+        <p class="w-full text-xs text-gray-600">{{ __('dashboard.timezone') }}@if($snapshot) · <x-ui-date :value="$snapshot['from']" long /> — <x-ui-date :value="$snapshot['to']" long />@endif</p>
     </section>
     @error('period')<p role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-800">{{ $message }}</p>@enderror
     <p wire:loading role="status" class="text-sm font-medium text-brand-primary">{{ __('dashboard.loading') }}</p>
@@ -25,7 +25,7 @@
         <p class="mt-3 text-xs leading-6 text-gray-600">{{ __('dashboard.current_note') }}</p>
     </div>
     @php
-        $labels = array_column($snapshot['trend'], 'date');
+        $labels = array_map(fn($row) => \App\Support\UiDate::date($row['date']), $snapshot['trend']);
         $trendSettings = ['type' => 'line', 'data' => ['labels' => $labels, 'datasets' => [['label' => __('dashboard.orders'), 'data' => array_column($snapshot['trend'], 'orders'), 'borderColor' => '#164d3b', 'backgroundColor' => '#164d3b', 'tension' => 0, 'pointRadius' => 3]]]];
         $outcomeSettings = ['type' => 'bar', 'data' => ['labels' => $labels, 'datasets' => [
             ['label' => __('orders.statuses.DELIVERED'), 'data' => array_column($snapshot['trend'], 'delivered'), 'backgroundColor' => '#164d3b'],
@@ -34,8 +34,8 @@
         $statusSettings = ['type' => 'bar', 'horizontal' => true, 'data' => ['labels' => array_column($snapshot['distribution'], 'label'), 'datasets' => [['label' => __('dashboard.count'), 'data' => array_column($snapshot['distribution'], 'count'), 'backgroundColor' => '#486957']]]];
     @endphp
     <div class="grid min-w-0 gap-4 xl:grid-cols-2" wire:loading.class="opacity-50">
-        <x-dashboard.chart :title="__('dashboard.trend')" :description="__('dashboard.trend_help')" :settings="$trendSettings" :rows="array_map(fn($row) => [$row['date'], $row['orders']], $snapshot['trend'])" :columns="[__('dashboard.date'), __('dashboard.count')]" :empty="array_sum(array_column($snapshot['trend'], 'orders')) === 0" />
-        <x-dashboard.chart :title="__('dashboard.outcomes')" :description="__('dashboard.outcomes_help')" :settings="$outcomeSettings" :rows="array_map(fn($row) => [$row['date'], $row['delivered'], $row['cancelled']], $snapshot['trend'])" :columns="[__('dashboard.date'), __('orders.statuses.DELIVERED'), __('orders.statuses.CANCELLED')]" :empty="$snapshot['metrics']['delivered'] + $snapshot['metrics']['cancelled'] === 0" />
+        <x-dashboard.chart :title="__('dashboard.trend')" :description="__('dashboard.trend_help')" :settings="$trendSettings" :rows="array_map(fn($row) => [\App\Support\UiDate::date($row['date']), $row['orders']], $snapshot['trend'])" :columns="[__('dashboard.date'), __('dashboard.count')]" :empty="array_sum(array_column($snapshot['trend'], 'orders')) === 0" />
+        <x-dashboard.chart :title="__('dashboard.outcomes')" :description="__('dashboard.outcomes_help')" :settings="$outcomeSettings" :rows="array_map(fn($row) => [\App\Support\UiDate::date($row['date']), $row['delivered'], $row['cancelled']], $snapshot['trend'])" :columns="[__('dashboard.date'), __('orders.statuses.DELIVERED'), __('orders.statuses.CANCELLED')]" :empty="$snapshot['metrics']['delivered'] + $snapshot['metrics']['cancelled'] === 0" />
     </div>
     <div class="grid min-w-0 gap-4 xl:grid-cols-2">
         <x-dashboard.chart :title="__('dashboard.distribution')" :description="__('dashboard.distribution_help')" :settings="$statusSettings" :rows="array_map(fn($row) => [$row['label'], $row['count']], $snapshot['distribution'])" :columns="[__('orders.table.status'), __('dashboard.count')]" :empty="array_sum(array_column($snapshot['distribution'], 'count')) === 0" horizontal />

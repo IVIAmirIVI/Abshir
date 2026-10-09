@@ -9,17 +9,17 @@
                 </div>
                 <p>{{ __('admin.suggested_fee') }} <x-money :amount="$request->suggested_unit_fee" /> → {{ __('admin.requested_fee') }} <x-money :amount="$request->requested_unit_fee" /> (<x-ltr>{{ $request->difference_percent }}%</x-ltr>)</p>
                 <p>{{ $request->reason }} · {{ __('admin.requested_by') }} {{ $request->requester?->name }}</p>
-                <p>{{ __('admin.requested_at') }} <x-ltr>{{ $request->requested_at?->format('Y-m-d H:i') }}</x-ltr></p>
+                <p>{{ __('admin.requested_at') }} <x-ltr>{{ ($request->requested_at === null ? null : \App\Support\UiDate::datetime($request->requested_at)) }}</x-ltr></p>
                 @if($request->resolved_at)
-                    <p>{{ __('admin.resolved_by') }} {{ $request->resolver?->name }} · {{ __('admin.resolved_at') }} <x-ltr>{{ $request->resolved_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p>{{ __('admin.resolved_by') }} {{ $request->resolver?->name }} · {{ __('admin.resolved_at') }} <x-ltr>{{ \App\Support\UiDate::datetime($request->resolved_at) }}</x-ltr></p>
                     <p>{{ $request->resolution_reason }}</p>
                 @endif
                 @if($request->status === \App\Enums\DeliveryOverrideStatus::Pending)
                     <form method="POST" action="{{ route('delivery-overrides.resolve',$request) }}" class="mt-3 flex flex-wrap gap-2">
                         @csrf @method('PATCH')
                         <x-text-input class="min-w-0 max-w-full" aria-label="{{ __('admin.ui.resolution_note') }}" name="resolution_reason" :placeholder="__('admin.ui.resolution_note')"/>
-                        <button name="decision" value="approve" class="rounded bg-green-700 px-3 py-2 text-white">{{ __('admin.ui.approve') }}</button>
-                        <button name="decision" value="reject" class="rounded bg-red-700 px-3 py-2 text-white">{{ __('admin.ui.reject') }}</button>
+                        <button name="decision" value="approve" class="app-button rounded bg-green-700 px-3 py-2 text-white">{{ __('admin.ui.approve') }}</button>
+                        <button name="decision" value="reject" class="app-button rounded bg-red-700 px-3 py-2 text-white">{{ __('admin.ui.reject') }}</button>
                     </form>
                 @endif
             </article>

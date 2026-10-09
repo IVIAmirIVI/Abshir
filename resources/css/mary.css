@@ -83,7 +83,8 @@
 }
 
 .mary-surface { font-family: Tahoma, Arial, sans-serif; }
-.mary-surface .btn { min-height: 2.75rem; animation: none; }
+.mary-surface .btn { min-height: 2.75rem; height: auto; max-width: 100%; gap: .5rem; padding: .625rem 1rem; border-radius: .625rem; font-size: .875rem; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; animation: none; }
+.mary-surface .btn > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
 .mary-surface .btn:focus-visible,
 .mary-surface .input:focus-within { outline: 2px solid #164d3b; outline-offset: 3px; }
 .mary-surface .modal { animation: none; }

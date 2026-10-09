@@ -15,7 +15,7 @@
     <div class="grid gap-4 p-4 text-sm sm:grid-cols-2 sm:p-6 lg:grid-cols-4">
         <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_delivery_address') }}</p><p class="mt-1 break-words">{{ $order->recipient_name_snapshot }} · {{ $order->area_path_snapshot }} · {{ $order->address_line_1_snapshot }} {{ $order->landmark_snapshot }}</p></div>
         <div><p class="text-xs font-medium text-gray-500">{{ __('common.terms.branch') }}</p><p class="mt-1 font-medium">{{ $order->branch->name }}</p></div>
-        <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_ordered') }}</p><p class="mt-1"><x-ltr>{{ $order->ordered_at->format('Y-m-d H:i:s') }}</x-ltr></p></div>
+        <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_ordered') }}</p><p class="mt-1"><x-ltr>{{ \App\Support\UiDate::datetime($order->ordered_at, true) }}</x-ltr></p></div>
         <div><p class="text-xs font-medium text-gray-500">{{ __('orders.ui_pricing_class_label') }}</p><p class="mt-1 font-medium">{{ ($order->pricing_class ? \App\Support\UiLabels::label('orders.pricing_classes', $order->pricing_class) : null) ?? __('orders.ui_class_unavailable') }}</p></div>
     </div>
     @if($order->notes)<p class="whitespace-pre-wrap break-words px-4 pb-3 text-sm">{{ $order->notes }}</p>@endif

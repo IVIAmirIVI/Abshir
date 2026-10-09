@@ -19,7 +19,7 @@
         @elseif($action['kind'] === 'status')
             <p class="text-sm">{{ __('order_execution.status_explicit') }}</p>
             <x-orders.action type="button" wire:click="advance" wire:loading.attr="disabled">{{ __('orders.workflow.transitions.'.$workflow['next']->value) }}</x-orders.action>
-        @elseif($action['panel'] !== $activePanel)<button type="button" wire:click="openStep('{{ $action['panel'] }}')" class="rounded-lg bg-brand-primary px-4 py-2 font-semibold text-white">{{ __('orders.workflow.'.$action['panel']) }}</button>
+        @elseif($action['panel'] !== $activePanel)<button type="button" wire:click="openStep('{{ $action['panel'] }}')" class="app-button rounded-lg bg-brand-primary px-4 py-2 font-semibold text-white">{{ __('orders.workflow.'.$action['panel']) }}</button>
         @else<p class="text-sm">{{ __('orders.workflow.'.$action['panel']) }}</p>@endif
     </x-orders.section>
     @endif

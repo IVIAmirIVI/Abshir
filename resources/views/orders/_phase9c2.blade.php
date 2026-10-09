@@ -7,7 +7,7 @@
 
     @if($order->cancellationIntent)
         <div class="rounded bg-amber-50 p-3 text-sm text-amber-900">
-            {{ __('orders.ui_intent_recorded') }} <x-ltr>{{ $order->cancellationIntent->intent_at->format('Y-m-d H:i') }}</x-ltr>.
+            {{ __('orders.ui_intent_recorded') }} <x-ltr>{{ \App\Support\UiDate::datetime($order->cancellationIntent->intent_at) }}</x-ltr>.
             {{ __('orders.ui_intent_frozen') }}
             {{ $order->cancellationIntent->requiredShops->count() }};
             {{ __('orders.ui_completed_count') }} {{ $order->shopReturns->count() }}.
@@ -20,7 +20,7 @@
             <article class="rounded border p-4 space-y-3 min-w-0">
                 <h4 class="font-medium break-words">{{ $orderShop->shop_name_snapshot }}</h4>
                 @if($purchase = $orderShop->purchaseConfirmation)
-                    <p class="text-sm">{{ __('orders.ui_verified_purchase') }} <strong><x-money :amount="$purchase->amount" /> <x-ltr>{{ $purchase->currency?->code }}</x-ltr></strong> · {{ __('orders.ui_payer_assignment') }}<x-ltr>{{ $purchase->order_captain_id }}</x-ltr> · <x-ltr>{{ $purchase->purchased_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p class="text-sm">{{ __('orders.ui_verified_purchase') }} <strong><x-money :amount="$purchase->amount" /> <x-ltr>{{ $purchase->currency?->code }}</x-ltr></strong> · {{ __('orders.ui_payer_assignment') }}<x-ltr>{{ $purchase->order_captain_id }}</x-ltr> · <x-ltr>{{ \App\Support\UiDate::datetime($purchase->purchased_at) }}</x-ltr></p>
                     @can('order_shop_purchases.view')<a class="underline text-sm" href="{{ route('orders.shops.purchases.evidence', [$order, $orderShop, $purchase]) }}" target="_blank" rel="noopener">{{ __('orders.ui_purchase_evidence') }}</a>@endcan
                 @elseif(!($summaryOnly ?? false) && !$order->cancellationIntent && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true))
                     @can('order_shop_purchases.confirm')

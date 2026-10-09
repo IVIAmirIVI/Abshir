@@ -27,6 +27,6 @@
     }
 @endphp
 <details class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"><summary class="cursor-pointer font-semibold text-brand-primary">{{ __('orders.ui_operational_history') }}</summary><div class="mt-4 space-y-2">
-    @foreach($events->sortBy('at') as $event)<p class="text-sm"><x-ltr>{{ $event['at']->format('Y-m-d H:i:s') }}</x-ltr> · {{ $event['label'] }}</p>@endforeach
+    @foreach($events->sortBy('at') as $event)<p class="text-sm"><x-ltr>{{ \App\Support\UiDate::datetime($event['at'], true) }}</x-ltr> · {{ $event['label'] }}</p>@endforeach
 </div></details>
 @include('orders._captain-selection-history')

@@ -5,7 +5,7 @@
                         @php($purchase->loadMissing('allocations.orderCaptain.captain.user'))
                         {{ $purchase->allocations->map(fn ($share) => $share->orderCaptain?->captain?->user?->name)->implode('، ') }}
                     @else {{ $order->captainAssignments->firstWhere('id', $purchase->order_captain_id)?->captain?->user?->name }} @endif
-                    · <x-ltr>{{ $purchase->purchased_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    · <x-ltr>{{ \App\Support\UiDate::datetime($purchase->purchased_at) }}</x-ltr></p>
                     @can('order_shop_purchases.view')<a class="underline text-sm" href="{{ route('orders.shops.purchases.evidence', [$order, $orderShop, $purchase]) }}" target="_blank" rel="noopener">{{ __('orders.ui_purchase_evidence') }}</a>@endcan
                 @elseif(!($summaryOnly ?? false) && !$order->cancellationIntent && !in_array($order->operational_status, [\App\Enums\OrderOperationalStatus::Delivered, \App\Enums\OrderOperationalStatus::Cancelled], true))
                     @can('order_shop_purchases.confirm')

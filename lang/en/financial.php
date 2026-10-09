@@ -37,6 +37,9 @@ return [
         'CANCEL_AND_REFUND' => 'Cancel and refund',
     ],
     'events' => [
+        'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE' => 'Shared order product reimbursement due — unpaid',
+        'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE' => 'Shared order delivery entitlement due — unpaid',
+        'SHARED_INVOICE_CASH_CUSTODY_RECEIVED' => 'Shared invoice cash received and held by collecting Captain',
         'ORDER_PRODUCT_REIMBURSEMENT' => 'Order product reimbursement — legacy classification',
         'ORDER_DELIVERY_ENTITLEMENT' => 'Order delivery entitlement — legacy classification',
         'ORDER_COMPANY_DELIVERY_SHARE' => 'Company delivery share — legacy classification',

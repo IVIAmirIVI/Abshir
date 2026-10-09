@@ -1,6 +1,7 @@
 import AirDatepicker from 'air-datepicker';
-import localeAr from 'air-datepicker/locale/ar';
+import { syrianDateLocale } from './syrian-date-locale';
 import localeEn from 'air-datepicker/locale/en';
+import { localCalendarDate } from './calendar-date';
 
 const initialized = new WeakMap();
 
@@ -12,7 +13,7 @@ export function initializeOrderDates(component) {
         if (!['from', 'to'].includes(field)) return;
         const panel = input.closest('#orders-index-filters');
         const picker = new AirDatepicker(input, {
-            locale: document.documentElement.lang.startsWith('ar') ? localeAr : localeEn,
+            locale: document.documentElement.lang.startsWith('ar') ? syrianDateLocale : localeEn,
             dateFormat: 'yyyy-MM-dd',
             autoClose: true,
             container: panel,
@@ -42,14 +43,8 @@ export function initializeOrderDates(component) {
             if (input.value === iso && (iso === '' ? selected.length === 0
                 : selected.length === 1 && picker.formatDate(selected[0], 'yyyy-MM-dd') === iso)) return;
             picker.clear({ silent: true });
-            if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-                // Numeric local parts avoid UTC timezone shifts from parsing an ISO string.
-                const [year, month, day] = iso.split('-').map(Number);
-                const date = new Date(0);
-                date.setFullYear(year, month - 1, day);
-                date.setHours(0, 0, 0, 0);
-                picker.selectDate(date, { silent: true });
-            }
+            const date = localCalendarDate(iso);
+            if (date) picker.selectDate(date, { silent: true });
             input.value = iso;
         };
         sync(component.$wire.$get(field));

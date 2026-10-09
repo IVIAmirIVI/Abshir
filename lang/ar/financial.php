@@ -37,6 +37,9 @@ return [
         'CANCEL_AND_REFUND' => 'إلغاء ورد المبلغ',
     ],
     'events' => [
+        'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE' => 'مستحق تعويض مشتريات الطلب المشترك — غير مدفوع',
+        'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE' => 'مستحق توصيل الطلب المشترك — غير مدفوع',
+        'SHARED_INVOICE_CASH_CUSTODY_RECEIVED' => 'استلام نقد الفاتورة المشتركة بعهدة الكابتن المحصّل',
         'ORDER_PRODUCT_REIMBURSEMENT' => 'تعويض مشتريات الطلب — التصنيف المالي القديم',
         'ORDER_DELIVERY_ENTITLEMENT' => 'استحقاق توصيل الطلب — التصنيف المالي القديم',
         'ORDER_COMPANY_DELIVERY_SHARE' => 'حصة أبشر من التوصيل — التصنيف المالي القديم',

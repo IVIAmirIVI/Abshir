@@ -1,6 +1,6 @@
 <div class="space-y-3 text-sm">
     <p>{{ $orderShop->originArea?->path() }} · {{ $orderShop->shop_address_snapshot }}</p>
-    <div class="grid grid-cols-2 gap-2">@foreach(\App\Services\OrderShopProgressService::MARKERS as $marker)<p>{{ \App\Support\UiLabels::label('orders.progress_markers', $marker) }}: @if($orderShop->{$marker})<x-ltr>{{ $orderShop->{$marker}->format('Y-m-d H:i') }}</x-ltr>@else{{ __('orders.workflow.not_recorded') }}@endif</p>@endforeach</div>
+    <div class="grid grid-cols-2 gap-2">@foreach(\App\Services\OrderShopProgressService::MARKERS as $marker)<p>{{ \App\Support\UiLabels::label('orders.progress_markers', $marker) }}: @if($orderShop->{$marker})<x-ltr>{{ \App\Support\UiDate::datetime($orderShop->{$marker}) }}</x-ltr>@else{{ __('orders.workflow.not_recorded') }}@endif</p>@endforeach</div>
     @if($purchase = $orderShop->purchaseConfirmation)<p>{{ __('orders.ui_verified_purchase') }} <x-money :amount="$purchase->amount" /> <x-ltr>{{ $purchase->currency?->code }}</x-ltr> ·
         @if($purchase->purchase_mode === \App\Services\SharedPurchaseBoundary::MODE)
             {{ $purchase->allocations->map(fn ($share) => $share->orderCaptain?->captain?->user?->name)->implode('، ') }}

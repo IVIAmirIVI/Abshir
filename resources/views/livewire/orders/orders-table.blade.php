@@ -81,7 +81,7 @@
                                 <td class="max-w-40 break-words px-2 py-1.5 text-xs">{{ $order->branch->name }}</td>
                                 <td class="px-2 py-1.5">@include('livewire.orders.table-status')</td>
                                 <td class="px-2 py-1.5 text-xs text-gray-500">{{ \App\Support\UiLabels::label('orders.pricing_statuses', $order->pricing_status) }}</td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-xs tabular-nums text-gray-500"><bdi dir="ltr">{{ $order->ordered_at->format('Y-m-d H:i') }}</bdi></td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-xs tabular-nums text-gray-500"><bdi dir="ltr">{{ \App\Support\UiDate::datetime($order->ordered_at) }}</bdi></td>
                                 <td class="px-1 py-1.5">
                                     <div x-data="{ open: false }" @click.outside="open = false" @keydown.escape.stop="open = false" class="relative">
                                         <button type="button" @click="open = !open" :aria-expanded="open" aria-controls="order-actions-{{ $order->id }}" aria-label="{{ __('orders.table.actions', ['reference' => $order->order_number]) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-stone-100 hover:text-brand-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
@@ -104,7 +104,7 @@
                         <div class="flex flex-wrap items-center justify-between gap-2"><p class="min-w-0 break-words text-sm font-medium">{{ $order->customer_name_snapshot }}</p>@include('livewire.orders.table-status')</div>
                         <p class="text-xs text-gray-500"><bdi dir="ltr">{{ $order->customer_phone_snapshot }}</bdi></p>
                         <p class="break-words text-xs text-gray-500">{{ $order->branch->name }} · {{ __('orders.ui_pricing_label') }} {{ \App\Support\UiLabels::label('orders.pricing_statuses', $order->pricing_status) }}</p>
-                        <div class="flex flex-wrap items-center justify-between gap-2"><time class="text-xs tabular-nums text-gray-500" datetime="{{ $order->ordered_at->toIso8601String() }}"><bdi dir="ltr">{{ $order->ordered_at->format('Y-m-d H:i') }}</bdi></time><a href="{{ route('orders.show', $order) }}" class="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-brand-primary hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary">{{ __('orders.table.view_order') }}</a></div>
+                        <div class="flex flex-wrap items-center justify-between gap-2"><time class="text-xs tabular-nums text-gray-500" datetime="{{ $order->ordered_at->toIso8601String() }}"><bdi dir="ltr">{{ \App\Support\UiDate::datetime($order->ordered_at) }}</bdi></time><a href="{{ route('orders.show', $order) }}" class="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-brand-primary hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary">{{ __('orders.table.view_order') }}</a></div>
                     </article>
                 @endforeach
             </div>

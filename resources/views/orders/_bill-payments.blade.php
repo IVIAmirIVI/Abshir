@@ -69,12 +69,12 @@
             @elseif($billRequest->status === \App\Enums\OrderBillPaymentRequestStatus::Completed && $billRequest->payment)
                 @can('bill_payments.view')
                     @php($bill = $billRequest->payment)
-                    <p class="text-sm"><x-ltr>{{ $bill->bill_number }}</x-ltr> · <x-ltr>{{ $bill->bill_date->format('Y-m-d') }}</x-ltr> · {{ __('orders.ui_principal_label') }} <x-money :amount="$bill->principal_amount" /> {{ __('orders.ui_plus_fee') }} <x-money :amount="$bill->service_fee" /> = <x-money :amount="$bill->total_customer_cash" /> <x-ltr>{{ $billRequest->currency->code }}</x-ltr></p>
-                    <p class="text-sm">{{ __('orders.ui_captain_label') }} {{ $bill->orderCaptain->captain->user->name }} · {{ __('orders.ui_employee_label') }} {{ $bill->paidBy?->name ?? __('orders.ui_former_employee') }} · {{ __('orders.ui_sham_reference_label') }} <x-ltr>{{ $bill->payment_reference }}</x-ltr> · {{ __('orders.ui_paid') }} <x-ltr>{{ $bill->paid_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p class="text-sm"><x-ltr>{{ $bill->bill_number }}</x-ltr> · <x-ltr>{{ \App\Support\UiDate::date($bill->bill_date) }}</x-ltr> · {{ __('orders.ui_principal_label') }} <x-money :amount="$bill->principal_amount" /> {{ __('orders.ui_plus_fee') }} <x-money :amount="$bill->service_fee" /> = <x-money :amount="$bill->total_customer_cash" /> <x-ltr>{{ $billRequest->currency->code }}</x-ltr></p>
+                    <p class="text-sm">{{ __('orders.ui_captain_label') }} {{ $bill->orderCaptain->captain->user->name }} · {{ __('orders.ui_employee_label') }} {{ $bill->paidBy?->name ?? __('orders.ui_former_employee') }} · {{ __('orders.ui_sham_reference_label') }} <x-ltr>{{ $bill->payment_reference }}</x-ltr> · {{ __('orders.ui_paid') }} <x-ltr>{{ \App\Support\UiDate::datetime($bill->paid_at) }}</x-ltr></p>
                     <div class="flex flex-wrap gap-3">@foreach($bill->evidence as $image)<a class="underline" href="{{ route('orders.bill-payments.evidence.show', [$order, $billRequest, $bill, $image]) }}">{{ __('orders.ui_payment_evidence') }}<x-ltr>{{ $image->id }}</x-ltr></a>@endforeach</div>
                 @endcan
             @else
-                <p class="text-sm">{{ __('orders.ui_cancelled') }} <x-ltr>{{ $billRequest->cancelled_at?->format('Y-m-d H:i') }}</x-ltr> · {{ $billRequest->cancellation_reason }}</p>
+                <p class="text-sm">{{ __('orders.ui_cancelled') }} <x-ltr>{{ ($billRequest->cancelled_at === null ? null : \App\Support\UiDate::datetime($billRequest->cancelled_at)) }}</x-ltr> · {{ $billRequest->cancellation_reason }}</p>
             @endif
         </article>
     @endforeach

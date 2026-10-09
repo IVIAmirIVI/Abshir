@@ -16,7 +16,7 @@
             <table class="w-full table-fixed text-start text-xs sm:text-sm">
                 <caption class="sr-only">{{ $title }}</caption>
                 <thead><tr>@foreach($columns as $column)<th scope="col" class="break-words px-1 py-2 text-start">{{ $column }}</th>@endforeach</tr></thead>
-                <tbody>@foreach($rows as $row)<tr class="border-t border-stone-100">@foreach($row as $value)<td class="break-words px-1 py-2"><bdi dir="auto">{{ $value }}</bdi></td>@endforeach</tr>@endforeach</tbody>
+                <tbody>@foreach($rows as $row)<tr class="border-t border-stone-100">@foreach($row as $value)<td class="break-words px-1 py-2"><bdi dir="{{ is_numeric($value) || preg_match('/^\d{2}\/\d{2}\/\d{4}$/', (string) $value) ? 'ltr' : 'auto' }}">{{ $value }}</bdi></td>@endforeach</tr>@endforeach</tbody>
             </table>
         </div>
     </details>

@@ -40,6 +40,15 @@
 }
 
 /* Shared shell only; operational tables, forms and page components keep their styles. */
+.app-button {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+    min-height: 2.75rem; max-width: 100%; padding: .625rem 1rem;
+    border-radius: .625rem; font-size: .875rem; font-weight: 600; line-height: 1.5;
+    white-space: normal; overflow-wrap: anywhere; text-align: center;
+}
+.app-button:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
+.app-button:disabled { opacity: .55; cursor: not-allowed; }
+.app-button > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
 [x-cloak] { display: none !important; }
 .app-shell { --sidebar-width: 17rem; min-height: 100dvh; }
 .app-sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 30; width: var(--sidebar-width); flex-direction: column; border-inline-end: 1px solid #e4e5de; background: #fff; }
@@ -52,7 +61,9 @@
 .app-nav-group { margin-block-start: .75rem; }
 .app-nav-group summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem .875rem; border-radius: .5rem; color: #5c655c; font-size: .75rem; font-weight: 700; cursor: pointer; list-style: none; }
 .app-nav-group summary::-webkit-details-marker { display: none; }
+.app-nav-group.has-active-route summary { color: #164d3b; background: #f0f5f0; }
 .app-nav-group:not([open]) summary svg { transform: rotate(90deg); }
+[dir='rtl'] .app-nav-group:not([open]) summary svg { transform: rotate(-90deg); }
 .app-nav-account { border-block-start: 1px solid #e4e5de; margin-block-start: 1rem; padding-block-start: .75rem; }
 .app-workspace { min-width: 0; }
 .app-topbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 5rem; padding: .75rem 1rem; border-block-end: 1px solid #e4e5de; background: #fff; }
@@ -68,6 +79,8 @@
 .app-mobile-drawer[open] { display: flex; flex-direction: column; }
 .app-mobile-drawer::backdrop { background: rgb(15 35 26 / .45); }
 @media (min-width: 1024px) {
+    .app-topbar-brand { display: none; }
+    .app-shell-collapsed .app-topbar-brand { display: block; }
     .app-workspace { margin-inline-start: var(--sidebar-width); }
     .app-topbar { padding-inline: 1.5rem; }
     .app-page-heading { padding-inline: 2rem; }

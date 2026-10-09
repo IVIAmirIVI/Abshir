@@ -31,6 +31,19 @@ Manual browser UAT and the full regression suite are deferred until the integrat
 
 U3 automated validation covers server behavior and rendering only. No browser acceptance is claimed here.
 
+## U6 — Phase 9.5D focused follow-up
+
+Original phase mapping and precise gaps: `phase-alignment-u6.md`. Numbered milestones and Git history are preserved.
+
+- **U6-01 — FIXED in implementation/automated rendering:** navigation groups no longer render `open`, including active-route parents. Native summary toggles remain keyboard/click accessible; Alpine mirrors `aria-expanded`, manual open state is protected during unrelated Livewire morphs. New pages/refresh start closed. Actual browser interaction/flicker acceptance remains pending.
+- **U6-02 — FIXED shared geometry/automated component contract:** primary/secondary/danger legacy components, explicit financial/Workflow actions, and scoped mary buttons share touch height, spacing, wrapping, focus and disabled presentation. Destructive colors and all submit/navigation bindings stay intact. Invoice print action remains hidden on print. Page-by-page visual inspection is pending, not accepted.
+- **U6-03 — FIXED formatter/automated date regression:** display-only `UiDate`, Syrian month/day catalogs and Air Datepicker locale; Gregorian Western-digit numeric dates, Damascus instant display, date-only preservation and ISO inputs/filter state. Representative year/month/leap boundaries are covered. Native browser date/datetime controls still need consolidated platform inspection.
+- **U6-04 — FIXED desktop duplicate branding in scoped shell CSS:** topbar brand is hidden with expanded desktop sidebar and restored on collapse; mobile header remains. Responsive rendering/design inspection is not browser acceptance.
+- No attached Dashboard screenshot was available for this task. No additional scroll/menu defect is claimed from an unseen screenshot; intentional sidebar scrolling is retained.
+- New shared bills/uncollected Invoice version support supersedes older disabled-service notes below only after separate activation of 060000/070000; shared returns/collected corrections stay blocked. U6 applies no migration or fee configuration.
+- Preserve the unresolved intermittent Wizard draft-state browser issue, financial/shared exception limits, final mobile/desktop UAT, full regression and safe destructive reset acceptance. No browser UAT was run or marked passed.
+- **IMPORTANT original Phase 9.5C gap, outside U6:** three shared financial event labels are absent in BOTH `lang/ar/financial.php` and `lang/en/financial.php`: `SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE`, `SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE`, `SHARED_INVOICE_CASH_CUSTODY_RECEIVED`. Existing financial localization coverage fails; parity alone still passes because both catalogs lack them. Leave as a separately scoped translation repair, without changing financial identifiers or posting logic.
+
 ## U4A management presentation
 
 - Review Customer, phone/address, Shop/type, Product/category/unit/group pages together at 375px, tablet and 1440px; verify RTL wrapping, keyboard focus, validation, pagination and long names.

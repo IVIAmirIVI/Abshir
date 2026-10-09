@@ -52,7 +52,7 @@
                 <x-mary-card :title="__('captain_dashboard.movements')" :subtitle="__('captain_dashboard.movements_help')" class="min-w-0 border border-stone-200">
                     <div class="divide-y divide-stone-100">@forelse($snapshot['movements'] as $movement)<article class="min-w-0 py-4">
                         <div class="flex flex-wrap justify-between gap-2"><p class="font-semibold break-words">{{ \App\Support\UiLabels::label('financial.events', $movement->event_type) }}</p><p class="break-all"><span class="text-sm">{{ __('financial.directions.'.$movement->direction) }}</span> <x-money :amount="$movement->amount" :currency="$movement->currency_code" /></p></div>
-                        <p class="mt-2 text-sm break-words text-gray-600">{{ $movement->branch_name }} · {{ __('financial.accounts.'.$movement->account_kind) }} · <x-ltr>{{ \Carbon\CarbonImmutable::parse($movement->occurred_at)->setTimezone('Asia/Damascus')->format('Y-m-d H:i') }}</x-ltr></p>
+                        <p class="mt-2 text-sm break-words text-gray-600">{{ $movement->branch_name }} · {{ __('financial.accounts.'.$movement->account_kind) }} · <x-ltr>{{ \App\Support\UiDate::datetime($movement->occurred_at) }}</x-ltr></p>
                         <p class="mt-1 text-xs break-all text-gray-600">{{ __('captain_dashboard.source') }}: <x-ltr>{{ $movement->source_type }} #{{ $movement->source_id }}</x-ltr>@if($movement->reversal_of_transaction_id) · {{ __('captain_dashboard.reversal') }} <x-ltr>#{{ $movement->reversal_of_transaction_id }}</x-ltr>@endif</p>
                     </article>@empty<p class="py-4 text-sm text-gray-600">{{ __('financial.ui.no_financial_history') }}</p>@endforelse</div>
                 </x-mary-card>
@@ -60,16 +60,16 @@
             @if($snapshot['performance'])
                 <section class="space-y-4" aria-labelledby="captain-period-activity">
                     <h2 id="captain-period-activity" class="text-lg font-bold">{{ __('captain_dashboard.activity') }}</h2>
-                    <p class="text-sm leading-6 text-gray-600">{{ __('captain_dashboard.activity_help') }} · <x-ltr>{{ $snapshot['activity']['from'] }} — {{ $snapshot['activity']['to'] }}</x-ltr></p>
+                    <p class="text-sm leading-6 text-gray-600">{{ __('captain_dashboard.activity_help') }} · <x-ltr>{{ \App\Support\UiDate::date($snapshot['activity']['from']) }} — {{ \App\Support\UiDate::date($snapshot['activity']['to']) }}</x-ltr></p>
                     <div class="grid min-w-0 gap-4 sm:grid-cols-3">@foreach($snapshot['activity']['metrics'] as $metric => $count)<x-management.record><h3 class="text-sm text-gray-600">{{ __('captain_dashboard.'.$metric) }}</h3><p class="mt-3 text-3xl font-bold text-brand-primary" data-captain-metric="{{ $metric }}"><x-ltr>{{ $count }}</x-ltr></p></x-management.record>@endforeach</div>
                     @php
                         $trend = $snapshot['activity']['trend'];
-                        $settings = ['type' => 'bar', 'data' => ['labels' => array_column($trend, 'date'), 'datasets' => [
+                        $settings = ['type' => 'bar', 'data' => ['labels' => array_map(fn($row) => \App\Support\UiDate::date($row['date']), $trend), 'datasets' => [
                             ['label' => __('orders.statuses.DELIVERED'), 'data' => array_column($trend, 'delivered'), 'backgroundColor' => '#164d3b'],
                             ['label' => __('orders.statuses.CANCELLED'), 'data' => array_column($trend, 'cancelled'), 'backgroundColor' => '#9f4b28'],
                         ]]];
                     @endphp
-                    <x-dashboard.chart :title="__('captain_dashboard.trend')" :description="__('captain_dashboard.activity_help')" :settings="$settings" :rows="array_map(fn($row) => [$row['date'], $row['delivered'], $row['cancelled']], $trend)" :columns="[__('dashboard.date'), __('orders.statuses.DELIVERED'), __('orders.statuses.CANCELLED')]" :empty="array_sum(array_column($trend, 'delivered')) + array_sum(array_column($trend, 'cancelled')) === 0" />
+                    <x-dashboard.chart :title="__('captain_dashboard.trend')" :description="__('captain_dashboard.activity_help')" :settings="$settings" :rows="array_map(fn($row) => [\App\Support\UiDate::date($row['date']), $row['delivered'], $row['cancelled']], $trend)" :columns="[__('dashboard.date'), __('orders.statuses.DELIVERED'), __('orders.statuses.CANCELLED')]" :empty="array_sum(array_column($trend, 'delivered')) + array_sum(array_column($trend, 'cancelled')) === 0" />
                 </section>
             @else<p class="rounded-lg bg-stone-50 p-4 text-sm">{{ __('captain_dashboard.performance_denied') }}</p>@endif
         </div>

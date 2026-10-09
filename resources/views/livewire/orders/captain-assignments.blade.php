@@ -50,7 +50,7 @@
             <article wire:key="assignment-{{ $assignment->id }}" class="rounded-lg border border-gray-200 p-3">
                 <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <p class="font-medium">{{ $assignment->captain->user->name }}</p>
-                    <p class="text-sm text-gray-600">{{ \App\Support\UiLabels::label('orders.captain_roles', $assignment->assignment_role) }} · {{ $assignment->removed_at ? __('orders.ui_removed').$assignment->removed_at->format('Y-m-d H:i') : __('common.operational_active') }}</p>
+                    <p class="text-sm text-gray-600">{{ \App\Support\UiLabels::label('orders.captain_roles', $assignment->assignment_role) }} · @if($assignment->removed_at){{ __('orders.ui_removed') }} <x-ltr>{{ \App\Support\UiDate::datetime($assignment->removed_at) }}</x-ltr>@else{{ __('common.operational_active') }}@endif</p>
                 </div>
                 @can('captain_financials.view')<a href="{{ route('captains.financials.show', $assignment->captain) }}" class="mt-2 inline-block text-sm text-brand-primary underline">{{ __('captains.ui_receipts_payouts_and_outstanding_receivables') }}</a>@endcan
                 @if(!$hasSelection && $orderMutable && ! $assignment->removed_at)@can('orders.captains.remove')

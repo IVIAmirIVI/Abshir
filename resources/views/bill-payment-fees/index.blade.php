@@ -14,7 +14,7 @@
         </form>
         @forelse($rules as $rule)
             <article class="rounded bg-white p-5 shadow space-y-2">
-                <p><strong>@if(($rule->fee_mode ?? 'FIXED') === 'TIERED'){{ __('bill_fees.tiered') }}@else<x-money :amount="$rule->fixed_fee" :currency="$rule->currency->code" />@endif</strong> · {{ __('admin.from') }} <x-ltr>{{ $rule->effective_from->format('Y-m-d H:i') }}</x-ltr> · {{ __('admin.until') }} @if($rule->effective_until)<x-ltr>{{ $rule->effective_until->format('Y-m-d H:i') }}</x-ltr>@else{{ __('admin.ui.open') }}@endif</p>
+                <p><strong>@if(($rule->fee_mode ?? 'FIXED') === 'TIERED'){{ __('bill_fees.tiered') }}@else<x-money :amount="$rule->fixed_fee" :currency="$rule->currency->code" />@endif</strong> · {{ __('admin.from') }} <x-ltr>{{ \App\Support\UiDate::datetime($rule->effective_from) }}</x-ltr> · {{ __('admin.until') }} @if($rule->effective_until)<x-ltr>{{ \App\Support\UiDate::datetime($rule->effective_until) }}</x-ltr>@else{{ __('admin.ui.open') }}@endif</p>
                 @if(($rule->fee_mode ?? 'FIXED') === 'TIERED')@include('bill-payment-fees.policy', ['tiers' => $rule->fee_tiers])@endif
                 @if(!$rule->effective_until)
                     <form method="POST" action="{{ route('admin.bill-payment-fees.version', $rule) }}" class="flex flex-wrap gap-2 items-center">
