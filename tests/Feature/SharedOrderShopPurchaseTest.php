@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\InvoiceService;
 use App\Services\OrderBillPaymentService;
 use App\Services\OrderCancellationIntentService;
+use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderShopPurchaseConfirmationService;
@@ -65,18 +66,26 @@ class SharedOrderShopPurchaseTest extends TestCase
     }
 
     #[DataProvider('precisionCases')]
-    public function test_exact_currency_halves_and_reject_odd_minor_units(int $places, string $even, string $half, string $odd): void
+    public function test_currency_minor_units_are_conserved_with_remainder_on_lowest_assignment(int $places, string $even, string $half, string $odd): void
     {
         Storage::fake('order_returns');
         $c = $this->sharedContext($places);
         $service = app(SharedOrderShopPurchaseService::class);
-        $this->assertThrows(fn () => $service->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c, $odd), $this->sharedImage()), ValidationException::class);
-        $this->assertDatabaseCount('order_shop_purchase_confirmations', 0);
+        $other = $c['shop']->replicate();
+        $other->save();
         $purchase = $service->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c, $even), $this->sharedImage());
         foreach ($purchase->allocations as $allocation) {
             $this->assertTrue(BigDecimal::of($allocation->amount)->isEqualTo($half));
         }
-        $this->assertTrue(BigDecimal::of($purchase->amount)->isEqualTo(BigDecimal::of($half)->multipliedBy(2)));
+        $data = $this->sharedData($c, $odd);
+        $purchase = $service->record($c['actor'], $c['order'], $other, $data, $this->sharedImage());
+        $allocations = $purchase->allocations->sortBy('order_captain_id')->values();
+        $unit = BigDecimal::ofUnscaledValue(1, $places);
+        $this->assertTrue(BigDecimal::of($allocations[0]->amount)->minus($allocations[1]->amount)->isEqualTo($unit));
+        $this->assertTrue(BigDecimal::of($allocations[0]->amount)->plus($allocations[1]->amount)->isEqualTo($odd));
+        $this->assertSame($purchase->id, $service->record($c['actor'], $c['order'], $other, $data, $this->sharedImage())->id);
+        $this->assertDatabaseCount('order_shop_purchase_allocations', 4);
+        $this->assertDatabaseCount('financial_transactions', 0);
     }
 
     public static function precisionCases(): array
@@ -210,7 +219,7 @@ class SharedOrderShopPurchaseTest extends TestCase
         $facts['order_shop_id'] = $otherShop->id;
         $facts['request_key'] = (string) str()->uuid();
         $facts['evidence_path'] = 'proof/'.str()->uuid().'.png';
-        foreach (['0', '-1', 'NaN', 'Infinity', '-Infinity', '0.01', '0.001'] as $amount) {
+        foreach (['0', '-1', 'NaN', 'Infinity', '-Infinity', '0.001'] as $amount) {
             $this->assertThrows(fn () => DB::transaction(fn () => DB::table('order_shop_purchase_confirmations')->insert(array_replace($facts, ['amount' => $amount]))), QueryException::class);
         }
         foreach (['missing', 'wrong', 'duplicate', 'foreign'] as $case) {
@@ -299,5 +308,57 @@ SQL);
         $this->assertDatabaseCount('invoices', 1);
         $this->assertSame(1, $c['order']->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->count());
         $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_higher_assignment_collector_never_receives_the_remainder_and_each_shop_splits_independently(): void
+    {
+        Storage::fake('order_returns');
+        $c = $this->sharedContext(0);
+        // Reassignment creates a lower support ID and higher primary ID; UI/input order does not allocate money.
+        $this->travel(-5)->minutes();
+        $selected = app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'],
+            [$c['captains'][0]->id, $c['captains'][1]->id], $c['captains'][1]->id, (string) str()->uuid(), 'Collector is independent');
+        $collector = $c['order']->captainAssignments()->findOrFail($selected->collecting_order_captain_id);
+        $this->travelBack();
+        $active = $c['order']->captainAssignments()->whereNull('removed_at')->orderBy('id')->get();
+        $this->assertSame($collector->id, $active->last()->id);
+        $service = app(SharedOrderShopPurchaseService::class);
+        $secondShop = $c['shop']->replicate();
+        $secondShop->save();
+        $first = $service->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c, '1001'), $this->sharedImage());
+        $second = $service->record($c['actor'], $c['order'], $secondShop, $this->sharedData($c, '3'), $this->sharedImage());
+        foreach ([[$first, '501', '500'], [$second, '2', '1']] as [$purchase, $lower, $higher]) {
+            $rows = $purchase->allocations->sortBy('order_captain_id')->values();
+            $this->assertSame($active->first()->id, $rows[0]->order_captain_id);
+            $this->assertTrue(BigDecimal::of($rows[0]->amount)->isEqualTo($lower));
+            $this->assertTrue(BigDecimal::of($rows[1]->amount)->isEqualTo($higher));
+            $this->assertSame($collector->id, $purchase->collecting_order_captain_id);
+        }
+        $before = DB::table('order_shop_purchase_allocations')->orderBy('id')->get()->toArray();
+        (require base_path('database/migrations/2026_10_09_030000_allocate_shared_purchase_minor_unit_remainders.php'))->up();
+        $this->assertEquals($before, DB::table('order_shop_purchase_allocations')->orderBy('id')->get()->toArray());
+        $this->assertThrows(fn () => DB::transaction(fn () => DB::table('order_shop_purchase_allocations')->where('id', $first->allocations->first()->id)->update(['amount' => '500'])), QueryException::class);
+    }
+
+    public function test_postgresql_rejects_remainder_given_to_higher_assignment_even_when_sum_is_correct(): void
+    {
+        Storage::fake('order_returns');
+        $c = $this->sharedContext(0);
+        $service = app(SharedOrderShopPurchaseService::class);
+        $other = $c['shop']->replicate();
+        $other->save();
+        $purchase = $service->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c, '1001'), $this->sharedImage());
+        $row = $purchase->getAttributes();
+        unset($row['id']);
+        $row['order_shop_id'] = $other->id;
+        $row['request_key'] = (string) str()->uuid();
+        $this->assertThrows(fn () => DB::transaction(function () use ($row, $c): void {
+            $id = DB::table('order_shop_purchase_confirmations')->insertGetId($row);
+            foreach ($c['assignments'] as $index => $assignment) {
+                DB::table('order_shop_purchase_allocations')->insert(['purchase_confirmation_id' => $id,
+                    'order_captain_id' => $assignment->id, 'amount' => $index === 0 ? '500' : '501']);
+            }
+        }), QueryException::class);
+        $this->assertDatabaseCount('order_shop_purchase_confirmations', 1);
     }
 }

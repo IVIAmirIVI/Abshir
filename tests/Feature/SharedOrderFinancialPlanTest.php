@@ -139,12 +139,12 @@ class SharedOrderFinancialPlanTest extends TestCase
         $this->select($c);
         foreach ([fn () => app(InvoiceService::class)->createDraft($c['actor'], $c['order']),
             fn () => app(OrderBillPaymentService::class)->request($c['actor'], $c['order'], $c['currency']->id),
-            fn () => app(CorrectedOrderFinancialService::class)->postIfReady($c['order']),
+
             fn () => app(OrderShopPurchaseConfirmationService::class)->record($c['actor'], $c['order'], $c['shop'],
                 $this->sharedData($c) + ['order_captain_id' => $c['assignments'][0]->id], $this->sharedImage())] as $action) {
             $this->assertThrows($action, ValidationException::class);
         }
-        $this->assertSame('unresolved', app(CorrectedOrderFinancialService::class)->assess($c['order'])['state']);
+        $this->assertSame('waiting_invoice', app(CorrectedOrderFinancialService::class)->assess($c['order'])['state']);
         $this->assertSame(0, DB::table('invoices')->count());
         $this->assertSame(0, DB::table('order_bill_payment_requests')->count());
         $this->assertSame(0, DB::table('financial_transactions')->count());
@@ -160,7 +160,7 @@ class SharedOrderFinancialPlanTest extends TestCase
                 'invoice_number' => 'DIRECT-SHARED', 'version' => 1, 'status' => 'DRAFT', 'created_by' => $c['actor']->id]));
             $this->fail('Direct SQL must not bypass the shared financial contract.');
         } catch (QueryException $exception) {
-            $this->assertStringContainsString('requires the shared financial contract', $exception->getMessage());
+            $this->assertStringContainsString('Shared invoice requires confirmed physical purchases first', $exception->getMessage());
         }
         $this->assertSame(0, DB::table('invoices')->count());
     }
@@ -175,7 +175,7 @@ class SharedOrderFinancialPlanTest extends TestCase
             DB::transaction(fn () => DB::table('invoices')->where('id', $invoice->id)->update(['order_id' => $c['order']->id]));
             $this->fail('A legacy draft cannot bypass the shared contract through parent reassignment.');
         } catch (QueryException $exception) {
-            $this->assertStringContainsString('requires the shared financial contract', $exception->getMessage());
+            $this->assertStringContainsString('Shared invoice requires confirmed physical purchases first', $exception->getMessage());
         }
         $this->assertSame($other['order']->id, $invoice->fresh()->order_id);
         $this->assertSame(0, $c['order']->invoices()->count());

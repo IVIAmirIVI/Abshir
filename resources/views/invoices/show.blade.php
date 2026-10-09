@@ -14,6 +14,8 @@
                 <div><h3 class="font-semibold">{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }} · {{ __('financial.ui.version') }} <x-ltr>{{ $invoice->version }}</x-ltr></h3><p>{{ __('common.terms.order') }} <x-ltr>{{ $invoice->order_number_snapshot }}</x-ltr></p></div>
                 <a class="underline" target="_blank" href="{{ route('orders.invoices.print', [$invoice->order, $invoice]) }}">{{ __('financial.ui.print_view') }}</a>
             </div>
+            @include('invoices._shared-captains')
+            @if(app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ __('shared_orders.shared_correction_blocked') }}</p>@endif
             <p class="text-sm">{{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p>
             <div class="grid gap-2 sm:grid-cols-2">
                 <p>{{ $invoice->customer_name_snapshot }} · <x-ltr>{{ $invoice->customer_phone_snapshot }}</x-ltr></p>
@@ -65,7 +67,7 @@
                         </form>
                     @endif
                 @endcan
-                @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at)
+                @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at && ! app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))
                     @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.void_reason_required') }}" dir="auto"/><button class="rounded bg-red-700 px-3 py-2 text-white">{{ __('financial.ui.void_invoice') }}</button></form>@endcan
                     @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.replace_reason_required') }}" dir="auto"/><button class="rounded bg-amber-700 px-3 py-2 text-white">{{ __('financial.ui.create_replacement') }}</button></form>@endcan
                 @endif
@@ -170,7 +172,7 @@
                         @endif
                     </article>
                 @endforeach
-                @if($correctionSource && !$corrections->contains(fn ($correction) => in_array($correction->state->value, ['REQUESTED','PREPARED','READY_TO_FINALIZE'], true)))
+                @if($correctionSource && ! app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order) && !$corrections->contains(fn ($correction) => in_array($correction->state->value, ['REQUESTED','PREPARED','READY_TO_FINALIZE'], true)))
                     @can('invoice_corrections.request')
                         <details data-invoice-correction-request class="rounded-lg border p-3"><summary class="cursor-pointer font-semibold text-red-700">{{ __('financial.ui.request_correction') }}</summary>
                         <form method="POST" action="{{ route('invoices.corrections.request', $invoice) }}" class="space-y-3 rounded border p-4">

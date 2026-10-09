@@ -47,6 +47,9 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source, $kind, $proposal, $reason, $explanation, $requestKey): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->id);
             $collection = $invoice->collection()->lockForUpdate()->first();
             $existing = InvoiceFinancialCorrection::query()->where('request_key', $requestKey)->first();
@@ -104,6 +107,9 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->original_invoice_id);
             $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($source->original_collection_id);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
@@ -173,6 +179,9 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->original_invoice_id);
             $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($source->original_collection_id);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);

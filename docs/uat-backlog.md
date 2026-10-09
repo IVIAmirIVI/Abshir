@@ -15,7 +15,7 @@ Manual browser UAT and the full regression suite are deferred until the integrat
 
 - **Wizard state loss remains unproven fixed.** Reproduce repeated immediate Step 2 Next / Back / forward with pending search and inline creation. Capture real browser request order and compare visible selections with server draft. Do not mark accepted from Livewire component tests alone.
 - Wizard draft products currently contain quantities, not estimated/actual prices. U3 displays unavailable totals honestly; recorded Workflow item/Shop totals still use the existing exact-decimal service. Adding draft price entry or estimation is separate work, not a U3 pricing change.
-- Explicit one/two-Captain selection and collector audit are implemented in the MC2 development foundation. Shared financial execution remains unavailable; the accounting review is read-only. Historical unversioned assignments and single-Captain financial contracts are preserved. See `mc2-mc3-implementation.md`.
+- Simplified MC4 implements shared purchases, one Invoice, actual CASH/SHAM_CASH Collection and unpaid obligations without an additional settlement step. Shared payouts/Invoice handovers are outside owner scope; shared bills/refunds remain unsupported. No abshir activation occurred. See `mc4-shared-financial-integration.md`; historical/single contracts and the optional read-only review remain.
 - U2 financial KPIs remain deferred. Its follow-up covers confirmation, eligible Captain assignment and missing Shop receipts after purchase, not every possible blocker.
 
 ## Final browser checkpoints
@@ -58,3 +58,18 @@ U3 automated validation covers server behavior and rendering only. No browser ac
 - Financial-review GET access requires existing financial/order permissions and Order Branch scope; Captain self-view must remain its authenticated Captain only. Review actual per-Shop physical payer names, one product principal, two delivery units, combined discount once and separate Deposit/Custody/Receivable concepts.
 - Before activation: implement and audit shared source/version/hash contracts, actual gross-CASH custody/handover, attributed Receivables/payouts, original-payer returns and paid-correction/recovery handling. Approve the per-Shop odd minor-unit recipient. Preserve all legacy contracts and existing external bill fee rules.
 - Demo reset now recognizes the participant selection dependency. Its destructive execution with the new schema has not been rerun on any owner database; isolated future acceptance is still required. No real reset, preview reset or physical attachment deletion was performed in this batch.
+
+## MC4 consolidated acceptance additions
+
+- The owner-approved odd minor-unit policy is final: the lowest numeric immutable assignment ID receives the remainder per Shop. It is not an unresolved owner decision. Check the higher-ID collector case and multiple odd Shop totals in consolidated UAT.
+- The earlier MC2/MC3 disabled-accounting list above is historical. Simplified MC4 enables only the tested shared purchase/Invoice/Collection/unpaid-obligation paths after separate schema activation. No actual owner financial event or development migration was performed.
+- Compare product principal once, two delivery charges, discount once, frozen actual per-Shop funding, both Invoice Captain identities and collector, actual full CASH Custody versus company-direct SHAM_CASH, separate reimbursements/entitlements, without Deposit netting or any invented handover/payout. Shared claims must not appear in existing payout selectors; unrelated supported payouts remain available.
+- Shared delivery must fail when any physical purchase/actual source, pickup or receipt is missing. Business mutations, participant replacement, shared corrections/returns and bill execution remain guarded. Invoice cash handover and company settlement are off-system policy, not a new required software workflow; no imaginary handover has been posted.
+- Captain self-view must show only its own balances, one delivered Order/entitlement, separate currencies and historical Branches; scoped employees must not receive global balances. Simulations remain read-only.
+- Actual destructive demo-reset acceptance on the activated schema is deferred because the existing safe engine does not accept disposable test schemas. Do not weaken its owner-database identity guards or run it on either owner database as a substitute test.
+
+## Owner simplification supersedes earlier settlement roadmap
+
+- MC5, invoice_cash_handovers and shared per-Order payout workflows are explicitly outside scope. Earlier MC1–MC3 activation notes are historical, not a requirement to build those features. The per-Shop odd-unit policy is approved.
+- Normal two-Captain execution must reach one Invoice, actual Collection and DELIVERED without any settlement form. Existing recorded custody/unpaid balances must never be falsely cleared merely because the company settles off-system.
+- Consolidated UAT should cover the higher-ID collector, two delivery charges, combined discount once, product principal once and absence of split/payment inputs. Shared bills/refunds/corrections remain explicit exceptions.

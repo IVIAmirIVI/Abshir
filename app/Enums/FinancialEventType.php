@@ -4,6 +4,10 @@ namespace App\Enums;
 
 enum FinancialEventType: string
 {
+    case SharedOrderProductReimbursementDue = 'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE';
+    case SharedOrderDeliveryEntitlementDue = 'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE';
+    case SharedInvoiceCashCustodyReceived = 'SHARED_INVOICE_CASH_CUSTODY_RECEIVED';
+
     case OrderProductReimbursement = 'ORDER_PRODUCT_REIMBURSEMENT';
     case OrderDeliveryEntitlement = 'ORDER_DELIVERY_ENTITLEMENT';
     case OrderCompanyDeliveryShare = 'ORDER_COMPANY_DELIVERY_SHARE';

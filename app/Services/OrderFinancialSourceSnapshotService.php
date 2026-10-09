@@ -74,6 +74,8 @@ class OrderFinancialSourceSnapshotService
             if ($subtotal->isLessThan(0)) {
                 throw new \InvalidArgumentException;
             }
+            $physicalFunding = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                ? app(SharedOrderInvoiceSourceService::class)->fundingLocked($order, $currency->id, $pricing->id, (string) $subtotal) : null;
             [$base, $remainder] = $subtotal->getUnscaledValue()->quotientAndRemainder($allocations->count());
             $remainderCount = $remainder->toInt();
             $rows = [];
@@ -95,7 +97,7 @@ class OrderFinancialSourceSnapshotService
                     throw new FinancialLedgerException("Invoice {$invoice->id} has inconsistent delivery allocation money.");
                 }
                 $minor = $base->plus($index < $remainderCount ? 1 : 0);
-                $share = BigDecimal::ofUnscaledValue($minor, $currency->decimal_places);
+                $share = $physicalFunding === null ? BigDecimal::ofUnscaledValue($minor, $currency->decimal_places) : BigDecimal::of($physicalFunding[$assignment->id]);
                 $customerTotal = $customerTotal->plus($customer);
                 $productTotal = $productTotal->plus($share);
                 $rows[] = [

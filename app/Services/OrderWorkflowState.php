@@ -79,7 +79,7 @@ class OrderWorkflowState
                 'pricing' => $mutable && $actor->can('delivery_pricing.apply'),
                 'items' => $mutable && $actor->can('orders.update') && (! isset($nextAction['shop_id'])
                     || $order->shops->firstWhere('id', $nextAction['shop_id'])->items->isEmpty() || $actor->can('orders.pricing.update')),
-                'purchase' => $evidenceMutable && ! app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                'purchase' => $evidenceMutable
                     && $actor->can('order_shop_purchases.confirm'),
                 'receipt' => $evidenceMutable && $actor->can('order_shop_receipts.upload'),
                 'pickup' => $evidenceMutable && $actor->can('orders.update'),

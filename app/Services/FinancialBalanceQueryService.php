@@ -181,9 +181,14 @@ class FinancialBalanceQueryService
     /** Known immutable sources explain the economic balance while deployment keeps them non-allocatable. */
     public function gatedCorrectedReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
     {
+        // Shared liabilities stay visible in balances, but are not an operator payout workflow.
+        // Account for them here so they cannot block unrelated, already-supported payouts.
+        $shared = $this->receivableSourceEntries($captain, $branch, $currency, [
+            'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE', 'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE',
+        ]);
         if (! DB::scalar("SELECT to_regprocedure('corrected_receivable_payouts_active()') IS NOT NULL")
             || DB::scalar('SELECT corrected_receivable_payouts_active()')) {
-            return collect();
+            return $shared;
         }
         $sources = $this->receivableSourceEntries($captain, $branch, $currency, [
             'INVOICE_CORRECTION_CASH_SHORTFALL_DUE',
@@ -212,7 +217,7 @@ class FinancialBalanceQueryService
             }
         }
 
-        return $sources;
+        return $sources->concat($shared);
     }
 
     private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes, bool $reserved = false): Collection

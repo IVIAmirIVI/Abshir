@@ -25,7 +25,7 @@ class OrderStatusService
 
     private function transitionProblem(Order $order, OrderOperationalStatus $target): ?string
     {
-        if ($problem = app(SharedPurchaseBoundary::class)->problem($order)) {
+        if ($problem = app(SharedPurchaseBoundary::class)->operationalProblem($order)) {
             return $problem;
         }
         if (! $this->mutationGuard->isOperationalEvidenceMutable($order)) {
@@ -38,8 +38,12 @@ class OrderStatusService
             return __('domain.assign_a_primary_collection_captain_first');
         }
         if ($target === OrderOperationalStatus::Delivered) {
-            if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+            if (! app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) && ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order))) {
                 return $problem;
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                && $order->shops()->whereDoesntHave('purchaseConfirmation', fn ($query) => $query->where('purchase_mode', SharedPurchaseBoundary::MODE))->exists()) {
+                return __('shared_orders.complete_purchases_required');
             }
             if ($problem = $this->financials->correctionPostingProblem($order)) {
                 return $problem;
@@ -65,6 +69,10 @@ class OrderStatusService
             $previous = $order->operational_status;
             if ($problem = $this->transitionProblem($order, $target)) {
                 throw ValidationException::withMessages(['operational_status' => $problem]);
+            }
+            if ($target === OrderOperationalStatus::Delivered && app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                $snapshot = app(InvoiceSnapshotService::class)->build($order);
+                app(SharedOrderInvoiceSourceService::class)->fundingLocked($order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
             }
             $order->forceFill(['operational_status' => $target])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);

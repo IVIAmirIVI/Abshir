@@ -64,9 +64,10 @@ class SharedOrderShopPurchaseService
                 $currency = Currency::query()->lockForUpdate()->findOrFail($data['currency_id']);
                 try {
                     $amount = $this->posting->validatePlannedAmount($currency, $data['amount']);
-                    $share = (string) BigDecimal::of($amount)->dividedBy(2, $currency->decimal_places, RoundingMode::Unnecessary);
+                    $scaled = BigDecimal::of($amount)->toScale($currency->decimal_places, RoundingMode::Unnecessary);
+                    [$base, $remainder] = $scaled->getUnscaledValue()->quotientAndRemainder(2);
                 } catch (FinancialLedgerException|MathException $exception) {
-                    throw ValidationException::withMessages(['amount' => __('domain.shared_purchase_exact_halves_required')]);
+                    throw ValidationException::withMessages(['amount' => __('shared_orders.invalid_purchase_amount')]);
                 }
                 $facts = [
                     'order_id' => $order->id, 'order_shop_id' => $shop->id, 'branch_id' => $order->branch_id,
@@ -103,10 +104,10 @@ class SharedOrderShopPurchaseService
                     'request_key' => $data['request_key'], 'evidence_path' => $path, 'evidence_name' => $metadata['name'],
                     'created_at' => DB::raw('clock_timestamp()'), 'updated_at' => DB::raw('clock_timestamp()'),
                 ]);
-                foreach ($assignments as $assignment) {
+                foreach ($assignments->values() as $index => $assignment) {
                     DB::table('order_shop_purchase_allocations')->insert([
                         'purchase_confirmation_id' => $id, 'order_captain_id' => $assignment->id,
-                        'amount' => $share, 'created_at' => DB::raw('clock_timestamp()'),
+                        'amount' => (string) BigDecimal::ofUnscaledValue($base->plus($index === 0 ? $remainder : 0), $currency->decimal_places), 'created_at' => DB::raw('clock_timestamp()'),
                     ]);
                 }
                 DB::select('SELECT assert_shared_shop_purchase_complete(?)', [$id]);

@@ -14,6 +14,8 @@ use App\Services\OrderReturnEvidenceService;
 use App\Services\OrderShopEvidenceService;
 use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReturnService;
+use App\Services\SharedOrderShopPurchaseService;
+use App\Services\SharedPurchaseBoundary;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -25,7 +27,7 @@ class OrderReturnController extends Controller
     public function purchase(Request $request, Order $order, OrderShop $orderShop, OrderShopPurchaseConfirmationService $service, OrderShopEvidenceService $combined): RedirectResponse
     {
         $data = $request->validate([
-            'order_captain_id' => ['required', 'integer'], 'currency_id' => ['required', 'integer'],
+            'order_captain_id' => [app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) ? 'prohibited' : 'required', 'integer'], 'currency_id' => ['required', 'integer'],
             'amount' => ['required', 'string'], 'purchased_at' => ['required', 'date'],
             'request_key' => ['required', 'uuid'], 'reference' => ['nullable', 'string', 'max:255'],
             'note' => ['nullable', 'string', 'max:3000'], 'evidence' => ['required', 'file', 'max:5120'],
@@ -34,7 +36,8 @@ class OrderReturnController extends Controller
         if ($request->boolean('also_shop_receipt')) {
             $combined->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
         } else {
-            $service->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
+            $purchaseService = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) ? app(SharedOrderShopPurchaseService::class) : $service;
+            $purchaseService->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
         }
 
         return redirect()->route('orders.workflow', [$order, 'step' => 'shops'])->with('status', $request->boolean('also_shop_receipt') ? __('order_execution.dual_saved') : __('orders.flash.purchase_recorded'));

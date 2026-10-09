@@ -36,7 +36,8 @@ class OrderShopEvidenceService
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 $shop = $order->shops()->lockForUpdate()->findOrFail($shop->id);
                 $existing = OrderShopPurchaseConfirmation::where('request_key', $data['request_key'] ?? null)->exists();
-                $purchase = $this->purchases->record($actor, $order, $shop, $data, $file);
+                $purchaseService = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) ? app(SharedOrderShopPurchaseService::class) : $this->purchases;
+                $purchase = $purchaseService->record($actor, $order, $shop, $data, $file);
                 if (! $existing) {
                     $purchasePath = $purchase->evidence_path;
                 }

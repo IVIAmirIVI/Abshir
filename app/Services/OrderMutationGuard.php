@@ -12,19 +12,21 @@ class OrderMutationGuard
 {
     public function isOperationalEvidenceMutable(Order $order): bool
     {
-        return app(SharedPurchaseBoundary::class)->problem($order) === null
+        return app(SharedPurchaseBoundary::class)->operationalProblem($order) === null
             && ! in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)
             && ! (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists());
     }
 
     public function isPricingFrozen(Order $order): bool
     {
-        return ! $this->isOperationalEvidenceMutable($order)
+        return app(SharedPurchaseBoundary::class)->problem($order) !== null
+            || ! $this->isOperationalEvidenceMutable($order)
             || $order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->exists();
     }
 
     public function assertMutableLocked(Order $order): void
     {
+        app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
         $this->assertNoCancellationIntentLocked($order);
         if ($order->operational_status === OrderOperationalStatus::Delivered) {
             throw ValidationException::withMessages(['order' => __('domain.a_delivered_order_cannot_be_changed')]);
@@ -53,7 +55,9 @@ class OrderMutationGuard
 
     public function assertNoCancellationIntentLocked(Order $order): void
     {
-        app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
+        if ($problem = app(SharedPurchaseBoundary::class)->operationalProblem($order)) {
+            throw ValidationException::withMessages(['order' => $problem]);
+        }
         if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
             throw ValidationException::withMessages(['order' => __('domain.normal_order_advancement_is_frozen_by_an_after_purchase_cancellation_intent')]);
         }

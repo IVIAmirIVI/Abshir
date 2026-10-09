@@ -64,7 +64,7 @@ class CorrectedOrderFinancialService
         return DB::transaction(function () use ($order, $allowLegacy): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
-                return ['state' => 'unresolved', 'reason' => __('shared_orders.pending_finance')];
+                return app(SharedOrderFinancialPostingService::class)->assess($order);
             }
 
             return $this->assessLocked($order, $allowLegacy);
@@ -77,7 +77,7 @@ class CorrectedOrderFinancialService
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
-                throw ValidationException::withMessages(['order' => __('shared_orders.pending_finance')]);
+                return app(SharedOrderFinancialPostingService::class)->postIfReady($order);
             }
             $correction = $this->postingCorrection($order);
             if ($correction) {

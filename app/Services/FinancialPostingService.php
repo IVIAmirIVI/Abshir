@@ -178,6 +178,9 @@ class FinancialPostingService
                 throw new FinancialLedgerException('A reversal transaction cannot itself be reversed.');
             }
             if (in_array($original->event_type, [
+                FinancialEventType::SharedInvoiceCashCustodyReceived->value,
+                FinancialEventType::SharedOrderProductReimbursementDue->value,
+                FinancialEventType::SharedOrderDeliveryEntitlementDue->value,
                 FinancialEventType::CaptainDepositReceived->value,
                 FinancialEventType::CaptainDepositManualAdjustmentIncrease->value,
                 FinancialEventType::CaptainDepositManualAdjustmentDecrease->value,
@@ -283,6 +286,9 @@ class FinancialPostingService
         $payloadHash = $this->payloadHash($kind, $currency, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $normalized, $branch, $recordedBy, $reversalOf, $reason, $notes);
         $preciseOrderEvent = in_array($eventType, [
             ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()),
+            FinancialEventType::SharedInvoiceCashCustodyReceived->value,
+            FinancialEventType::SharedOrderProductReimbursementDue->value,
+            FinancialEventType::SharedOrderDeliveryEntitlementDue->value,
             FinancialEventType::CaptainDepositReceived->value,
             FinancialEventType::CaptainDepositManualAdjustmentIncrease->value,
             FinancialEventType::CaptainDepositManualAdjustmentDecrease->value,
@@ -383,6 +389,7 @@ class FinancialPostingService
             $orderId = DB::table('invoices')->where('id', $id)->value('order_id');
         } elseif ($sourceType === 'INVOICE_COLLECTION'
             && in_array($eventType, [FinancialEventType::InvoiceCashCustodyReceived->value,
+                FinancialEventType::SharedInvoiceCashCustodyReceived->value, FinancialEventType::SharedOrderProductReimbursementDue->value, FinancialEventType::SharedOrderDeliveryEntitlementDue->value,
                 ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived())], true)) {
             $orderId = DB::table('invoice_collections')->where('id', $id)->value('order_id');
         } elseif ($sourceType === 'ORDER_BILL_PAYMENT'

@@ -62,6 +62,7 @@ class InvoiceCollectionService
 
         return DB::transaction(function () use ($actor, $invoice, $method, $amount, $currencyId, $collectedAt, $notes, $paymentReference): InvoiceCollection {
             $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($problem = $this->eligibilityProblem($order, $invoice, true)) {
                 throw ValidationException::withMessages([$problem[0] => $problem[1]]);

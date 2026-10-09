@@ -2,9 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Enums\InvoiceCollectionMethod;
+use App\Enums\OrderOperationalStatus;
 use App\Models\OrderShopPurchaseConfirmation;
+use App\Services\InvoiceCollectionService;
+use App\Services\InvoiceService;
+use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderReturnEvidenceService;
+use App\Services\OrderShopProgressService;
 use App\Services\OrderShopPurchaseConfirmationService;
+use App\Services\OrderShopReceiptService;
+use App\Services\OrderStatusService;
+use App\Services\SharedOrderShopPurchaseService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -24,12 +33,13 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
         $this->isolated(function (): void {
             Artisan::call('migrate', ['--force' => true]);
             $c = $this->sharedContext();
-            $data = $this->sharedData($c);
+            $data = $this->sharedData($c, '80.01');
             $results = $this->race($c, ['shared', 'shared'], [$data, $data]);
             $this->assertSame(['success', 'success'], array_column($results, 'status'), json_encode($results));
             $this->assertSame($results[0]['id'], $results[1]['id']);
             $this->assertSame(1, DB::table('order_shop_purchase_confirmations')->count());
             $this->assertSame(2, DB::table('order_shop_purchase_allocations')->count());
+            $this->assertSame(['40.01', '40.00'], DB::table('order_shop_purchase_allocations')->orderBy('order_captain_id')->pluck('amount')->all());
             $this->assertSame(0, DB::table('financial_transactions')->count());
         });
     }
@@ -54,7 +64,7 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
     {
         $this->isolated(function (): void {
             $path = 'database/migrations/2026_10_09_000000_add_shared_shop_purchase_foundation.php';
-            $paths = collect(glob(database_path('migrations/*.php')))->filter(fn ($file) => basename($file) !== basename($path))
+            $paths = collect(glob(database_path('migrations/*.php')))->filter(fn ($file) => basename($file) !== basename($path) && basename($file) < '2026_10_09_030000')
                 ->map(fn ($file) => 'database/migrations/'.basename($file))->all();
             Artisan::call('migrate', ['--path' => $paths, '--force' => true]);
             Storage::fake('order_returns');
@@ -87,6 +97,7 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
             $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
             $this->assertSame(1, DB::table('order_shop_purchase_confirmations')->count());
             $this->assertSame(2, DB::table('order_shop_purchase_allocations')->count());
+            $this->assertSame(['40.00', '40.00'], DB::table('order_shop_purchase_allocations')->orderBy('order_captain_id')->pluck('amount')->all());
             $this->assertSame(0, DB::table('financial_transactions')->count());
         });
     }
@@ -107,6 +118,53 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
             $this->assertSame($purchase->purchase_mode === 'SINGLE_PAYER' ? 0 : 2, DB::table('order_shop_purchase_allocations')->count());
             $this->assertSame(0, DB::table('financial_transactions')->count());
         });
+    }
+
+    public function test_real_shared_collections_contend_and_only_one_full_custody_source_wins(): void
+    {
+        $this->isolated(function (): void {
+            [$c, $invoice] = $this->sharedInvoice();
+            $data = ['invoice_id' => $invoice->id, 'method' => 'CASH', 'amount' => '100', 'currency_id' => $c['currency']->id, 'collected_at' => now()->toIso8601String()];
+            $results = $this->race($c, ['collection', 'collection'], [$data, $data]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+            $this->assertSame(1, DB::table('invoice_collections')->count());
+            $this->assertSame(1, DB::table('financial_transactions')->count());
+            $this->assertSame(1, DB::table('financial_entries')->count());
+            DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
+        });
+    }
+
+    public function test_real_deliveries_contend_and_each_shared_claim_is_posted_once(): void
+    {
+        $this->isolated(function (): void {
+            [$c, $invoice] = $this->sharedInvoice();
+            app(OrderShopReceiptService::class)->upload($c['actor'], $c['order'], $c['shop'], $this->sharedImage(), null);
+            app(OrderShopProgressService::class)->record($c['actor'], $c['order'], $c['shop'], 'picked_up_at');
+            app(InvoiceCollectionService::class)->record($c['actor'], $invoice, InvoiceCollectionMethod::Cash, '100', $c['currency']->id, now());
+            foreach (['CONFIRMED', 'CAPTAIN_ASSIGNED', 'HEADING_TO_SHOPS', 'SHOPPING', 'HEADING_TO_CUSTOMER'] as $target) {
+                app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::from($target), null);
+            }
+            $results = $this->race($c, ['delivery', 'delivery'], [[], []]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+            $this->assertSame(3, DB::table('financial_transactions')->count());
+            $this->assertSame(5, DB::table('financial_entries')->count());
+            $this->assertSame(1, $c['order']->statusHistory()->where('new_status', 'DELIVERED')->count());
+            DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
+        });
+    }
+
+    private function sharedInvoice(): array
+    {
+        Artisan::call('migrate', ['--force' => true]);
+        $c = $this->sharedContext();
+        app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'], array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid());
+        app(SharedOrderShopPurchaseService::class)->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c), $this->sharedImage());
+        $service = app(InvoiceService::class);
+        $invoice = $service->issue($c['actor'], $c['order'], $service->refresh($c['actor'], $c['order'], $service->createDraft($c['actor'], $c['order'])));
+
+        return [$c, $invoice];
     }
 
     private function race(array $c, array $operations, array $data, ?array $secondContext = null): array
@@ -202,6 +260,11 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
             if (Schema::hasTable('order_shop_purchase_confirmations')) {
                 foreach (DB::table('order_shop_purchase_confirmations')->pluck('evidence_path') as $path) {
                     app(OrderReturnEvidenceService::class)->delete($path);
+                }
+            }
+            if (Schema::hasTable('order_shop_receipts')) {
+                foreach (DB::table('order_shop_receipts')->pluck('storage_path') as $path) {
+                    Storage::disk('order_receipts')->delete($path);
                 }
             }
             DB::purge('pgsql');

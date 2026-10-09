@@ -16,6 +16,7 @@ use App\Services\InvoiceService;
 use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderDeliveryPricingService;
+use App\Services\OrderMutationGuard;
 use App\Services\OrderPricingService;
 use App\Services\OrderShopProgressService;
 use App\Services\OrderShopPurchaseConfirmationService;
@@ -26,6 +27,7 @@ use App\Services\OrderWorkflowData;
 use App\Services\SharedOrderFinancialPlanService;
 use App\Services\SharedOrderShopPurchaseService;
 use App\Support\DemoOrderReset\OrderResetMaintenance;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -190,7 +192,7 @@ class SharedOrderIntegrationSafetyTest extends TestCase
             app(OrderStatusService::class)->transition($c['actor'], $c['order'], $status, null);
             $c['order']->refresh();
         }
-        $this->assertSame(__('shared_orders.pending_finance'), app(OrderStatusService::class)->nextTransitionProblem($c['order']));
+        $this->assertSame(__('shared_orders.complete_purchases_required'), app(OrderStatusService::class)->nextTransitionProblem($c['order']));
         $this->assertThrows(fn () => app(OrderStatusService::class)->transition($c['actor'], $c['order'],
             OrderOperationalStatus::Delivered, null), ValidationException::class);
         $this->assertSame('HEADING_TO_CUSTOMER', $c['order']->fresh()->operational_status->value);
@@ -229,6 +231,47 @@ class SharedOrderIntegrationSafetyTest extends TestCase
         $this->assertSame('5.0000', $entry->amount);
         $this->assertSame(0, DB::table('financial_accounts')->where('account_kind', 'CAPTAIN_CASH_CUSTODY')->count());
         $this->assertSame(0, DB::table('captain_receivable_payouts')->count());
+    }
+
+    public function test_workflow_shared_purchase_reuses_evidence_without_pickup_or_financial_side_effects(): void
+    {
+        Storage::fake('order_returns');
+        Storage::fake('order_receipts');
+        $c = $this->sharedContext();
+        $this->select($c);
+        $data = $this->sharedData($c) + ['also_shop_receipt' => true, 'evidence' => $this->sharedImage()];
+        $this->actingAs($c['actor'])->post(route('orders.shops.purchases.store', [$c['order'], $c['shop']]), $data)
+            ->assertRedirect(route('orders.workflow', [$c['order'], 'step' => 'shops']))->assertSessionHasNoErrors();
+        $this->post(route('orders.shops.purchases.store', [$c['order'], $c['shop']]), $data)->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('order_shop_purchase_confirmations', 1);
+        $this->assertDatabaseCount('order_shop_purchase_allocations', 2);
+        $this->assertDatabaseCount('order_shop_receipts', 1);
+        $this->assertNull($c['shop']->fresh()->picked_up_at);
+        $this->assertSame('NEW', $c['order']->fresh()->operational_status->value);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertTrue(app(OrderMutationGuard::class)->isPricingFrozen($c['order']));
+        $this->assertTrue(app(OrderMutationGuard::class)->isOperationalEvidenceMutable($c['order']));
+    }
+
+    public function test_shared_delivery_without_physical_purchase_is_blocked_even_with_all_receipts_and_sql_history(): void
+    {
+        Storage::fake('order_receipts');
+        $c = $this->sharedContext();
+        $this->select($c);
+        app(OrderShopReceiptService::class)->upload($c['actor'], $c['order'], $c['shop'], $this->sharedImage(), null);
+        app(OrderShopProgressService::class)->record($c['actor'], $c['order'], $c['shop'], 'picked_up_at');
+        foreach (['CONFIRMED', 'CAPTAIN_ASSIGNED', 'HEADING_TO_SHOPS', 'SHOPPING', 'HEADING_TO_CUSTOMER'] as $status) {
+            app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::from($status), null);
+        }
+        $this->assertThrows(fn () => app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::Delivered, null), ValidationException::class);
+        $this->assertThrows(fn () => DB::transaction(function () use ($c): void {
+            DB::table('orders')->where('id', $c['order']->id)->update(['operational_status' => 'DELIVERED']);
+            DB::table('order_status_history')->insert(['order_id' => $c['order']->id, 'previous_status' => 'HEADING_TO_CUSTOMER', 'new_status' => 'DELIVERED', 'changed_at' => now(), 'changed_by' => $c['actor']->id]);
+            DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        }), QueryException::class);
+        $this->assertSame('HEADING_TO_CUSTOMER', $c['order']->fresh()->operational_status->value);
+        $this->assertSame(0, $c['order']->statusHistory()->where('new_status', 'DELIVERED')->count());
+        $this->assertDatabaseCount('financial_transactions', 0);
     }
 
     private function select(array $c): void

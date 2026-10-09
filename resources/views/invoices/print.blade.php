@@ -18,7 +18,9 @@
 <body>
     <button class="print" onclick="window.print()">{{ __('financial.ui.print_save_pdf') }}</button>
     <div class="top">
-        <div><h1>{{ __('common.brand.name') }}</h1><p>{{ __('financial.ui.customer_invoice') }}</p><p>{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }} · {{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p></div>
+        <div><h1>{{ __('common.brand.name') }}</h1>
+@include('invoices._shared-captains')
+<p>{{ __('financial.ui.customer_invoice') }}</p><p>{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }} · {{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p></div>
         <div><strong><x-ltr>{{ $invoice->invoice_number }}</x-ltr></strong><p>{{ __('common.terms.order') }} <x-ltr>{{ $invoice->order_number_snapshot }}</x-ltr></p><p><x-ltr>{{ ($invoice->issued_at ?? $invoice->created_at)->format('Y-m-d H:i') }}</x-ltr></p></div>
     </div>
     <hr>

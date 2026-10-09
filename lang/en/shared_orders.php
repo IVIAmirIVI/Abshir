@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'shared_purchase_help' => 'Both Captains fund this purchase. Each Shop allocation is recorded automatically; the lowest assignment ID receives any extra minor unit.',
+    'shared_correction_blocked' => 'Shared invoice correction or replacement is blocked until attributed refund settlement is supported.',
+    'invalid_purchase_amount' => 'Purchase amount must be positive and valid at the Currency precision.',
     'title' => 'Order Captains and collection',
     'participants' => 'Participating Captains (one or two)',
     'collector' => 'Captain responsible for collection',
@@ -11,7 +14,7 @@ return [
     'change_reason' => 'A reason is required to change the participants or collector.',
     'save' => 'Save Captains and collector',
     'saved' => 'Captains and collector saved.',
-    'pending_finance' => 'Shared Order financial execution awaits activation. Do not confirm purchases until settlement is available.',
+    'pending_finance' => 'The shared Order can proceed with one Invoice. Shared external bill payments and refunds are unavailable. Recorded obligations are not completed payouts.',
     'purchase_shared' => 'Shared purchase by both Captains',
     'preview_only' => 'Calculated obligations for review; no payment or collection has been recorded.',
     'use_selection' => 'Change participants and collector together through participant selection.',

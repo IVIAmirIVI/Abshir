@@ -23,6 +23,11 @@ class SharedPurchaseBoundary
         return $this->hasSelectedSharedContract($order) ? __('shared_orders.pending_finance') : $this->problem($order);
     }
 
+    public function operationalProblem(Order $order): ?string
+    {
+        return $this->hasSelectedSharedContract($order) ? null : $this->problem($order);
+    }
+
     public function problem(Order $order): ?string
     {
         if (Schema::hasTable('order_shop_purchase_allocations')

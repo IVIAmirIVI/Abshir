@@ -65,6 +65,9 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_ready_invoice_may_be_issued')]);
             }
             $snapshot = $this->snapshots->build($order);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                app(SharedOrderInvoiceSourceService::class)->fundingLocked($order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
+            }
             if ($this->snapshots->isStale($invoice, $snapshot)) {
                 throw ValidationException::withMessages(['invoice' => __('domain.the_ready_invoice_is_stale_refresh_it_before_issue')]);
             }
@@ -100,6 +103,9 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_voided_until_a_financial_reversal_workflow_exists')]);
             }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $this->assertNotFinanciallyCrystallized($invoice);
             $invoice->update(['status' => InvoiceStatus::Voided, 'voided_at' => now(), 'voided_by' => $actor->id, 'void_reason' => $reason, 'superseded_at' => now()]);
         });
@@ -126,6 +132,9 @@ class InvoiceService
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_replaced_until_a_financial_reversal_workflow_exists')]);
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $snapshot = $this->snapshots->build($order);
@@ -162,6 +171,9 @@ class InvoiceService
 
     private function applySnapshot(Invoice $invoice, array $snapshot): Invoice
     {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order)) {
+            app(SharedOrderInvoiceSourceService::class)->fundingLocked($invoice->order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
+        }
         $invoice->items()->delete();
         foreach ($snapshot['lines'] as $line) {
             $invoice->items()->create($line);
@@ -184,7 +196,11 @@ class InvoiceService
 
     public function mutationProblem(Order $order): ?string
     {
-        if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+            if (! $order->purchaseConfirmations()->where('purchase_mode', SharedPurchaseBoundary::MODE)->exists()) {
+                return __('shared_orders.complete_purchases_required');
+            }
+        } elseif ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
             return $problem;
         }
         if ($order->operational_status === OrderOperationalStatus::Cancelled
