@@ -73,9 +73,10 @@ class OrderWorkflowData
 
         $currencies = Currency::where('is_active', true)->orderBy('code')->get();
         $billPaymentCurrencies = $actor->can('bill_payments.record') ? $currencies->filter(fn ($currency) => app(BillPaymentFeeRuleService::class)->applicable($currency->id, now()) !== null) : collect();
+        $billContractProblem = app(OrderBillPaymentService::class)->contractProblem($order);
         $billPaymentRequestProblem = match (true) {
             ! $actor->can('bill_payments.record') => null,
-            $sharedFinancialSelected => __('shared_orders.pending_finance'),
+            $billContractProblem !== null => $billContractProblem,
             $order->cancellationIntent !== null => __('domain.bill_payment_is_blocked_by_a_cancellation_intent'),
             in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true) => __('domain.new_additional_service_requests_require_an_open_order'),
             $billPaymentCurrencies->isEmpty() => __('orders.ui_bill_fee_unavailable'),

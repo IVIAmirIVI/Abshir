@@ -44,20 +44,21 @@ class SharedOrderInvoiceTest extends TestCase
         DB::select('SELECT validate_financial_snapshot_fingerprint(?)', [DB::table('order_financial_source_snapshots')->value('id')]);
         $this->assertThrows(fn () => $service->createDraft($c['actor'], $c['order']), ValidationException::class);
         $this->assertThrows(fn () => $service->issue($c['actor'], $c['order'], $invoice), ValidationException::class);
-        $this->actingAs($c['actor'])->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertSee($c['captains'][0]->user->name)->assertSee($c['captains'][1]->user->name)->assertDontSee('shared_orders.')->assertSee(__('shared_orders.shared_correction_blocked'))->assertDontSee(route('orders.invoices.void', [$c['order'], $invoice]), false);
+        $this->actingAs($c['actor'])->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertSee($c['captains'][0]->user->name)->assertSee($c['captains'][1]->user->name)->assertDontSee('shared_orders.')->assertDontSee(__('shared_orders.shared_correction_blocked'));
         $this->get(route('orders.invoices.print', [$c['order'], $invoice]))->assertOk()->assertSee($c['captains'][0]->user->name)->assertSee($c['captains'][1]->user->name);
         $this->assertDatabaseCount('invoices', 1);
         $this->assertDatabaseCount('financial_transactions', 0);
         $this->assertDatabaseCount('financial_entries', 0);
         $this->assertDatabaseCount('captain_receivable_payouts', 0);
-        $this->assertThrows(fn () => $service->void($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
-        $this->assertThrows(fn () => $service->replace($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
         $collection = app(InvoiceCollectionService::class)->record($c['actor'], $invoice,
             InvoiceCollectionMethod::Cash, '1022', $c['currency']->id, now());
         $this->assertSame($source['primary_order_captain_id'], $collection->order_captain_id);
         $this->assertDatabaseCount('invoice_collections', 1);
         $this->assertDatabaseCount('financial_transactions', 1);
         $this->assertTrue(BigDecimal::of(DB::table('financial_entries')->value('amount'))->isEqualTo('1022'));
+        $this->assertThrows(fn () => $service->void($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
+        $this->assertThrows(fn () => $service->replace($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
+        $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertSee(__('shared_orders.shared_correction_blocked'))->assertDontSee(route('orders.invoices.void', [$c['order'], $invoice]), false);
     }
 
     public function test_shared_invoice_requires_every_confirmed_purchase_and_branch_authorization(): void

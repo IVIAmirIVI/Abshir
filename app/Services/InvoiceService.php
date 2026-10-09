@@ -103,8 +103,8 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_voided_until_a_financial_reversal_workflow_exists')]);
             }
-            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
-                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            if ($problem = $this->retirementProblem($order)) {
+                throw ValidationException::withMessages(['invoice' => $problem]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $invoice->update(['status' => InvoiceStatus::Voided, 'voided_at' => now(), 'voided_by' => $actor->id, 'void_reason' => $reason, 'superseded_at' => now()]);
@@ -133,8 +133,8 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_replaced_until_a_financial_reversal_workflow_exists')]);
             }
-            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
-                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            if ($problem = $this->retirementProblem($order)) {
+                throw ValidationException::withMessages(['invoice' => $problem]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $snapshot = $this->snapshots->build($order);
@@ -225,5 +225,12 @@ class InvoiceService
                 'invoice' => __('domain.a_financially_crystallized_invoice_cannot_be_corrected_until_the_financial_reversal_workflow_exists'),
             ]);
         }
+    }
+
+    public function retirementProblem(Order $order): ?string
+    {
+        return app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+            && ! DB::scalar("SELECT to_regprocedure('shared_invoice_retirement_allowed(bigint)') IS NOT NULL")
+            ? __('shared_orders.invoice_version_activation_required') : null;
     }
 }

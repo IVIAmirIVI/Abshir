@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\OrderBillPaymentRequestStatus;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderOperationalStatus;
@@ -37,6 +38,14 @@ class OrderCancellationService
             }
             $previous = $order->operational_status;
             $cancellation = $order->cancellation()->create(['classification' => $classification, 'reason' => $reason, 'notes' => $notes, 'cancelled_by' => $actor->id, 'cancelled_at' => now()]);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                foreach ($order->billPaymentRequests()->where('status', OrderBillPaymentRequestStatus::Requested->value)
+                    ->orderBy('id')->lockForUpdate()->get() as $request) {
+                    $request->update(['status' => OrderBillPaymentRequestStatus::Cancelled,
+                        'cancelled_at' => $cancellation->cancelled_at, 'cancelled_by' => $actor->id,
+                        'cancellation_reason' => 'ORDER_CANCELLATION #'.$cancellation->id]);
+                }
+            }
             $order->forceFill(['operational_status' => OrderOperationalStatus::Cancelled])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => OrderOperationalStatus::Cancelled, 'changed_by' => $actor->id, 'changed_at' => $cancellation->cancelled_at, 'reason' => 'Cancelled: '.$classification->value.' / '.$reason->value]);
 

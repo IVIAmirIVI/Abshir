@@ -38,12 +38,18 @@
                         <form x-data="{ submitting: false }" x-on:submit="if (submitting) { $event.preventDefault(); } else { submitting = true; }" method="POST" enctype="multipart/form-data" action="{{ route('orders.bill-payment-requests.complete', [$order, $billRequest]) }}" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                             @csrf
                             <input type="hidden" name="currency_id" value="{{ $billRequest->currency_id }}">
+                            @if($sharedFinancialSelected)
+                                @php($billCollector = $order->captainAssignments->first(fn ($assignment) => $assignment->removed_at === null && $assignment->assignment_role === \App\Enums\OrderCaptainRole::PrimaryCollection))
+                                <input type="hidden" name="order_captain_id" value="{{ $billCollector?->id }}">
+                                <p class="rounded bg-stone-50 p-3 text-sm">{{ __('shared_orders.bill_selected_collector') }}: <strong>{{ $billCollector?->captain?->user?->name }}</strong></p>
+                            @else
                             <select name="order_captain_id" class="min-w-0 max-w-full w-full sm:w-auto rounded border-gray-300" required>
                                 <option value="">{{ __('orders.ui_collecting_captain') }}</option>
                                 @foreach($order->captainAssignments->whereNull('removed_at') as $assignment)
                                     <option value="{{ $assignment->id }}">{{ $assignment->captain->user->name }} · {{ \App\Support\UiLabels::label('orders.captain_roles', $assignment->assignment_role) }}</option>
                                 @endforeach
                             </select>
+                            @endif
                             <x-text-input name="bill_number" placeholder="{{ __('orders.ui_bill_number') }}" required  dir="ltr"/><x-input-error :messages="$errors->get('bill_number')" />
                             <x-text-input name="bill_date" type="date" required  dir="ltr"/><x-input-error :messages="$errors->get('bill_date')" />
                             <x-text-input name="provider_name" placeholder="{{ __('orders.ui_provider') }}"  dir="auto"/><x-input-error :messages="$errors->get('provider_name')" />

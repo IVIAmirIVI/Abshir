@@ -15,7 +15,7 @@
                 <a class="underline" target="_blank" href="{{ route('orders.invoices.print', [$invoice->order, $invoice]) }}">{{ __('financial.ui.print_view') }}</a>
             </div>
             @include('invoices._shared-captains')
-            @if(app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ __('shared_orders.shared_correction_blocked') }}</p>@endif
+            @if($invoice->collection && app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ __('shared_orders.shared_correction_blocked') }}</p>@elseif($problem = app(\App\Services\InvoiceService::class)->retirementProblem($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ $problem }}</p>@endif
             <p class="text-sm">{{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p>
             <div class="grid gap-2 sm:grid-cols-2">
                 <p>{{ $invoice->customer_name_snapshot }} · <x-ltr>{{ $invoice->customer_phone_snapshot }}</x-ltr></p>
@@ -67,7 +67,7 @@
                         </form>
                     @endif
                 @endcan
-                @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at && ! app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))
+                @if(!$invoice->collection && !$settledCorrection && !$invoice->superseded_at && ! app(\App\Services\InvoiceService::class)->retirementProblem($invoice->order))
                     @can('invoices.void')<form method="POST" action="{{ route('orders.invoices.void', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.void_reason_required') }}" dir="auto"/><button class="rounded bg-red-700 px-3 py-2 text-white">{{ __('financial.ui.void_invoice') }}</button></form>@endcan
                     @can('invoices.replace')<form method="POST" action="{{ route('orders.invoices.replace', [$invoice->order, $invoice]) }}" class="flex flex-wrap gap-2">@csrf<x-text-input name="reason" placeholder="{{ __('financial.ui.replace_reason_required') }}" dir="auto"/><button class="rounded bg-amber-700 px-3 py-2 text-white">{{ __('financial.ui.create_replacement') }}</button></form>@endcan
                 @endif

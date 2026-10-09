@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Enums\InvoiceCollectionMethod;
 use App\Enums\OrderOperationalStatus;
 use App\Models\OrderShopPurchaseConfirmation;
+use App\Services\BillPaymentFeeRuleService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\OrderBillPaymentService;
 use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderReturnEvidenceService;
 use App\Services\OrderShopProgressService;
@@ -155,9 +157,11 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
         });
     }
 
-    private function sharedInvoice(): array
+    private function sharedInvoice(bool $migrate = true): array
     {
-        Artisan::call('migrate', ['--force' => true]);
+        if ($migrate) {
+            Artisan::call('migrate', ['--force' => true]);
+        }
         $c = $this->sharedContext();
         app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'], array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid());
         app(SharedOrderShopPurchaseService::class)->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c), $this->sharedImage());
@@ -165,6 +169,115 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
         $invoice = $service->issue($c['actor'], $c['order'], $service->refresh($c['actor'], $c['order'], $service->createDraft($c['actor'], $c['order'])));
 
         return [$c, $invoice];
+    }
+
+    public function test_exception_upgrade_preserves_existing_shared_cash_and_single_bill_financial_history(): void
+    {
+        $this->isolated(function (): void {
+            $prior = array_values(array_filter(glob(database_path('migrations/*.php')),
+                fn ($path) => basename($path) < '2026_10_09_060000'));
+            Artisan::call('migrate', ['--path' => $prior, '--realpath' => true, '--force' => true]);
+            [$shared, $invoice] = $this->sharedInvoice(false);
+            app(InvoiceCollectionService::class)->record($shared['actor'], $invoice, InvoiceCollectionMethod::Cash, '100', $shared['currency']->id, now());
+            $single = $this->sharedContext(4, 1);
+            app(OrderShopPurchaseConfirmationService::class)->record($single['actor'], $single['order'], $single['shop'],
+                $this->sharedData($single) + ['order_captain_id' => $single['assignments'][0]->id], $this->sharedImage());
+            app(OrderShopReceiptService::class)->upload($single['actor'], $single['order'], $single['shop'], $this->sharedImage(), null);
+            app(OrderShopProgressService::class)->record($single['actor'], $single['order'], $single['shop'], 'picked_up_at');
+            app(BillPaymentFeeRuleService::class)->create($single['admin'], $single['currency']->id, '2', now()->subDay());
+            $request = app(OrderBillPaymentService::class)->request($single['actor'], $single['order'], $single['currency']->id);
+            foreach (['CONFIRMED', 'CAPTAIN_ASSIGNED', 'HEADING_TO_SHOPS', 'SHOPPING', 'HEADING_TO_CUSTOMER', 'DELIVERED'] as $status) {
+                app(OrderStatusService::class)->transition($single['actor'], $single['order'], OrderOperationalStatus::from($status), null);
+            }
+            $payment = app(OrderBillPaymentService::class)->complete($single['actor'], $single['order'], $request, [
+                'order_captain_id' => $single['assignments'][0]->id, 'currency_id' => $single['currency']->id,
+                'bill_number' => 'LEGACY', 'bill_date' => today()->toDateString(), 'principal_amount' => '100',
+                'payment_reference' => 'SHAM-LEGACY',
+            ], [$this->sharedImage()]);
+            $tables = ['orders', 'order_captains', 'order_captain_selections', 'order_shop_purchase_confirmations',
+                'order_shop_purchase_allocations', 'invoices', 'invoice_collections', 'order_financial_source_snapshots',
+                'order_financial_source_snapshot_lines', 'order_bill_payment_requests', 'order_bill_payments',
+                'order_bill_payment_evidence', 'order_bill_payment_principal_handovers', 'financial_accounts', 'financial_transactions', 'financial_entries'];
+            $before = [];
+            foreach ($tables as $table) {
+                $before[$table] = DB::table($table)->orderBy('id')->get()->toJson();
+            }
+            foreach (['060000_enable_shared_collector_bill_payments', '070000_allow_uncollected_shared_invoice_versions'] as $name) {
+                $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/2026_10_09_'.$name.'.php', '--force' => true]));
+            }
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], DB::table($table)->orderBy('id')->get()->toJson(), $table);
+            }
+            DB::select('SELECT assert_shared_order_financial_set(?)', [$shared['order']->id]);
+            DB::select('SELECT validate_completed_bill_payment_at_commit(?)', [$payment->id]);
+            DB::select('SELECT validate_financial_snapshot_fingerprint(?)', [DB::table('order_financial_source_snapshots')->value('id')]);
+            $this->assertSame('O', DB::scalar("SELECT t.tgenabled FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND t.tgname='completed_bill_payment_commit_guard'"));
+        });
+    }
+
+    public function test_real_shared_bill_completions_contend_without_duplicate_financial_sources(): void
+    {
+        $this->isolated(function (): void {
+            [$c, $data] = $this->sharedBill();
+            $results = $this->race($c, ['bill_complete', 'bill_complete'], [$data, $data]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+            $this->assertSame(1, DB::table('order_bill_payments')->count());
+            $this->assertSame(1, DB::table('order_bill_payment_principal_handovers')->count());
+            $this->assertSame(1, DB::table('order_bill_payment_evidence')->count());
+            $this->assertSame(3, DB::table('financial_transactions')->count());
+            $this->assertSame(3, DB::table('financial_entries')->count());
+            DB::select('SELECT validate_completed_bill_payment_at_commit(?)', [DB::table('order_bill_payments')->value('id')]);
+        });
+    }
+
+    public function test_real_shared_bill_cancellation_and_completion_cannot_both_commit(): void
+    {
+        $this->isolated(function (): void {
+            [$c, $data] = $this->sharedBill();
+            $results = $this->race($c, ['bill_complete', 'bill_cancel'], [$data, $data]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+            $completed = DB::table('order_bill_payment_requests')->where('id', $data['request_id'])->value('status') === 'COMPLETED';
+            $this->assertSame($completed ? 1 : 0, DB::table('order_bill_payments')->count());
+            $this->assertSame($completed ? 1 : 0, DB::table('order_bill_payment_evidence')->count());
+            $this->assertSame($completed ? 3 : 0, DB::table('financial_transactions')->count());
+        });
+    }
+
+    public function test_real_shared_invoice_replacement_and_collection_cannot_both_commit_on_original(): void
+    {
+        $this->isolated(function (): void {
+            [$c, $invoice] = $this->sharedInvoice();
+            // Replacement is an existing admin permission; both workers must be authorized before competing.
+            $c['actor'] = $c['admin'];
+            $data = ['invoice_id' => $invoice->id, 'method' => 'CASH', 'amount' => '100', 'currency_id' => $c['currency']->id, 'collected_at' => now()->toIso8601String()];
+            $results = $this->race($c, ['invoice_replace', 'collection'], [$data, $data]);
+            $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
+            $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
+            $collected = DB::table('invoice_collections')->where('invoice_id', $invoice->id)->exists();
+            $this->assertSame($collected ? 'ISSUED' : 'REPLACED', $invoice->fresh()->status->value);
+            $this->assertSame($collected ? 1 : 2, DB::table('invoices')->count());
+            $this->assertSame($collected ? 1 : 0, DB::table('financial_transactions')->count());
+            $this->assertSame(1, $c['order']->currentInvoice()->count());
+            DB::select('SELECT validate_financial_snapshot_fingerprint(?)', [DB::table('order_financial_source_snapshots')->value('id')]);
+        });
+    }
+
+    private function sharedBill(): array
+    {
+        [$c] = $this->sharedInvoice();
+        app(BillPaymentFeeRuleService::class)->create($c['admin'], $c['currency']->id, '2', now()->subDay());
+        $request = app(OrderBillPaymentService::class)->request($c['actor'], $c['order'], $c['currency']->id);
+        app(OrderShopReceiptService::class)->upload($c['actor'], $c['order'], $c['shop'], $this->sharedImage(), null);
+        app(OrderShopProgressService::class)->record($c['actor'], $c['order'], $c['shop'], 'picked_up_at');
+        foreach (['CONFIRMED', 'CAPTAIN_ASSIGNED', 'HEADING_TO_SHOPS', 'SHOPPING', 'HEADING_TO_CUSTOMER', 'DELIVERED'] as $status) {
+            app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::from($status), null);
+        }
+
+        return [$c, ['request_id' => $request->id, 'order_captain_id' => $c['assignments'][0]->id,
+            'currency_id' => $c['currency']->id, 'principal_amount' => '100', 'bill_number' => 'SHARED',
+            'bill_date' => today()->toDateString(), 'payment_reference' => 'SHAM-SHARED']];
     }
 
     private function race(array $c, array $operations, array $data, ?array $secondContext = null): array
@@ -257,6 +370,11 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
             DB::reconnect('pgsql');
             $action();
         } finally {
+            if (Schema::hasTable('order_bill_payment_evidence')) {
+                foreach (DB::table('order_bill_payment_evidence')->pluck('storage_path') as $path) {
+                    Storage::disk(OrderBillPaymentService::DISK)->delete($path);
+                }
+            }
             if (Schema::hasTable('order_shop_purchase_confirmations')) {
                 foreach (DB::table('order_shop_purchase_confirmations')->pluck('evidence_path') as $path) {
                     app(OrderReturnEvidenceService::class)->delete($path);

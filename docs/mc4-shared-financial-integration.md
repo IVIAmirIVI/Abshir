@@ -2,6 +2,8 @@
 
 Baseline: livewire-ux / 330bd8d. This work is not owner-database activation, release, merge approval or browser UAT.
 
+Subsequent exception support and its separate activation requirements are documented in [shared-order-exceptions.md](shared-order-exceptions.md). The original six-migration boundary below is historical: the new forward-only extensions permit selected-collector bill payments and uncollected Invoice retirement; shared payer refunds and settlements remain blocked.
+
 ## Owner scope and operator flow
 
 Select one or two Captains; explicitly select the collector for two. Record each Shop purchase once using the existing evidence action; separately confirm real pickup. Use the existing legal status transitions, generate one Invoice, and record its actual customer Collection. Products are charged once, delivery has two units, and the authorized combined discount applies once. No split percentages, remainder-recipient choice, reimbursement amounts, payout distributions or cash handover form is required.

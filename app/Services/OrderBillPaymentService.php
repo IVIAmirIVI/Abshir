@@ -45,10 +45,10 @@ class OrderBillPaymentService
 
         return DB::transaction(function () use ($actor, $order, $currencyId): OrderBillPaymentRequest {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+            $this->authorizeRecord($actor, $order);
+            if ($problem = $this->contractProblem($order)) {
                 throw ValidationException::withMessages(['order' => $problem]);
             }
-            app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                 throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
             }
@@ -81,7 +81,8 @@ class OrderBillPaymentService
         }
 
         DB::transaction(function () use ($actor, $order, $request, $reason): void {
-            Order::query()->lockForUpdate()->findOrFail($order->id);
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorizeRecord($actor, $order);
             $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
             if ($request->status !== OrderBillPaymentRequestStatus::Requested) {
                 throw ValidationException::withMessages(['request' => __('domain.only_a_requested_additional_service_can_be_cancelled')]);
@@ -150,7 +151,10 @@ class OrderBillPaymentService
         try {
             return DB::transaction(function () use ($actor, $order, $request, $data, $images, $extensions, $mimes, $digests, &$storedPaths): OrderBillPayment {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-                app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
+                $this->authorizeRecord($actor, $order);
+                if ($problem = $this->contractProblem($order)) {
+                    throw ValidationException::withMessages(['order' => $problem]);
+                }
                 $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
                 if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                     throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
@@ -168,6 +172,10 @@ class OrderBillPaymentService
                 $assignment = OrderCaptain::query()->where('order_id', $order->id)->whereNull('removed_at')->lockForUpdate()->find($data['order_captain_id']);
                 if (! $assignment) {
                     throw ValidationException::withMessages(['order_captain_id' => __('domain.choose_a_participating_captain_for_this_order')]);
+                }
+                if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                    && $assignment->id !== (int) DB::scalar('SELECT shared_bill_payment_collector(?)', [$order->id])) {
+                    throw ValidationException::withMessages(['order_captain_id' => __('shared_orders.bill_collector_required')]);
                 }
                 if ($assignment->assigned_at->gt($deliveredAt)) {
                     throw ValidationException::withMessages(['order_captain_id' => __('domain.the_collector_did_not_participate_in_this_delivery')]);
@@ -259,5 +267,15 @@ class OrderBillPaymentService
     {
         Gate::forUser($actor)->authorize('bill_payments.record');
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order->id)->exists(), 403);
+    }
+
+    public function contractProblem(Order $order): ?string
+    {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+            return DB::scalar("SELECT to_regprocedure('shared_bill_payment_collector(bigint)') IS NOT NULL")
+                ? null : __('shared_orders.bill_activation_required');
+        }
+
+        return app(SharedPurchaseBoundary::class)->problem($order);
     }
 }

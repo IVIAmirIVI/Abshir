@@ -93,7 +93,10 @@ class SharedOrderShopPurchaseService
                 if (in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true)) {
                     throw ValidationException::withMessages(['order' => __('domain.shared_purchase_requires_unsettled_order')]);
                 }
-                if ($order->invoices()->exists() || $order->billPaymentRequests()->exists() || $order->cancellationIntent()->exists()
+                $unsupportedBills = $order->billPaymentRequests()->exists()
+                    && (! app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                        || app(OrderBillPaymentService::class)->contractProblem($order) !== null);
+                if ($order->invoices()->exists() || $unsupportedBills || $order->billPayments()->exists() || $order->cancellationIntent()->exists()
                     || $order->purchaseConfirmations()->where('purchase_mode', 'SINGLE_PAYER')->exists()
                     || $order->purchaseConfirmations()->where('currency_id', '<>', $currency->id)->exists()
                     || $shop->purchaseConfirmation()->exists()) {

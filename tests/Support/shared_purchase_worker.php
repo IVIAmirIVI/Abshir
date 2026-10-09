@@ -4,9 +4,12 @@ use App\Enums\InvoiceCollectionMethod;
 use App\Enums\OrderOperationalStatus;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderBillPaymentRequest;
 use App\Models\OrderShop;
 use App\Models\User;
 use App\Services\InvoiceCollectionService;
+use App\Services\InvoiceService;
+use App\Services\OrderBillPaymentService;
 use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderStatusService;
 use App\Services\SharedOrderShopPurchaseService;
@@ -27,7 +30,20 @@ while (! file_exists($goPath)) {
     usleep(10_000);
 }
 try {
-    if ($payload['operation'] === 'collection') {
+    if ($payload['operation'] === 'bill_complete') {
+        $payment = app(OrderBillPaymentService::class)->complete(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['order_id']),
+            OrderBillPaymentRequest::findOrFail($payload['data']['request_id']), $payload['data'],
+            [UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))]);
+        $result = ['status' => 'success', 'id' => $payment->id];
+    } elseif ($payload['operation'] === 'bill_cancel') {
+        app(OrderBillPaymentService::class)->cancel(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['order_id']),
+            OrderBillPaymentRequest::findOrFail($payload['data']['request_id']), 'Customer withdrew');
+        $result = ['status' => 'success', 'id' => $payload['data']['request_id']];
+    } elseif ($payload['operation'] === 'invoice_replace') {
+        $invoice = app(InvoiceService::class)->replace(User::findOrFail($payload['actor_id']), Order::findOrFail($payload['order_id']),
+            Invoice::findOrFail($payload['data']['invoice_id']), 'Uncollected replacement');
+        $result = ['status' => 'success', 'id' => $invoice->id];
+    } elseif ($payload['operation'] === 'collection') {
         $collection = app(InvoiceCollectionService::class)->record(User::findOrFail($payload['actor_id']),
             Invoice::findOrFail($payload['data']['invoice_id']), InvoiceCollectionMethod::from($payload['data']['method']),
             $payload['data']['amount'], $payload['data']['currency_id'], $payload['data']['collected_at'], null, $payload['data']['reference'] ?? null);

@@ -2,7 +2,9 @@
 
 return [
     'shared_purchase_help' => 'Both Captains fund this purchase. Each Shop allocation is recorded automatically; the lowest assignment ID receives any extra minor unit.',
-    'shared_correction_blocked' => 'Shared invoice correction or replacement is blocked until attributed refund settlement is supported.',
+    'shared_correction_blocked' => 'Collected shared Invoice corrections require refund and receivable sources attributed to each actual payer. Refunds are never automatically assigned to the collector.',
+    'invoice_version_activation_required' => 'Uncollected shared Invoice replacement and void support must be activated first.',
+    'shared_return_blocked' => 'Shared purchase returns require proof of the amount refunded to each actual payer. The current return record supports one payer only; a refund is never assigned to the collector by assumption.',
     'invalid_purchase_amount' => 'Purchase amount must be positive and valid at the Currency precision.',
     'title' => 'Order Captains and collection',
     'participants' => 'Participating Captains (one or two)',
@@ -14,7 +16,10 @@ return [
     'change_reason' => 'A reason is required to change the participants or collector.',
     'save' => 'Save Captains and collector',
     'saved' => 'Captains and collector saved.',
-    'pending_finance' => 'The shared Order can proceed with one Invoice. Shared external bill payments and refunds are unavailable. Recorded obligations are not completed payouts.',
+    'pending_finance' => 'The shared Order proceeds with one Invoice. Recorded obligations are not completed payouts. Shared refunds require attribution to each actual payer, never automatically to the collector.',
+    'bill_activation_required' => 'Shared bill payment support for the selected collector must be activated first.',
+    'bill_collector_required' => 'External bill payment must use the selected Order collector.',
+    'bill_selected_collector' => 'The bill-payment collector is the selected Order collector',
     'purchase_shared' => 'Shared purchase by both Captains',
     'preview_only' => 'Calculated obligations for review; no payment or collection has been recorded.',
     'use_selection' => 'Change participants and collector together through participant selection.',

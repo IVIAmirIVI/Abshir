@@ -32,7 +32,7 @@ class SharedPurchaseBoundary
     {
         if (Schema::hasTable('order_shop_purchase_allocations')
             && $order->purchaseConfirmations()->where('purchase_mode', self::MODE)->exists()) {
-            return __('domain.shared_purchase_settlement_not_enabled');
+            return __('shared_orders.shared_return_blocked');
         }
 
         return null;

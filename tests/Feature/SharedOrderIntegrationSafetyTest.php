@@ -179,12 +179,12 @@ class SharedOrderIntegrationSafetyTest extends TestCase
         $this->assertSame(0, DB::table('financial_transactions')->count());
     }
 
-    public function test_selected_shared_workflow_explains_blocked_bill_and_delivery_execution(): void
+    public function test_selected_shared_workflow_explains_missing_bill_fees_and_delivery_evidence(): void
     {
         $c = $this->sharedContext();
         $this->select($c);
         $workflow = app(OrderWorkflowData::class)->load($c['actor'], $c['order']);
-        $this->assertSame(__('shared_orders.pending_finance'), $workflow['billPaymentRequestProblem']);
+        $this->assertSame(__('orders.ui_bill_fee_unavailable'), $workflow['billPaymentRequestProblem']);
         $before = DB::table('order_status_history')->count();
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned,
             OrderOperationalStatus::HeadingToShops, OrderOperationalStatus::Shopping,
