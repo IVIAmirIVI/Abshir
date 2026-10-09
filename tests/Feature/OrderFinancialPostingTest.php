@@ -1141,6 +1141,7 @@ SQL);
     {
         $assignment = $c['order']->captainAssignments()->sole();
 
+        // Validate legacy payloads against persisted sources, including database timestamp precision.
         return $invoice->collection()->create([
             'order_id' => $c['order']->id,
             'captain_id' => $method === InvoiceCollectionMethod::Cash ? $assignment->captain_id : null,
@@ -1150,7 +1151,7 @@ SQL);
             'amount' => $amount,
             'collected_at' => now(),
             'recorded_by' => $c['employee']->id,
-        ]);
+        ])->fresh();
     }
 
     private function legacyInvoiceDrift(Invoice $invoice, array $changes): void

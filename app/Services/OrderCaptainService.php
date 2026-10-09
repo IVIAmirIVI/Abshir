@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderCaptainService
@@ -51,6 +52,7 @@ class OrderCaptainService
         return DB::transaction(function () use ($actor, $order, $captain, $role): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             if ($order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists()) {
                 throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_assigned')]);
             } $hasPrimary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->exists();
@@ -73,6 +75,7 @@ class OrderCaptainService
         DB::transaction(function () use ($actor, $order, $assignment, $reason): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             $assignment = OrderCaptain::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($assignment->id);
             if ($assignment->removed_at) {
                 throw ValidationException::withMessages(['assignment' => __('domain.assignment_is_already_removed')]);
@@ -93,6 +96,7 @@ class OrderCaptainService
         return DB::transaction(function () use ($actor, $order, $captain, $reason): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             $current = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->firstOrFail();
             if ($current->captain_id === $captain->id) {
                 throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_primary_collection')]);
@@ -119,5 +123,12 @@ class OrderCaptainService
     private function access(User $actor, Order $order): void
     {
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+    }
+
+    private function assertLegacySelectionAllowed(Order $order): void
+    {
+        if (Schema::hasTable('order_captain_selections') && $order->captainSelections()->exists()) {
+            throw ValidationException::withMessages(['captain_id' => __('shared_orders.use_selection')]);
+        }
     }
 }

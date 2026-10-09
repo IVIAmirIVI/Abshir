@@ -671,6 +671,8 @@ class OrderFinancialConcurrencyTest extends TestCase
             $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
             $assignment = $c['order']->captainAssignments()->sole();
             $collection = $invoice->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id, 'order_captain_id' => $assignment->id, 'collection_method' => 'CASH', 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
+            // The production reconciliation hashes persisted source precision, not the pre-save Carbon instance.
+            $collection = $collection->fresh();
             $accounts = app(FinancialAccountService::class);
             $account = $accounts->getOrCreate($accounts->ownerForCaptain($assignment->captain), $c['currency'], FinancialAccountKind::CaptainCashCustody);
             app(FinancialPostingService::class)->postEvent($c['currency'], 'INVOICE_COLLECTION', $collection->id, FinancialEventType::InvoiceCashCustodyReceived->value, 1, $collection->collected_at, [['account' => $account, 'direction' => FinancialEntryDirection::Increase, 'amount' => $collection->amount]], $c['order']->branch, $collection->recordedBy);
@@ -1210,6 +1212,14 @@ class OrderFinancialConcurrencyTest extends TestCase
 
     private function context(?Currency $existingCurrency = null, ?Captain $existingCaptain = null): array
     {
+        // Current pricing requires the non-financial Shop origin snapshot even when this fixture
+        // deliberately leaves Captain financial guards at a weaker historical upgrade stage.
+        if (! Schema::hasColumn('order_shops', 'origin_area_id')) {
+            (require database_path('migrations/2026_10_06_000000_add_origin_area_to_order_shops.php'))->up();
+        }
+        if (! Schema::hasTable('order_delivery_pricing_routes')) {
+            (require database_path('migrations/2026_10_06_010000_create_order_delivery_pricing_routes.php'))->up();
+        }
         $currency = $existingCurrency ?? Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $from = Area::factory()->for($branch)->create();

@@ -64,7 +64,9 @@ trait OverridesWizardDelivery
         $this->requireCaptainShare();
         $this->deliveryOverrideEnabled = true;
         $this->deliveryOverrideContext = $this->deliveryContext($proposal);
-        if ($this->overrideCaptains->count() === 1) {
+        if ($this->wizardCaptainIds !== [] && in_array($this->wizardCollectorId, array_map('strval', $this->wizardCaptainIds), true)) {
+            $this->deliveryOverrideCaptainId = $this->wizardCollectorId;
+        } elseif ($this->overrideCaptains->count() === 1) {
             $this->deliveryOverrideCaptainId = (string) $this->overrideCaptains->sole()->id;
         }
         $this->resetValidation();
@@ -168,6 +170,7 @@ trait OverridesWizardDelivery
         $outcome = $this->deliveryOverrideEnabled ? $this->validateDeliveryOverride($proposal) : ['final_fee' => $proposal['suggested_unit_fee']];
 
         return $outcome + ['context' => $this->deliveryContext($proposal), 'override' => $this->deliveryOverrideEnabled,
+            'participants' => $this->wizardParticipantReview(),
             'captain_id' => $this->deliveryOverrideEnabled ? $this->deliveryOverrideCaptainId : '',
             'reason' => $this->deliveryOverrideEnabled ? trim($this->deliveryOverrideReason) : ''];
     }
@@ -185,8 +188,10 @@ trait OverridesWizardDelivery
         if (! $this->deliveryOverrideEnabled) {
             return;
         }
-        $this->domainAction(fn () => app(OrderCaptainService::class)->assign(auth()->user(), $order,
-            Captain::findOrFail($this->deliveryOverrideCaptainId), OrderCaptainRole::PrimaryCollection), ['captain_id' => 'deliveryOverrideCaptainId']);
+        if ($this->wizardCaptainIds === []) {
+            $this->domainAction(fn () => app(OrderCaptainService::class)->assign(auth()->user(), $order,
+                Captain::findOrFail($this->deliveryOverrideCaptainId), OrderCaptainRole::PrimaryCollection), ['captain_id' => 'deliveryOverrideCaptainId']);
+        }
         $pricing = app(OrderDeliveryPricingService::class);
         if (! $this->reviewedDelivery['immediate']) {
             $pricing->price(auth()->user(), $order, $proposal['origin']);

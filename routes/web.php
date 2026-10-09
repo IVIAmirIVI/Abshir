@@ -42,6 +42,7 @@ use App\Http\Controllers\ProductGroupMembershipController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductPriceController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SharedOrderFinancialReviewController;
 use App\Http\Controllers\ShopController;
 use App\Http\Controllers\ShopPartnershipController;
 use App\Http\Controllers\ShopProductController;
@@ -192,6 +193,7 @@ Route::middleware('auth')->group(function () {
     Route::post('orders/{order}/invoices/{invoice}/void', [InvoiceController::class, 'void'])->name('orders.invoices.void');
     Route::post('orders/{order}/invoices/{invoice}/replace', [InvoiceController::class, 'replace'])->name('orders.invoices.replace');
     Route::get('invoice-collections', [InvoiceCollectionController::class, 'index'])->name('invoice-collections.index');
+    Route::get('captain-financials/shared-orders/{order}/review', SharedOrderFinancialReviewController::class)->name('shared-orders.financial-review');
     Route::get('invoice-collections/sham-cash', [InvoiceCollectionController::class, 'shamCash'])->name('invoice-collections.sham-cash');
     Route::post('invoices/{invoice}/collection', [InvoiceCollectionController::class, 'store'])->name('invoices.collection.store');
     Route::post('invoices/{invoice}/financial-corrections', [InvoiceFinancialCorrectionController::class, 'request'])->name('invoices.corrections.request');

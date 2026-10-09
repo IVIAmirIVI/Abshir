@@ -12,6 +12,7 @@
         <div wire:key="review-{{ $key }}" class="rounded-lg border border-gray-200 p-3"><h4 class="font-semibold">{{ $group['label'] }} — {{ $group['area_label'] }}</h4><ul class="mt-2 space-y-2 text-sm">@foreach($group['items'] as $item)<li class="break-words">{{ $item['label'] }} · <bdi dir="ltr">{{ $item['quantity'] }}</bdi> {{ $item['unit_label'] }}<x-orders.draft-totals /></li>@endforeach</ul><div class="mt-3 border-t border-stone-200 pt-3"><x-orders.draft-totals shop /></div></div>
     @endforeach
     @php($proposal = $this->deliveryProposal)
+    @if($wizardCaptainIds)<div class="space-y-2 rounded-lg border p-3"><h4 class="font-semibold">{{ __('shared_orders.title') }}</h4>@foreach($this->wizardCaptainCandidates->whereIn('id', $wizardCaptainIds) as $participant)<p>{{ $participant->user->name }} @if((string) $participant->id === $wizardCollectorId) · {{ __('shared_orders.collector') }}@endif</p>@endforeach<p>{{ __('shared_orders.combined_delivery') }}: <bdi dir="ltr">{{ $this->wizardCombinedDelivery }}</bdi></p>@if(count($wizardCaptainIds) === 2)<p class="text-sm text-amber-900">{{ __('shared_orders.pending_finance') }}</p>@endif</div>@endif
     @if(isset($proposal['error']))<p role="alert" class="text-sm text-amber-800">{{ $proposal['error'] }}</p>@else<p class="font-semibold">{{ __('orders.wizard.suggested_fee') }}: <bdi dir="ltr">{{ $proposal['currency']->code }} {{ $proposal['suggested_unit_fee'] }}</bdi></p>@endif
     @if($deliveryOverrideEnabled)
         @php($outcome = $this->deliveryOverrideOutcome)

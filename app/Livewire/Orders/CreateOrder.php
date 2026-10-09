@@ -36,6 +36,7 @@ class CreateOrder extends Component
     use MapsDomainErrors;
     use OverridesWizardDelivery;
     use SelectsSoleSearchMatch;
+    use SelectsWizardCaptains;
 
     public string $branchId = '';
 
@@ -203,6 +204,8 @@ class CreateOrder extends Component
             return;
         }
         unset($this->overrideCaptains);
+        $this->reset('wizardCaptainIds', 'wizardCollectorId');
+        unset($this->wizardCaptainCandidates);
         unset($this->addresses, $this->areas);
         if (! $this->addresses->contains('id', $this->customerAddressId)) {
             $this->customerAddressId = '';
@@ -384,7 +387,11 @@ class CreateOrder extends Component
                     throw ValidationException::withMessages(['delivery' => __('orders.wizard.missing_route')]);
                 }
 
+                $this->persistWizardParticipants($order);
                 $this->persistWizardOverride($order, $proposal);
+                if ($this->wizardCaptainIds !== [] && ! $this->deliveryOverrideEnabled) {
+                    app(OrderDeliveryPricingService::class)->price(auth()->user(), $order, $proposal['origin']);
+                }
 
                 return $order;
             });
@@ -395,7 +402,7 @@ class CreateOrder extends Component
             $fields = array_keys($exception->errors());
             if ($draftValidated) {
                 $this->step = array_intersect($fields, ['branchId', 'customerId', 'customerPhoneId', 'customerAddressId', 'source', 'entryMode', 'orderedAt']) ? 1
-                    : (array_intersect($fields, ['delivery', 'deliveryOverrideAmount', 'deliveryOverrideReason', 'deliveryOverrideCaptainId', 'captainShare', 'captains', 'fromAreaId']) ? 3 : 2);
+                    : (array_intersect($fields, ['delivery', 'deliveryOverrideAmount', 'deliveryOverrideReason', 'deliveryOverrideCaptainId', 'wizardCaptainIds', 'wizardCollectorId', 'captainShare', 'captains', 'fromAreaId']) ? 3 : 2);
             }
             throw $exception;
         } catch (\Throwable $exception) {

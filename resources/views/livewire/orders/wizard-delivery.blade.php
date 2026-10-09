@@ -7,6 +7,15 @@
         <div><h4 class="font-semibold">{{ __('orders.wizard.to') }}</h4><p class="mt-2 break-words text-sm">{{ $this->addresses->firstWhere('id', $customerAddressId)?->address_line_1 }} — {{ $proposal['destination']->name }}</p></div>
         <div class="rounded-lg bg-stone-50 p-4"><h4 class="text-sm">{{ __('orders.wizard.suggested_fee') }}</h4><p class="mt-1 text-xl font-bold text-brand-primary"><bdi dir="ltr">{{ $proposal['currency']->code }} {{ $proposal['suggested_unit_fee'] }}</bdi></p></div>
         <p class="text-sm text-gray-600">{{ __('orders.wizard.pricing_help') }}</p>
+        @if($this->canSelectWizardCaptains)
+        <details class="rounded-lg border p-3" @if($wizardCaptainIds) open @endif><summary class="cursor-pointer font-semibold">{{ __('shared_orders.title') }}</summary>
+            <fieldset class="mt-3 space-y-2"><legend class="text-sm">{{ __('shared_orders.participants') }}</legend>@foreach($this->wizardCaptainCandidates as $candidate)<label class="flex items-center gap-2" wire:key="wizard-captain-{{ $candidate->id }}"><input type="checkbox" wire:model.live="wizardCaptainIds" value="{{ $candidate->id }}"><span>{{ $candidate->user->name }}</span></label>@endforeach</fieldset>
+            <x-input-error :messages="$errors->get('wizardCaptainIds')" />
+            @if($wizardCaptainIds)<label class="mt-3 block text-sm">{{ __('shared_orders.collector') }}<select wire:model="wizardCollectorId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->wizardCaptainCandidates->filter(fn ($candidate) => in_array((string) $candidate->id, array_map('strval', $wizardCaptainIds), true)) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->user->name }}</option>@endforeach</select></label><x-input-error :messages="$errors->get('wizardCollectorId')" />@endif
+            @if(count($wizardCaptainIds) === 2)<p class="mt-3 text-sm text-amber-900">{{ __('shared_orders.pending_finance') }}</p>@endif
+        </details>
+        @endif
+        @if($wizardCaptainIds && $this->wizardCombinedDelivery !== null)<p class="font-semibold">{{ __('shared_orders.combined_delivery') }}: <bdi dir="ltr">{{ $proposal['currency']->code }} {{ $this->wizardCombinedDelivery }}</bdi></p>@endif
         @can('delivery_pricing.override')
         <details class="rounded-lg border border-gray-200 p-3" @if($deliveryOverrideEnabled) open @endif data-wizard-override>
             <summary class="cursor-pointer text-sm font-semibold">{{ __('orders.wizard.override') }}</summary>
@@ -17,7 +26,12 @@
                     <p class="text-sm text-gray-600">{{ __('wizard_delivery.captain_help') }}</p>
                     <label class="block text-sm">{{ __('wizard_delivery.requested') }}<input type="text" inputmode="decimal" dir="ltr" aria-invalid="{{ $errors->has('deliveryOverrideAmount') ? 'true' : 'false' }}" wire:model.live.debounce.250ms="deliveryOverrideAmount" class="mt-1 w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('deliveryOverrideAmount')" /></label>
                     <label class="block text-sm">{{ __('wizard_delivery.reason') }}<textarea aria-invalid="{{ $errors->has('deliveryOverrideReason') ? 'true' : 'false' }}" wire:model="deliveryOverrideReason" maxlength="3000" dir="auto" class="mt-1 w-full rounded-lg border-gray-300"></textarea><x-input-error :messages="$errors->get('deliveryOverrideReason')" /></label>
-                    <label class="block text-sm">{{ __('wizard_delivery.captain') }}<select aria-invalid="{{ $errors->has('deliveryOverrideCaptainId') ? 'true' : 'false' }}" wire:model="deliveryOverrideCaptainId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($this->overrideCaptains as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select><x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" /></label>
+                    @if($wizardCaptainIds)
+                        <p class="text-sm">{{ __('shared_orders.collector') }}: {{ $this->wizardCaptainCandidates->firstWhere('id', $wizardCollectorId)?->user->name ?? __('orders.ui_choose_captain') }}</p>
+                        <x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" />
+                    @else
+                        <label class="block text-sm">{{ __('wizard_delivery.captain') }}<select aria-invalid="{{ $errors->has('deliveryOverrideCaptainId') ? 'true' : 'false' }}" wire:model="deliveryOverrideCaptainId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($this->overrideCaptains as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select><x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" /></label>
+                    @endif
                     @if($this->overrideCaptains->isEmpty())<p class="text-sm text-amber-800">{{ __('wizard_delivery.no_captains') }}</p>@endif
                     @php($outcome = $this->deliveryOverrideOutcome)
                     @if(isset($outcome['error']))<p role="alert" class="text-sm text-amber-800">{{ $outcome['error'] }}</p>@endif

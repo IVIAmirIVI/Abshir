@@ -145,6 +145,7 @@ trait CreatesOrderWizard
             } elseif ($step === 2) {
                 app(OrderCreationDraftService::class)->groups(auth()->user(), $this->branchId, $this->groups);
             } elseif ($step === 3) {
+                $this->validateWizardParticipants();
                 $proposal = $this->requireDeliveryProposal();
                 if ($this->deliveryOverrideEnabled) {
                     $this->validateDeliveryOverride($proposal);

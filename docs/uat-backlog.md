@@ -15,7 +15,7 @@ Manual browser UAT and the full regression suite are deferred until the integrat
 
 - **Wizard state loss remains unproven fixed.** Reproduce repeated immediate Step 2 Next / Back / forward with pending search and inline creation. Capture real browser request order and compare visible selections with server draft. Do not mark accepted from Livewire component tests alone.
 - Wizard draft products currently contain quantities, not estimated/actual prices. U3 displays unavailable totals honestly; recorded Workflow item/Shop totals still use the existing exact-decimal service. Adding draft price entry or estimation is separate work, not a U3 pricing change.
-- No two-Captain accounting or Captain field application is added. Existing assignment and financial restrictions remain authoritative.
+- Explicit one/two-Captain selection and collector audit are implemented in the MC2 development foundation. Shared financial execution remains unavailable; the accounting review is read-only. Historical unversioned assignments and single-Captain financial contracts are preserved. See `mc2-mc3-implementation.md`.
 - U2 financial KPIs remain deferred. Its follow-up covers confirmation, eligible Captain assignment and missing Shop receipts after purchase, not every possible blocker.
 
 ## Final browser checkpoints
@@ -49,3 +49,12 @@ U3 automated validation covers server behavior and rendering only. No browser ac
 - Check scoped mary CSS interoperability with Wizard, Workflow, PowerGrid, Select2 and dashboard charts; no additional Alpine initialization.
 - Native date/datetime/select controls and permission checkboxes remain intact. Captain financial operations and financial/pricing settings are deliberately deferred.
 - No browser visual acceptance is claimed; final manual UAT and the full regression suite remain deferred.
+
+## MC2/MC3 consolidated acceptance backlog
+
+- After separately approved schema activation, inspect Wizard optional participant selection, explicit collector, two-unit combined delivery display, exception approval versus pending state, Back/Next and immediate submission at 375px and 1440px. No browser acceptance is claimed by component tests.
+- In Workflow, change participants/collector before binding sources with a reason; inspect retained participation history and Damascus/Western-digit dates. Old individual assignment actions must not bypass an audited selection.
+- Shared purchase, Invoice, bill execution, handover, payout and shared refunds are not activated. The interface must explain this boundary and must never describe calculated obligations as paid or collected.
+- Financial-review GET access requires existing financial/order permissions and Order Branch scope; Captain self-view must remain its authenticated Captain only. Review actual per-Shop physical payer names, one product principal, two delivery units, combined discount once and separate Deposit/Custody/Receivable concepts.
+- Before activation: implement and audit shared source/version/hash contracts, actual gross-CASH custody/handover, attributed Receivables/payouts, original-payer returns and paid-correction/recovery handling. Approve the per-Shop odd minor-unit recipient. Preserve all legacy contracts and existing external bill fee rules.
+- Demo reset now recognizes the participant selection dependency. Its destructive execution with the new schema has not been rerun on any owner database; isolated future acceptance is still required. No real reset, preview reset or physical attachment deletion was performed in this batch.

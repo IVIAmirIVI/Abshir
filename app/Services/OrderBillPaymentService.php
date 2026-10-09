@@ -45,6 +45,10 @@ class OrderBillPaymentService
 
         return DB::transaction(function () use ($actor, $order, $currencyId): OrderBillPaymentRequest {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+                throw ValidationException::withMessages(['order' => $problem]);
+            }
+            app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                 throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
             }
@@ -146,6 +150,7 @@ class OrderBillPaymentService
         try {
             return DB::transaction(function () use ($actor, $order, $request, $data, $images, $extensions, $mimes, $digests, &$storedPaths): OrderBillPayment {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
                 $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
                 if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                     throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);

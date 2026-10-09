@@ -184,6 +184,9 @@ class InvoiceService
 
     public function mutationProblem(Order $order): ?string
     {
+        if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+            return $problem;
+        }
         if ($order->operational_status === OrderOperationalStatus::Cancelled
             || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())) {
             return __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices');

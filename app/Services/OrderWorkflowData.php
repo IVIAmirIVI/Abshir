@@ -8,6 +8,7 @@ use App\Models\Currency;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderWorkflowData
@@ -19,6 +20,10 @@ class OrderWorkflowData
         $this->orders->assertAccess($actor, $order);
         $order->load(['branch.defaultCurrency', 'destinationArea.parent', 'shops.shop.area', 'shops.originArea.parent', 'shops.receipts.uploadedBy', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'captainRatings.captain.user', 'cancellation.cancelledBy', 'statusHistory.changedBy', 'invoices.currency', 'invoices.collection', 'currentInvoice', 'billPaymentRequests.currency', 'billPaymentRequests.payment.evidence', 'billPaymentRequests.payment.paidBy', 'billPaymentRequests.payment.orderCaptain.captain.user']);
         $order->load(['shops.purchaseConfirmation.currency', 'shops.shopReturn.evidence', 'cancellationIntent.requiredShops', 'purchaseConfirmations', 'shopReturns']);
+        if (Schema::hasTable('order_shop_purchase_allocations')) {
+            $order->load('shops.purchaseConfirmation.allocations.orderCaptain.captain.user');
+        }
+        $sharedFinancialSelected = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order);
         $pricingQuery = $order->currentDeliveryPricing()->with(['rule', 'fromArea.parent', 'toArea.parent', 'currency', 'routes.fromArea.parent', 'routes.toArea.parent']);
         if ($actor->can('delivery_financial_details.view')) {
             $pricingQuery->with('allocations.captain.user');
@@ -70,12 +75,13 @@ class OrderWorkflowData
         $billPaymentCurrencies = $actor->can('bill_payments.record') ? $currencies->filter(fn ($currency) => app(BillPaymentFeeRuleService::class)->applicable($currency->id, now()) !== null) : collect();
         $billPaymentRequestProblem = match (true) {
             ! $actor->can('bill_payments.record') => null,
+            $sharedFinancialSelected => __('shared_orders.pending_finance'),
             $order->cancellationIntent !== null => __('domain.bill_payment_is_blocked_by_a_cancellation_intent'),
             in_array($order->operational_status, [OrderOperationalStatus::Delivered, OrderOperationalStatus::Cancelled], true) => __('domain.new_additional_service_requests_require_an_open_order'),
             $billPaymentCurrencies->isEmpty() => __('orders.ui_bill_fee_unavailable'),
             default => null,
         };
 
-        return compact('order', 'currentDeliveryPricing', 'destinationAreas', 'pricingPreview', 'pricingProblem', 'recoveredCancellationAvailable', 'cancellationUi', 'currencies', 'billPaymentCurrencies', 'billPaymentRequestProblem');
+        return compact('order', 'currentDeliveryPricing', 'destinationAreas', 'pricingPreview', 'pricingProblem', 'recoveredCancellationAvailable', 'cancellationUi', 'currencies', 'billPaymentCurrencies', 'billPaymentRequestProblem', 'sharedFinancialSelected');
     }
 }

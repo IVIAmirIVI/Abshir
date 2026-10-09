@@ -25,6 +25,9 @@ class OrderStatusService
 
     private function transitionProblem(Order $order, OrderOperationalStatus $target): ?string
     {
+        if ($problem = app(SharedPurchaseBoundary::class)->problem($order)) {
+            return $problem;
+        }
         if (! $this->mutationGuard->isOperationalEvidenceMutable($order)) {
             return __('domain.normal_order_advancement_is_frozen_by_an_after_purchase_cancellation_intent');
         }
@@ -35,6 +38,9 @@ class OrderStatusService
             return __('domain.assign_a_primary_collection_captain_first');
         }
         if ($target === OrderOperationalStatus::Delivered) {
+            if ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+                return $problem;
+            }
             if ($problem = $this->financials->correctionPostingProblem($order)) {
                 return $problem;
             }

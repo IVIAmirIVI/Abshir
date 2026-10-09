@@ -6,11 +6,15 @@ use App\Enums\OrderCaptainRole;
 use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptain;
+use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderMutationGuard;
 use App\Services\OrderService;
+use App\Services\SharedPurchaseBoundary;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -33,10 +37,23 @@ class CaptainAssignments extends Component
 
     public array $removalReasons = [];
 
+    public array $participantIds = [];
+
+    public string $collectorId = '';
+
+    public string $selectionReason = '';
+
+    #[Locked]
+    public string $selectionKey;
+
     public function mount(Order $order, OrderService $orders): void
     {
         $orders->assertAccess(auth()->user(), $order);
         $this->order = $order;
+        $this->selectionKey = (string) Str::uuid();
+        $active = $order->captainAssignments()->whereNull('removed_at')->orderBy('id')->get();
+        $this->participantIds = $active->pluck('captain_id')->map(fn ($id) => (string) $id)->all();
+        $this->collectorId = (string) ($active->firstWhere('assignment_role', OrderCaptainRole::PrimaryCollection)?->captain_id ?? '');
         $this->assignmentRole = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection)->exists()
             ? OrderCaptainRole::Support->value : OrderCaptainRole::PrimaryCollection->value;
         if ($this->eligibleCaptains->count() === 1) {
@@ -47,9 +64,28 @@ class CaptainAssignments extends Component
     #[Computed]
     public function eligibleCaptains(): Collection
     {
+        $assignedIds = $this->order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all();
+
         return app(OrderCaptainService::class)->eligibleForOrder(auth()->user(), $this->order)
-            ->reject(fn (Captain $captain) => $this->order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists())
+            ->reject(fn (Captain $captain) => in_array($captain->id, $assignedIds, true))
             ->values();
+    }
+
+    #[Computed]
+    public function participantCandidates(): Collection
+    {
+        return app(OrderCaptainService::class)->eligibleForOrder(auth()->user(), $this->order);
+    }
+
+    public function saveSelection(OrderCaptainSelectionService $selections): void
+    {
+        $this->validate(['participantIds' => ['required', 'array', 'min:1', 'max:2'],
+            'participantIds.*' => ['required', 'integer', 'distinct'], 'collectorId' => ['required', 'integer'],
+            'selectionReason' => ['nullable', 'string', 'max:1000']]);
+        $this->domainAction(fn () => $selections->select(auth()->user(), $this->order,
+            $this->participantIds, (int) $this->collectorId, $this->selectionKey, $this->selectionReason),
+            ['captains' => 'participantIds', 'collector' => 'collectorId', 'reason' => 'selectionReason']);
+        $this->refreshOrder(__('shared_orders.saved'));
     }
 
     #[Computed]
@@ -125,7 +161,12 @@ class CaptainAssignments extends Component
 
         $this->order = $this->order->fresh()->load('captainAssignments.captain.user');
         $orderMutable = ! app(OrderMutationGuard::class)->isPricingFrozen($this->order);
+        $selectionAvailable = Schema::hasTable('order_captain_selections');
+        $hasSelection = $selectionAvailable && $this->order->captainSelections()->exists();
+        $selectionMutable = $orderMutable && ! $this->order->purchaseConfirmations()->exists()
+            && ! $this->order->invoices()->exists() && ! $this->order->billPaymentRequests()->exists();
+        $sharedSelected = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($this->order);
 
-        return view('livewire.orders.captain-assignments', compact('orderMutable'));
+        return view('livewire.orders.captain-assignments', compact('orderMutable', 'selectionAvailable', 'hasSelection', 'selectionMutable', 'sharedSelected'));
     }
 }

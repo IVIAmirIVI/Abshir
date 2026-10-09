@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OrderShopPurchaseConfirmation extends Model
 {
@@ -32,5 +33,15 @@ class OrderShopPurchaseConfirmation extends Model
     public function currency(): BelongsTo
     {
         return $this->belongsTo(Currency::class);
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(OrderShopPurchaseAllocation::class, 'purchase_confirmation_id')->orderBy('order_captain_id');
+    }
+
+    public function collectingOrderCaptain(): BelongsTo
+    {
+        return $this->belongsTo(OrderCaptain::class, 'collecting_order_captain_id');
     }
 }

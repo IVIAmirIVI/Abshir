@@ -308,4 +308,9 @@ return [
     'evidence_integrity' => 'Evidence integrity check failed.',
     'adjustment_integrity' => 'Adjustment evidence integrity check failed.',
     'inactive_account' => 'Your account is inactive. Contact an administrator.',
+    'shared_purchase_settlement_not_enabled' => 'Shared purchase settlement and refunds are not enabled. Do not use the legacy financial workflow.',
+    'shared_purchase_requires_two_captains' => 'A shared purchase requires exactly two active Captains and one designated collector.',
+    'shared_purchase_before_assignment' => 'The purchase cannot precede either Captain assignment.',
+    'shared_purchase_exact_halves_required' => 'A positive purchase amount must split into exact equal Currency units. Odd minor-unit handling awaits approval.',
+    'shared_purchase_requires_unsettled_order' => 'Shared purchases require an open Order without existing Invoices, bill services or single-payer purchases.',
 ];

@@ -7,7 +7,25 @@
 
     @if(session('order-action-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-action-status') }}</p>@endif
 
-    @if($orderMutable)@can('orders.captains.assign')
+    @if($sharedSelected)<p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" role="status">{{ __('shared_orders.pending_finance') }}</p>@endif
+    @if($sharedSelected)@can('captain_financials.view')<a class="text-sm underline" href="{{ route('shared-orders.financial-review', $order) }}">{{ __('shared_orders.financial_review') }}</a>@endcan @endif
+    @if($selectionAvailable && $selectionMutable)@can('orders.captains.assign')
+        <details class="rounded-lg border p-3" @if($hasSelection) open @endif><summary class="cursor-pointer font-semibold">{{ __('shared_orders.title') }}</summary>
+        <form wire:submit="saveSelection" class="mt-3 space-y-3">
+            <fieldset class="space-y-2"><legend class="text-sm font-semibold">{{ __('shared_orders.participants') }}</legend>
+                @foreach($this->participantCandidates as $candidate)
+                    <label class="flex items-center gap-2" wire:key="participant-choice-{{ $candidate->id }}"><input type="checkbox" wire:model.live="participantIds" value="{{ $candidate->id }}"><span>{{ $candidate->user->name }}</span></label>
+                @endforeach
+            </fieldset>
+            <x-input-error :messages="$errors->get('participantIds')" />
+            <label class="block text-sm">{{ __('shared_orders.collector') }}<select wire:model="collectorId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->participantCandidates->filter(fn ($candidate) => in_array((string) $candidate->id, array_map('strval', $participantIds), true)) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->user->name }}</option>@endforeach</select></label>
+            <x-input-error :messages="$errors->get('collectorId')" />
+            @if($order->captainAssignments->whereNull('removed_at')->isNotEmpty())<label class="block text-sm">{{ __('orders.ui_switch_reason') }}<input wire:model="selectionReason" class="mt-1 w-full rounded-lg border-gray-300" dir="auto"></label>@endif
+            <x-input-error :messages="$errors->get('selectionReason')" />
+            <x-orders.action wire:loading.attr="disabled" wire:target="saveSelection">{{ __('shared_orders.save') }}</x-orders.action>
+        </form></details>
+    @endcan @endif
+    @if(!$hasSelection && $orderMutable)@can('orders.captains.assign')
         @if($this->eligibleCaptains->isEmpty())
             <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ __('orders.ui_no_eligible_captains') }}</p>
         @else
@@ -35,7 +53,7 @@
                     <p class="text-sm text-gray-600">{{ \App\Support\UiLabels::label('orders.captain_roles', $assignment->assignment_role) }} · {{ $assignment->removed_at ? __('orders.ui_removed').$assignment->removed_at->format('Y-m-d H:i') : __('common.operational_active') }}</p>
                 </div>
                 @can('captain_financials.view')<a href="{{ route('captains.financials.show', $assignment->captain) }}" class="mt-2 inline-block text-sm text-brand-primary underline">{{ __('captains.ui_receipts_payouts_and_outstanding_receivables') }}</a>@endcan
-                @if($orderMutable && ! $assignment->removed_at)@can('orders.captains.remove')
+                @if(!$hasSelection && $orderMutable && ! $assignment->removed_at)@can('orders.captains.remove')
                     <div class="mt-3 flex flex-col gap-2 sm:flex-row">
                         <input wire:model="removalReasons.{{ $assignment->id }}" placeholder="{{ __('orders.ui_removal_reason') }}" dir="auto" class="min-w-0 flex-1 rounded-lg border-gray-300">
                         <button type="button" wire:click="remove({{ $assignment->id }})" wire:loading.attr="disabled" wire:confirm="{{ __('orders.ui_confirm_remove_captain') }}" class="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">{{ __('common.actions.remove') }}</button>
@@ -49,7 +67,7 @@
     </div>
 
     @can('orders.captains.remove')
-        @if($orderMutable)@can('orders.captains.assign')
+        @if(!$hasSelection && $orderMutable)@can('orders.captains.assign')
         @if($order->captainAssignments->whereNull('removed_at')->isNotEmpty() && $this->switchCandidates->isNotEmpty())
             <details class="rounded-lg border border-gray-200 p-3">
                 <summary class="cursor-pointer font-medium">{{ __('orders.ui_switch_primary') }}</summary>

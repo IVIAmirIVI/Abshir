@@ -19,6 +19,7 @@ class OrderCancellationSafetyService
 
     public function assertNoFinancialCorrectionRequiredLocked(Order $order, bool $forIntent = false): void
     {
+        app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
         $correction = Schema::hasTable('invoice_financial_corrections') ? DB::table('invoice_financial_corrections')
             ->where('order_id', $order->id)->where('kind', 'CANCEL_AND_REFUND')
             ->whereIn('state', $forIntent ? ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE'] : ['COMPLETED'])

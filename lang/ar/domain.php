@@ -308,4 +308,9 @@ return [
     'evidence_integrity' => 'فشل فحص سلامة الإثبات.',
     'adjustment_integrity' => 'فشل فحص سلامة إثبات التعديل.',
     'inactive_account' => 'حسابك معطّل. تواصل مع مدير النظام.',
+    'shared_purchase_settlement_not_enabled' => 'تسوية وإرجاع الشراء المشترك غير مفعّلين. لا تستخدم المسار المالي القديم لهذا الطلب.',
+    'shared_purchase_requires_two_captains' => 'الشراء المشترك يتطلب كابتنين نشطين ومسؤول تحصيل واحد محدد.',
+    'shared_purchase_before_assignment' => 'لا يجوز أن يسبق الشراء تعيين أي من الكابتنين.',
+    'shared_purchase_exact_halves_required' => 'يجب أن يكون مبلغ الشراء موجبًا وقابلًا للقسمة بالتساوي بدقة العملة. توزيع باقي أصغر وحدة نقدية ينتظر الاعتماد.',
+    'shared_purchase_requires_unsettled_order' => 'الشراء المشترك يتطلب طلبًا مفتوحًا دون فواتير أو خدمات دفع فواتير أو مشتريات بدافع واحد.',
 ];
