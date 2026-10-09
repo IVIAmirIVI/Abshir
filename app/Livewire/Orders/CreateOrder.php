@@ -185,7 +185,7 @@ class CreateOrder extends Component
             $this->customerAddressId = '';
         }
         $this->resetValidation(['customerPhoneId', 'customerAddressId']);
-        $this->validateOnly('customerId');
+        $this->validateContactUpdate('customerId');
         $this->selectSingleContactOptions();
     }
 
@@ -207,11 +207,29 @@ class CreateOrder extends Component
         $this->reset('wizardCaptainIds', 'wizardCollectorId');
         unset($this->wizardCaptainCandidates);
         unset($this->addresses, $this->areas);
+        // A pending registered Shop belongs to the old Branch. Keep added
+        // groups for explicit review/removal, but do not render its stale lookup.
+        $this->reset('shopId', 'shopSearch');
+        if ($this->shopType === 'REGISTERED') {
+            $this->reset('businessClassification');
+        }
+        unset($this->knownShopClassification, $this->shopMatches, $this->eligibleGroupKeys, $this->productMatches);
+        foreach (['originAreaId', 'newShopAreaId', 'newAddressAreaId'] as $field) {
+            if (! $this->areas->contains('id', $this->{$field})) {
+                $openAreaModal = match ($field) {
+                    'newShopAreaId' => $this->showShopCreate,
+                    'newAddressAreaId' => $this->showAddressCreate,
+                    default => false,
+                };
+                // Open inline forms display the sole Area without a selector.
+                $this->{$field} = $openAreaModal && $this->areas->count() === 1 ? (string) $this->areas->sole()->id : '';
+            }
+        }
         if (! $this->addresses->contains('id', $this->customerAddressId)) {
             $this->customerAddressId = '';
         }
         $this->resetValidation('customerAddressId');
-        $this->validateOnly('branchId');
+        $this->validateContactUpdate('branchId');
         $this->selectSingleAddress();
         $this->selectSingleNewCustomerArea();
     }
@@ -302,27 +320,39 @@ class CreateOrder extends Component
             $this->orderedAt = '';
             $this->resetValidation('orderedAt');
         }
-        $this->validateOnly('entryMode');
+        $this->validateContactUpdate('entryMode');
     }
 
     public function updatedCustomerPhoneId(): void
     {
-        $this->validateOnly('customerPhoneId');
+        $this->validateContactUpdate('customerPhoneId');
     }
 
     public function updatedCustomerAddressId(): void
     {
-        $this->validateOnly('customerAddressId');
+        $this->validateContactUpdate('customerAddressId');
     }
 
     public function updatedSource(): void
     {
-        $this->validateOnly('source');
+        $this->validateContactUpdate('source');
     }
 
     public function updatedOrderedAt(): void
     {
-        $this->validateOnly('orderedAt');
+        $this->validateContactUpdate('orderedAt');
+    }
+
+    private function validateContactUpdate(string $field): void
+    {
+        try {
+            $this->validateOnly($field);
+        } catch (ValidationException $exception) {
+            // Update hooks also run without a navigation action. Display the
+            // owning step without resetting the authoritative draft or review.
+            $this->step = 1;
+            throw $exception;
+        }
     }
 
     public function submitWizard(OrderService $orders): void

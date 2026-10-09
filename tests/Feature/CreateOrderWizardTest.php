@@ -1060,4 +1060,136 @@ class CreateOrderWizardTest extends TestCase
             ->call('closeCustomerCreate')->assertSet('customerId', (string) $c['customer']->id);
         $component->call('nextStep')->assertSet('step', 2);
     }
+
+    public function test_branch_change_with_an_unadded_shop_does_not_break_the_next_step_render(): void
+    {
+        $c = $this->context();
+        $otherBranch = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        $otherArea = Area::factory()->for($otherBranch)->create();
+        $otherAddress = $c['customer']->addresses()->create(['area_id' => $otherArea->id, 'address_line_1' => 'Other branch']);
+        $component = $this->group($this->start($c)->call('nextStep'), $c)
+            ->call('selectProduct', $c['product']->id)->set('quantity', '4')
+            ->call('selectShop', $c['shop']->id);
+        $groups = $component->get('groups');
+        $component->set('branchId', (string) $otherBranch->id)->assertSet('step', 1)
+            ->assertSet('customerAddressId', (string) $otherAddress->id)
+            ->call('nextStep')->assertStatus(200)->assertSet('step', 2)
+            ->assertSet('groups', $groups)->assertSet('quantity', '4')
+            ->assertSet('shopId', '')->assertSet('shopSearch', '')
+            ->assertSet('customerId', (string) $c['customer']->id)
+            ->assertSee(__('domain.the_shop_is_outside_the_order_branch'));
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_bundled_contact_hook_validation_returns_to_its_step_without_erasing_review_draft(): void
+    {
+        $c = $this->context();
+        $component = $this->ready($c);
+        $groups = $component->get('groups');
+        $review = $component->get('reviewedDelivery');
+        $component->update(updates: ['source' => 'MOBILE_APP', 'notes' => 'Retained on validation'])
+            ->assertHasErrors('source')->assertSet('step', 1)
+            ->assertSet('groups', $groups)->assertSet('reviewedDelivery', $review)
+            ->assertSet('notes', 'Retained on validation')
+            ->assertSet('customerId', (string) $c['customer']->id)
+            ->assertSet('customerPhoneId', (string) $c['phone']->id)
+            ->assertSet('customerAddressId', (string) $c['address']->id);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $component->set('source', 'PHONE')->call('goToStep', 4)->call('submit')->assertHasNoErrors();
+        $this->assertDatabaseCount('orders', 1);
+    }
+
+    public function test_unchanged_branch_retains_unadded_shop_and_inline_area_drafts(): void
+    {
+        $c = $this->context();
+        $component = $this->group($this->start($c)->call('nextStep'), $c)
+            ->call('selectShop', $c['shop']->id)->call('selectProduct', $c['product']->id)
+            ->set('quantity', '3')->set('newShopAreaId', (string) $c['area']->id)
+            ->set('newAddressAreaId', (string) $c['area']->id);
+        $groups = $component->get('groups');
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $component->update(updates: ['branchId' => (string) $c['branch']->id], calls: [
+                ['method' => 'goToStep', 'params' => [1], 'path' => ''],
+                ['method' => 'nextStep', 'params' => [], 'path' => ''],
+            ])->assertSet('step', 2)->assertHasNoErrors()
+                ->assertSet('shopId', (string) $c['shop']->id)->assertSet('businessClassification', 'SHOP')
+                ->assertSet('groups', $groups)->assertSet('quantity', '3')
+                ->assertSet('productId', (string) $c['product']->id)
+                ->assertSet('newShopAreaId', (string) $c['area']->id)
+                ->assertSet('newAddressAreaId', (string) $c['area']->id);
+        }
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_real_branch_change_preserves_one_time_shop_text_and_clears_only_old_area_references(): void
+    {
+        $c = $this->context();
+        $other = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        Area::factory()->for($other)->create();
+        $component = $this->start($c)->call('nextStep')->set('shopType', 'ONE_TIME')
+            ->set('shopName', 'Pending shop')->set('shopPhone', '0951234567')
+            ->set('shopAddress', 'Pending address')->set('businessClassification', 'RESTAURANT')
+            ->set('originAreaId', (string) $c['area']->id)->set('newShopAreaId', (string) $c['area']->id)
+            ->set('newAddressAreaId', (string) $c['area']->id);
+        $component->set('branchId', (string) $other->id)->assertSet('step', 1)
+            ->assertSet('shopName', 'Pending shop')->assertSet('shopPhone', '0951234567')
+            ->assertSet('shopAddress', 'Pending address')->assertSet('businessClassification', 'RESTAURANT')
+            ->assertSet('originAreaId', '')->assertSet('newShopAreaId', '')->assertSet('newAddressAreaId', '')
+            ->assertSet('customerId', (string) $c['customer']->id)
+            ->assertSet('customerPhoneId', (string) $c['phone']->id)->assertSet('customerAddressId', '');
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_immediate_add_and_next_keep_multi_shop_quantities_through_review_and_atomic_creation(): void
+    {
+        $c = $this->context();
+        $second = Shop::create(['name' => 'Second', 'business_classification' => 'SHOP', 'area_id' => $c['area']->id]);
+        $this->rule($c['actor'], $c['area'], $c['area'], $c['currency'], 'MULTI_SHOP', '11');
+        $component = $this->group($this->start($c)->call('nextStep'), $c);
+        $component->call('selectShop', $second->id)->call('addDraftShop')->call('selectProduct', $c['product']->id)
+            ->update(updates: ['quantity' => '4'], calls: [
+                ['method' => 'addDraftItem', 'params' => [], 'path' => ''],
+                ['method' => 'nextStep', 'params' => [], 'path' => ''],
+            ])->assertHasNoErrors()->assertSet('step', 3);
+        $groups = $component->get('groups');
+        $this->assertSame(['1', '4'], array_column(array_merge(...array_column($groups, 'items')), 'quantity'));
+        foreach ([4, 2, 1, 3, 4] as $step) {
+            $component->call('goToStep', $step)->assertHasNoErrors()->assertSet('groups', $groups)
+                ->call('$refresh')->assertSet('step', $step)->assertSet('groups', $groups);
+        }
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $component->call('submit')->assertHasNoErrors();
+        $order = Order::sole();
+        $this->assertSame(2, $order->shops()->count());
+        $this->assertSame(['1.0000', '4.0000'], $order->shops()->orderBy('id')->get()
+            ->flatMap(fn ($shop) => $shop->items()->pluck('current_quantity'))->all());
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_open_inline_modal_keeps_its_text_and_reselects_the_new_branch_sole_area(): void
+    {
+        $c = $this->context();
+        $other = Branch::factory()->create(['default_currency_id' => $c['currency']->id]);
+        $area = Area::factory()->for($other)->create();
+        $component = $this->group($this->start($c)->call('nextStep'), $c)->call('openShopCreate')
+            ->set('newShopName', 'Inline pending shop')->set('newShopClassification', 'SHOP');
+        $groups = $component->get('groups');
+        $component->set('branchId', (string) $other->id)->assertSet('showShopCreate', true)
+            ->assertSet('newShopName', 'Inline pending shop')->assertSet('newShopAreaId', (string) $area->id)
+            ->assertSet('groups', $groups)->call('createPermanentShop')->assertHasNoErrors();
+        $shop = Shop::where('name', 'Inline pending shop')->sole();
+        $this->assertSame($area->id, $shop->area_id);
+        $component->call('openAddressCreate')->set('newAddressLine', 'Inline pending address')
+            ->set('branchId', (string) $c['branch']->id)->assertSet('showAddressCreate', true)
+            ->assertSet('newAddressLine', 'Inline pending address')
+            ->assertSet('newAddressAreaId', (string) $c['area']->id)
+            ->assertSet('groups', $groups)->call('createAddress')->assertHasNoErrors();
+        $this->assertSame($c['area']->id, $c['customer']->addresses()->where('address_line_1', 'Inline pending address')->sole()->area_id);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
 }
