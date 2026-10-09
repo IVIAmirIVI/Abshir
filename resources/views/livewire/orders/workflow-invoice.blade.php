@@ -1,4 +1,4 @@
-<div class="space-y-4">
+<div class="financial-ui space-y-4">
 @can('invoices.view')
     @include('orders._invoices', ['summaryOnly' => true])
     @if($workflow['invoiceProblem'])<p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ $workflow['invoiceProblem'] }}</p>@endif

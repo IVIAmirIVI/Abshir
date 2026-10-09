@@ -1,18 +1,19 @@
 <x-app-layout>
+    @php($captainNames = $invoice->order->captainAssignments->mapWithKeys(fn ($assignment) => [$assignment->captain_id => $assignment->captain?->user?->name]))
     <x-slot name="header"><h2 class="break-all text-xl font-semibold"><x-ltr>{{ $invoice->invoice_number }}</x-ltr></h2></x-slot>
 
-    <div class="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
+    <div class="financial-ui mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
         @if(session('status'))<p class="rounded bg-green-50 p-4">{{ session('status') }}</p>@endif
         @if($errors->any())
             <div class="rounded bg-red-50 p-4"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
         @endif
 
-        <a href="{{ route('orders.workflow', [$invoice->order, 'step' => 'invoice']) }}" class="inline-flex rounded-lg bg-brand-primary px-4 py-2 font-semibold text-white" data-invoice-workflow-return>{{ __('orders.workflow.return') }}</a>
+        <a href="{{ route('orders.workflow', [$invoice->order, 'step' => 'invoice']) }}" class="app-button bg-brand-primary text-white" data-invoice-workflow-return>{{ __('orders.workflow.return') }}</a>
 
         <section class="space-y-3 rounded bg-white p-5 shadow">
             <div class="flex flex-wrap justify-between gap-3">
                 <div><h3 class="font-semibold">{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }} · {{ __('financial.ui.version') }} <x-ltr>{{ $invoice->version }}</x-ltr></h3><p>{{ __('common.terms.order') }} <x-ltr>{{ $invoice->order_number_snapshot }}</x-ltr></p></div>
-                <a class="underline" target="_blank" href="{{ route('orders.invoices.print', [$invoice->order, $invoice]) }}">{{ __('financial.ui.print_view') }}</a>
+                <a class="underline" target="_blank" rel="noopener" href="{{ route('orders.invoices.print', [$invoice->order, $invoice]) }}">{{ __('financial.ui.print_view') }}</a>
             </div>
             @include('invoices._shared-captains')
             @if($invoice->collection && app(\App\Services\SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ __('shared_orders.shared_correction_blocked') }}</p>@elseif($problem = app(\App\Services\InvoiceService::class)->retirementProblem($invoice->order))<p class="rounded bg-amber-50 p-3 text-sm">{{ $problem }}</p>@endif
@@ -29,7 +30,7 @@
             <h3 class="font-semibold">{{ __('financial.ui.customer_charges') }}</h3>
             @forelse($invoice->items as $item)
                 <article class="grid gap-1 rounded border p-3 sm:grid-cols-4">
-                    <strong>{{ $item->description }}</strong><span>{{ $item->quantity }} {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> <x-ltr>{{ $invoice->currency?->code }}</x-ltr></span><span class="font-semibold"><x-money :amount="$item->line_total" /></span>
+                    <strong>{{ $item->description }}</strong><span><x-ltr>{{ $item->quantity }}</x-ltr> {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> <x-ltr>{{ $invoice->currency?->code }}</x-ltr></span><span class="font-semibold"><x-money :amount="$item->line_total" /></span>
                 </article>
             @empty
                 <p>{{ __('financial.ui.refresh_help') }}</p>
@@ -100,7 +101,7 @@
                         <p><strong>{{ \App\Support\UiLabels::label('financial.correction_kinds', $correction->kind) }}</strong> · {{ \App\Support\UiLabels::label('financial.correction_states', $correction->state) }} · {{ $correction->reason }}</p>
                         <p>{{ __('financial.ui.original') }} <x-money :amount="$correction->original_amount" /> · {{ __('financial.ui.corrected') }} @if($correction->corrected_amount !== null)<x-money :amount="$correction->corrected_amount" />@else{{ __('financial.ui.pending_approval') }}@endif · {{ __('financial.ui.customer_delta') }} @if($correction->customer_delta !== null)<x-money :amount="$correction->customer_delta" />@else{{ __('financial.ui.pending_approval') }}@endif <x-ltr>{{ $invoice->currency->code }}</x-ltr></p>
                         @foreach($correction->receivableDispositions as $disposition)
-                            <p>{{ __('common.terms.captain') }} #<x-ltr>{{ $disposition->captain_id }}</x-ltr> · {{ \App\Support\UiLabels::label('financial.concepts', $disposition->concept) }}:
+                            <p>{{ $captainNames->get($disposition->captain_id) ?: __('common.terms.captain') }} #<x-ltr>{{ $disposition->captain_id }}</x-ltr> · {{ \App\Support\UiLabels::label('financial.concepts', $disposition->concept) }}:
                                 {{ __('financial.ui.disposition_original') }} <x-money :amount="$disposition->original_entitlement" /> · {{ __('financial.ui.disposition_paid') }} <x-money :amount="$disposition->historical_paid" /> ·
                                 {{ __('financial.ui.disposition_corrected') }} <x-money :amount="$disposition->corrected_entitlement" /> · {{ __('financial.ui.disposition_retired') }} <x-money :amount="$disposition->original_unpaid" /> · {{ __('financial.ui.disposition_residual') }} <x-money :amount="$disposition->residual_payable" /> ·
                                 {{ __('financial.ui.disposition_recovery') }} <x-money :amount="$disposition->recovery_required" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr>.</p>
@@ -113,7 +114,7 @@
                                 <p>{{ $requirement['captain_name'] }} ({{ __('common.terms.captain') }} #<x-ltr>{{ $requirement['captain_id'] }}</x-ltr>) · {{ $invoice->order->branch->name }} · {{ __('financial.ui.full_repayment') }} <x-money :amount="$requirement['amount']" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr> · {{ $requirement['receipt'] ? __('financial.ui.received') : __('financial.ui.required') }}</p>
                                 @foreach($requirement['dispositions'] as $source)<p>{{ \App\Support\UiLabels::label('financial.concepts', $source->concept) }}: <x-money :amount="$source->recovery_required" /></p>@endforeach
                                 @if($requirement['receipt'])
-                                    <p>{{ __('financial.ui.received_time') }} <x-ltr>{{ $requirement['receipt']->received_at }}</x-ltr> {{ __('financial.ui.received_by') }} {{ $requirement['receipt']->receiver->name }}.</p>
+                                    <p>{{ __('financial.ui.received_time') }} <x-ltr>{{ \App\Support\UiDate::datetime($requirement['receipt']->received_at) }}</x-ltr> {{ __('financial.ui.received_by') }} {{ $requirement['receipt']->receiver->name }}.</p>
                                     @can('captain_receivable_recoveries.view_evidence')<a class="underline" href="{{ route('captain-recoveries.evidence',[$correction,$requirement['receipt']]) }}">{{ __('financial.ui.repayment_evidence') }}</a>@endcan
                                 @elseif($correction->state===\App\Enums\InvoiceFinancialCorrectionState::ReadyToFinalize && auth()->user()->roles()->where('code','ORDER_EMPLOYEE')->exists() && auth()->user()->branches()->whereKey($correction->branch_id)->exists())
                                     @can('captain_receivable_recoveries.record')
@@ -187,7 +188,7 @@
                                 </label>
                             @endforeach
                             @foreach($correctionSource['captain_allocations'] as $index => $allocation)
-                                <label class="block">{{ __('common.terms.captain') }} #{{ $allocation['captain_id'] }} · {{ __('financial.ui.corrected_delivery_allocation') }}
+                                <label class="block">{{ $captainNames->get($allocation['captain_id']) ?: __('common.terms.captain') }} #<x-ltr>{{ $allocation['captain_id'] }}</x-ltr> · {{ __('financial.ui.corrected_delivery_allocation') }}
                                     <input type="hidden" name="delivery[{{ $index }}][order_captain_id]" value="{{ $allocation['order_captain_id'] }}">
                                     <x-text-input dir="ltr" name="delivery[{{ $index }}][customer_amount]" :value="$allocation['customer_delivery_amount_allocated']" required/>
                                 </label>

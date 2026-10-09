@@ -1,6 +1,6 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('financial.ui.sham_reconciliation') }}</h2></x-slot>
-    <div class="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
+    <div class="financial-ui mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
         <p class="rounded bg-emerald-50 p-4">{{ __('financial.ui.sham_help') }}</p>
         <form class="grid gap-3 rounded bg-white p-4 shadow sm:grid-cols-3">
             <label class="space-y-1"><span>{{ __('financial.ui.from_date') }}</span><x-text-input name="from" type="date" :value="request('from')" class="w-full" dir="ltr"/></label>

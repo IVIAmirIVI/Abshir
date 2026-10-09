@@ -74,6 +74,13 @@ return [
         'CASH_SHORTFALL' => 'Cash delivery shortfall due',
     ],
     'ui' => [
+        'deposit_definition' => 'Operating funds are separate from Captain receivables and company cash in custody.',
+        'receivable_definition' => 'Amounts Abshir owes the Captain; an entitlement does not mean it has been paid.',
+        'custody_definition' => 'Company cash physically held by the Captain; receiving it does not mean handing it to the company.',
+        'table_scroll_help' => 'Scroll the table horizontally to view all amounts and columns.',
+        'status_filter' => 'Invoice status',
+        'collection_filter' => 'Collection state',
+
         'authorized_by' => 'Authorized by user ID',
         'no_invoices' => 'No invoices.',
         'no_collections' => 'No collections.',

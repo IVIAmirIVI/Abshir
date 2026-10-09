@@ -9,7 +9,7 @@
         .top,.line,.totals div{display:flex;justify-content:space-between;gap:1rem}
         .top,.line{flex-wrap:wrap}.line{border-bottom:1px solid #ddd;padding:.75rem 0}
         .totals{margin-block-start:1.5rem;margin-inline-start:auto;max-width:360px}
-        .totals div{align-items:baseline}.grand{font-size:1.3rem;font-weight:bold}.print{margin:1rem 0;min-height:44px;max-width:100%;padding:.625rem 1rem;border:1px solid #164d3b;border-radius:.625rem;background:#164d3b;color:#fff;font:600 .875rem/1.5 Tahoma,Arial,sans-serif;cursor:pointer}.print:focus-visible{outline:2px solid #164d3b;outline-offset:3px}
+        .totals div{align-items:baseline;flex-wrap:wrap}.totals div>*,.top>*,.line>*{min-width:0;max-width:100%}*{box-sizing:border-box}.grand{font-size:1.3rem;font-weight:bold}.print{margin:1rem 0;min-height:44px;max-width:100%;padding:.625rem 1rem;border:1px solid #164d3b;border-radius:.625rem;background:#164d3b;color:#fff;font:600 .875rem/1.5 Tahoma,Arial,sans-serif;cursor:pointer}.print:focus-visible{outline:2px solid #164d3b;outline-offset:3px}
         bdi[dir=ltr]{direction:ltr;unicode-bidi:isolate}
         @media print{.print{display:none}body{margin:0;max-width:none}.line,.totals{break-inside:avoid}}
         @media(max-width:500px){.top,.line{display:block}.line span{display:block;margin-top:.25rem}}

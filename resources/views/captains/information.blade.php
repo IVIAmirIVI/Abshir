@@ -1,6 +1,6 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold break-words">{{ __('captain_dashboard.title') }}</h2></x-slot>
-    <x-management.page>
+    <x-management.page class="financial-ui">
         <div data-captain-information class="min-w-0 space-y-6">
             <header class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0"><h1 class="text-2xl font-bold break-words">{{ $captain->user->name }}</h1><p class="mt-2 text-sm text-gray-600">{{ __($snapshot['selfView'] ? 'captain_dashboard.self_read_only' : 'captain_dashboard.read_only') }}</p></div>
@@ -15,6 +15,7 @@
             </form>
             @if($snapshot['financial'])
                 <section class="space-y-3" aria-labelledby="captain-current-balances">
+                    <x-financial.account-guide />
                     <h2 id="captain-current-balances" class="text-lg font-bold">{{ __($snapshot['globalBalances'] ? 'captain_dashboard.balances' : 'captain_dashboard.branch_activity') }}</h2>
                     <p class="text-sm leading-6 text-gray-600">{{ __($snapshot['globalBalances'] ? 'captain_dashboard.balances_help' : 'captain_dashboard.branch_activity_help') }}</p>
                     @unless($snapshot['globalBalances'])<p role="status" class="rounded-lg bg-stone-50 p-4 text-sm">{{ __('captain_dashboard.global_unavailable') }}</p>@endunless

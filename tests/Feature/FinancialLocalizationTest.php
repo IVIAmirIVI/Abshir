@@ -52,10 +52,19 @@ class FinancialLocalizationTest extends TestCase
             ->assertSee($f['branch']->name)->assertSee('USD')->assertSee($adjustment->reason)
             ->assertDontSee('financial.ui.')->assertSee('dir="rtl"', false);
         $this->assertStringContainsString('<bdi dir="ltr"', $response->getContent());
+        $response->assertSee('data-financial-account-guide', false)
+            ->assertSee(__('financial.ui.receivable_definition'))
+            ->assertSee(__('financial.ui.custody_definition'))
+            ->assertSee('role="region"', false)->assertSee('tabindex="0"', false)
+            ->assertSee('aria-label="'.__('financial.ui.independent_balances').'"', false);
         $this->assertSame('-15.0000', $this->depositBalance($f));
         $this->assertSame('27.3500', $adjustment->fresh()->amount);
-        $this->get(route('invoices.index'))->assertOk()->assertSee('لا توجد فواتير.');
-        $this->get(route('invoice-collections.index'))->assertOk()->assertSee('لا توجد عمليات تحصيل.');
+        $this->get(route('invoices.index', ['search' => 'INV-TEST', 'issued_from' => '2026-10-01']))
+            ->assertOk()->assertSee('لا توجد فواتير.')->assertSee(__('financial.ui.status_filter'))
+            ->assertSee(__('financial.ui.collection_filter'))->assertSee('INV-TEST')->assertSee('2026-10-01');
+        $this->get(route('invoice-collections.index', ['from' => '2026-10-01', 'to' => '2026-10-09']))
+            ->assertOk()->assertSee('لا توجد عمليات تحصيل.')->assertSee(__('financial.ui.from_date'))
+            ->assertSee(__('financial.ui.to_date'))->assertSee('2026-10-01')->assertSee('2026-10-09');
         $this->actingAs($f['employee'])->get(route('captains.financials.show', $f['captain']))
             ->assertOk()->assertDontSee(route('captains.manual-deposit-adjustments.store', $f['captain']));
         $this->get(route('captain-financials.index'))->assertOk()->assertSee('السجل المالي للكباتن');

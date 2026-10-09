@@ -92,3 +92,15 @@
     .app-topbar { gap: .25rem; padding-inline: .5rem; }
     .app-topbar [data-shell-finder] .btn { font-size: .75rem; padding-inline: .5rem; gap: .25rem; }
 }
+
+/* Financial presentation: keep exact amounts visible inside bounded layouts. */
+.financial-ui { min-width: 0; overflow-wrap: anywhere; }
+.financial-ui .grid > *, .financial-ui .flex > *, .financial-ui label { min-width: 0; }
+.financial-ui input, .financial-ui select, .financial-ui textarea { min-width: 0; max-width: 100%; }
+.financial-ui input[type="file"] { width: 100%; }
+.financial-ui .financial-filter { display: block; font-size: .875rem; }
+.financial-ui .financial-filter > input, .financial-ui .financial-filter > select { display: block; width: 100%; margin-block-start: .375rem; }
+.financial-table-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.financial-table-wrap:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
+.financial-table-wrap th { text-align: start; white-space: normal; min-width: 7rem; }
+.financial-table-wrap td bdi { white-space: nowrap; font-variant-numeric: tabular-nums; }

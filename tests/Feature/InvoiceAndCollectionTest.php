@@ -144,6 +144,7 @@ class InvoiceAndCollectionTest extends TestCase
             ->assertSee('dir="rtl"', false)->assertSee('30.0000')->assertSee('25.0000')->assertSee('USD')
             ->assertSee('Snapshot Customer')->assertSee('Snapshot Street');
         $this->assertStringContainsString('<bdi dir="ltr"', $print->getContent());
+        $print->assertSee('flex-wrap:wrap', false);
         $replacement = $service->replace($c['admin'], $c['order'], $issued, 'Historical replacement reason');
         $this->get(route('orders.invoices.show', [$c['order'], $issued]))->assertOk()
             ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('Historical replacement reason');
@@ -975,7 +976,8 @@ class InvoiceAndCollectionTest extends TestCase
         $otherEmployee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $otherEmployee->branches()->attach($otherBranch);
         $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $invoice]))
-            ->assertOk()->assertSee(__('financial.ui.request_correction'));
+            ->assertOk()->assertSee(__('financial.ui.request_correction'))
+            ->assertSee($c['captain']->user->name)->assertSee('financial-ui', false);
         $request = [
             'kind' => 'REPRICE', 'request_key' => (string) Str::uuid(),
             'reason' => 'Wrong unit price', 'explanation' => 'Verified replacement price',

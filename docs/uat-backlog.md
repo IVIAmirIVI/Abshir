@@ -98,3 +98,11 @@ Original phase mapping and precise gaps: `phase-alignment-u6.md`. Numbered miles
 - MC5, invoice_cash_handovers and shared per-Order payout workflows are explicitly outside scope. Earlier MC1–MC3 activation notes are historical, not a requirement to build those features. The per-Shop odd-unit policy is approved.
 - Normal two-Captain execution must reach one Invoice, actual Collection and DELIVERED without any settlement form. Existing recorded custody/unpaid balances must never be falsely cleared merely because the company settles off-system.
 - Consolidated UAT should cover the higher-ID collector, two delivery charges, combined discount once, product principal once and absence of split/payment inputs. Shared bills/refunds/corrections remain explicit exceptions.
+
+## Phase 9.5C financial presentation review
+
+- Separate Deposit, Receivable (due, not paid) and Custody explanations; no combined balance or combined currencies.
+- Labelled keyboard-focusable scrolling tables and bounded, visibly labelled filters; payout/recovery timestamps use UiDate. Loaded authorized Captain names supplement audit IDs.
+- Printed totals wrap without clipping amounts. Existing permissions, financial actions and unsupported shared transitions remain unchanged; no settlement workflow added.
+- Consolidated visual checks remain required at 375px, 768px and 1440px: tables, amount forms, long Arabic references, refunds/returns, Captain self-view and print/PDF. Markup checks are not browser acceptance.
+- Preserve the intermittent Wizard browser state-loss concern for consolidated UAT; this presentation batch does not resolve it.

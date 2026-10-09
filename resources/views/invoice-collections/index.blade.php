@@ -1,9 +1,9 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('financial.ui.customer_collections') }}</h2></x-slot>
-    <div class="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
+    <div class="financial-ui mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
         <form class="grid gap-3 rounded bg-white p-4 shadow sm:grid-cols-2 lg:grid-cols-4">
-            <select name="branch_id" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('financial.ui.all_branches') }}</option>@foreach($branches as $branch)<option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>@endforeach</select>
-            <x-text-input name="from" type="date" :value="request('from')" dir="ltr"/><x-text-input name="to" type="date" :value="request('to')" dir="ltr"/><x-primary-button class="w-full justify-center sm:w-auto">{{ __('common.actions.filter') }}</x-primary-button>
+            <label class="financial-filter">{{ __('common.terms.branch') }}<select name="branch_id" class="min-w-0 max-w-full rounded border-gray-300"><option value="">{{ __('financial.ui.all_branches') }}</option>@foreach($branches as $branch)<option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>@endforeach</select></label>
+            <label class="financial-filter">{{ __('financial.ui.from_date') }}<x-text-input name="from" type="date" :value="request('from')" dir="ltr"/></label><label class="financial-filter">{{ __('financial.ui.to_date') }}<x-text-input name="to" type="date" :value="request('to')" dir="ltr"/></label><x-primary-button class="w-full justify-center sm:w-auto">{{ __('common.actions.filter') }}</x-primary-button>
         </form>
         <div class="grid gap-4 lg:grid-cols-2">
             @forelse($collections as $collection)

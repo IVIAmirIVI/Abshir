@@ -1,4 +1,4 @@
-<section class="rounded bg-white p-5 shadow space-y-4">
+<section class="financial-ui rounded bg-white p-5 shadow space-y-4">
     @php($purchaseCaptainAssignments = $order->captainAssignments->sortBy('assigned_at'))
     <div>
         <h3 class="font-semibold">{{ $order->cancellationIntent || $order->shopReturns->isNotEmpty() ? __('orders.ui_returns') : __('orders.ui_purchase_progress') }}</h3>
