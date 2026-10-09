@@ -50,13 +50,17 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Tests\Support\HistoricalOrderFixtures;
 use Tests\TestCase;
 
 class InvoiceCorrectionHardeningMigrationTest extends TestCase
 {
+    use HistoricalOrderFixtures;
+
     private const STATUS = '2026_09_29_000341_harden_collected_invoice_status.php';
 
     private const GATE = '2026_09_29_000342_gate_corrected_receivable_payouts.php';
@@ -507,7 +511,8 @@ class InvoiceCorrectionHardeningMigrationTest extends TestCase
             'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL',
             'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
         $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime,
-            'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Fixture Shop', 'sort_order' => 1]);
+            'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Fixture Shop', 'sort_order' => 1,
+            ...(Schema::hasColumn('order_shops', 'origin_area_id') ? ['origin_area_id' => $from->id] : [])]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime,
             'product_name_snapshot' => 'Fixture Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1',
@@ -520,11 +525,15 @@ class InvoiceCorrectionHardeningMigrationTest extends TestCase
             $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
         }
         app(OrderCaptainService::class)->assign($employee, $order, $captain, OrderCaptainRole::PrimaryCollection);
-        app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
+        $rule = app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
             'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value,
             'delivery_unit_fee' => '5.00', 'effective_from' => now()->subDays(2), 'effective_until' => null]);
         app(DeliveryPricingSettings::class)->update($admin, $captainPercent, '0');
-        app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
+        if (Schema::hasColumn('order_delivery_pricings', 'route_count_snapshot')) {
+            app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
+        } else {
+            $this->historicalDeliveryPricing($employee, $order, $rule, $captainPercent);
+        }
         $invoices = app(InvoiceService::class);
         $invoice = $invoices->issue($employee, $order, $invoices->refresh($employee, $order, $invoices->createDraft($employee, $order)));
         $collection = app(InvoiceCollectionService::class)->record($employee, $invoice, InvoiceCollectionMethod::ShamCash, '105', $currency->id, now());

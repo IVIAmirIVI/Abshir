@@ -200,9 +200,9 @@ SQL);
                 'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                 'bill_number' => 'SQL-1', 'bill_date' => today()->toDateString(),
                 'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at,
-                'paid_at' => $at, 'paid_by' => $c['employee']->id, 'payment_reference' => 'SQL-REF',
-                'created_at' => $at, 'updated_at' => $at,
+                'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at->format('Y-m-d H:i:s.uP'),
+                'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id, 'payment_reference' => 'SQL-REF',
+                'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
             ];
             foreach (['payment_only', 'without_evidence', 'without_ledger'] as $case) {
                 try {
@@ -213,8 +213,8 @@ SQL);
                                 'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                                 'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                                 'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                                'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                                'created_at' => $at, 'updated_at' => $at,
+                                'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                                'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ]);
                         }
                         if ($case === 'without_ledger') {
@@ -223,9 +223,9 @@ SQL);
                                 'storage_path' => $c['order']->id.'/'.$request->id.'/'.$paymentId.'/proof.png',
                                 'original_filename' => 'proof.png', 'mime_type' => 'image/png', 'file_size' => 1,
                                 'sha256' => str_repeat('a', 64), 'uploaded_by' => $c['employee']->id,
-                                'uploaded_at' => $at, 'created_at' => $at, 'updated_at' => $at,
+                                'uploaded_at' => $at->format('Y-m-d H:i:s.uP'), 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ]);
-                            DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at]);
+                            DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at->format('Y-m-d H:i:s.uP')]);
                         }
                     });
                     $this->fail("The database committed {$case}.");
@@ -254,8 +254,8 @@ SQL);
                             'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                             'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                             'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                            'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                            'created_at' => $at, 'updated_at' => $at,
+                            'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                            'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ...$change,
                         ]);
                     });
@@ -359,23 +359,23 @@ SQL);
                             'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                             'bill_number' => 'COMMIT-'.$case, 'bill_date' => today()->toDateString(),
                             'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                            'total_customer_cash' => '102', 'delivered_at' => $deliveredAt,
-                            'paid_at' => $at, 'paid_by' => $c['employee']->id,
-                            'payment_reference' => 'COMMIT-'.$case, 'created_at' => $at, 'updated_at' => $at,
+                            'total_customer_cash' => '102', 'delivered_at' => $deliveredAt->format('Y-m-d H:i:s.uP'),
+                            'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id,
+                            'payment_reference' => 'COMMIT-'.$case, 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         $handoverId = DB::table('order_bill_payment_principal_handovers')->insertGetId([
                             'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                             'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                             'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                            'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                            'created_at' => $at, 'updated_at' => $at,
+                            'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                            'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         DB::table('order_bill_payment_evidence')->insert([
                             'bill_payment_id' => $paymentId,
                             'storage_path' => $c['order']->id.'/'.$request->id.'/'.$paymentId.'/proof.png',
                             'original_filename' => 'proof.png', 'mime_type' => 'image/png', 'file_size' => 1,
                             'sha256' => str_repeat('a', 64), 'uploaded_by' => $c['employee']->id,
-                            'uploaded_at' => $at, 'created_at' => $at, 'updated_at' => $at,
+                            'uploaded_at' => $at->format('Y-m-d H:i:s.uP'), 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         $posting = app(FinancialPostingService::class);
                         if ($case !== 'missing_cash_increase') {
@@ -407,7 +407,7 @@ SQL);
                                 [['account' => $deposit, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '2']],
                                 $c['order']->branch, $c['employee']);
                         }
-                        DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at]);
+                        DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at->format('Y-m-d H:i:s.uP')]);
                         if (in_array($case, ['missing_evidence', 'missing_handover'], true)) {
                             // Remove exactly one companion after a complete set passes the immediate
                             // request guard, then restore the immutable trigger before COMMIT.
@@ -582,9 +582,9 @@ SQL);
                     'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                     'bill_number' => 'DIRECT-SQL', 'bill_date' => today()->toDateString(),
                     'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                    'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at,
-                    'paid_at' => $at, 'paid_by' => $c['employee']->id,
-                    'payment_reference' => 'DIRECT-SQL', 'created_at' => $at, 'updated_at' => $at,
+                    'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at->format('Y-m-d H:i:s.uP'),
+                    'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id,
+                    'payment_reference' => 'DIRECT-SQL', 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                 ]],
             );
             $this->assertSame('success', $mutation['status']);

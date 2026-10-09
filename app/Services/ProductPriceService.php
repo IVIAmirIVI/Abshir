@@ -150,10 +150,10 @@ class ProductPriceService
             ->select('pph.*')
             ->selectRaw("ROW_NUMBER() OVER (PARTITION BY {$partition} ORDER BY pph.observed_at DESC, pph.id DESC) AS shop_rank")
             ->where('pph.product_id', $product->id)
-            ->where('pph.observed_at', '<=', $to)
+            ->where('pph.observed_at', '<=', $to->format('Y-m-d H:i:sP'))
             ->when($unitId, fn (Builder $builder) => $builder->where('pph.unit_id', $unitId))
             ->when($currencyId, fn (Builder $builder) => $builder->where('pph.currency_id', $currencyId))
-            ->when($from, fn (Builder $builder) => $builder->where('pph.observed_at', '>=', $from));
+            ->when($from, fn (Builder $builder) => $builder->where('pph.observed_at', '>=', $from->format('Y-m-d H:i:sP')));
 
         if ($actor && ! $actor->isSuperAdmin()) {
             $query->whereIn('pph.shop_id', Shop::query()->accessibleTo($actor)->select('shops.id'));

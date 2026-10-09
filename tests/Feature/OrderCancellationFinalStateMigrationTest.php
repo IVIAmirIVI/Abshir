@@ -23,13 +23,17 @@ use App\Services\OrderShopService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Tests\Support\HistoricalOrderFixtures;
 use Tests\TestCase;
 
 class OrderCancellationFinalStateMigrationTest extends TestCase
 {
+    use HistoricalOrderFixtures;
+
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
     public function test_staggered_upgrade_rejects_standalone_final_history_without_repair(): void
@@ -216,9 +220,9 @@ class OrderCancellationFinalStateMigrationTest extends TestCase
         ]);
         $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
         $assignment = app(OrderCaptainService::class)->assign($actor, $order, $captain, OrderCaptainRole::PrimaryCollection);
-        $shop = app(OrderShopService::class)->add($actor, $order, [
-            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Purchased Shop',
-        ]);
+        $shop = Schema::hasColumn('order_shops', 'origin_area_id')
+            ? app(OrderShopService::class)->add($actor, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Purchased Shop'])
+            : $this->historicalShop($order, 'Purchased Shop');
         if ($withPurchase) {
             app(OrderShopPurchaseConfirmationService::class)->record($actor, $order, $shop, [
                 'order_captain_id' => $assignment->id, 'currency_id' => $currency->id,
@@ -226,9 +230,9 @@ class OrderCancellationFinalStateMigrationTest extends TestCase
                 'request_key' => (string) Str::uuid(),
             ], $this->image());
         }
-        $unfrozenShop = $withUnfrozenShop ? app(OrderShopService::class)->add($actor, $order, [
-            'shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Unfrozen Shop',
-        ]) : null;
+        $unfrozenShop = $withUnfrozenShop ? (Schema::hasColumn('order_shops', 'origin_area_id')
+            ? app(OrderShopService::class)->add($actor, $order, ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'Unfrozen Shop'])
+            : $this->historicalShop($order, 'Unfrozen Shop')) : null;
         $receiptId = $withReceipt ? DB::table('order_shop_receipts')->insertGetId([
             'order_shop_id' => $shop->id, 'storage_path' => 'migration/'.Str::uuid().'.png',
             'original_filename' => 'receipt.png', 'mime_type' => 'image/png', 'file_size' => 68,

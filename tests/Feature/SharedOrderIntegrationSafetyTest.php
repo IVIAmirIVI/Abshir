@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\InvoiceCollectionMethod;
 use App\Enums\OrderCancellationClassification;
 use App\Enums\OrderCancellationReason;
+use App\Enums\OrderCaptainRole;
 use App\Enums\OrderOperationalStatus;
 use App\Models\Area;
 use App\Models\FinancialTransaction;
@@ -15,6 +16,7 @@ use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
 use App\Services\OrderCancellationService;
 use App\Services\OrderCaptainSelectionService;
+use App\Services\OrderCaptainService;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderMutationGuard;
 use App\Services\OrderPricingService;
@@ -29,16 +31,59 @@ use App\Services\SharedOrderShopPurchaseService;
 use App\Support\DemoOrderReset\OrderResetMaintenance;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\SharedPurchaseFixtures;
 use Tests\TestCase;
 
 class SharedOrderIntegrationSafetyTest extends TestCase
 {
     use RefreshDatabase, SharedPurchaseFixtures;
+
+    public static function operationalInstants(): array
+    {
+        return [
+            'UTC session at Damascus midnight' => ['UTC', '2026-10-08T21:00:00Z'],
+            'Damascus before midnight' => ['Asia/Damascus', '2026-10-08T20:59:59Z'],
+            'Damascus at midnight' => ['Asia/Damascus', '2026-10-08T21:00:00Z'],
+            'Damascus after UTC midnight' => ['Asia/Damascus', '2026-10-09T00:01:00Z'],
+        ];
+    }
+
+    #[DataProvider('operationalInstants')]
+    public function test_production_assignment_removal_and_status_preserve_instants_at_day_boundaries(string $timezone, string $input): void
+    {
+        $this->assertSame('abshir_testing', DB::scalar('SELECT current_database()'));
+        DB::select("SELECT set_config('TimeZone', ?, true)", [$timezone]);
+        $instant = Carbon::parse($input);
+        $this->travelTo($instant, function () use ($instant): void {
+            $c = $this->sharedContext();
+            $service = app(OrderCaptainService::class);
+            $service->remove($c['actor'], $c['order'], $c['assignments'][1], 'Timestamp regression');
+            $this->assertTrue($c['assignments'][1]->fresh()->removed_at->equalTo($instant));
+            $assignment = $service->assign($c['actor'], $c['order'], $c['captains'][1], OrderCaptainRole::Support)->fresh();
+            $this->assertTrue($assignment->assigned_at->equalTo($instant));
+            $this->assertSame($instant->getTimestamp(), (int) DB::scalar('SELECT EXTRACT(EPOCH FROM assigned_at)::bigint FROM order_captains WHERE id = ?', [$assignment->id]));
+            $selection = app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'],
+                array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid())->fresh();
+            $this->assertTrue($selection->selected_at->equalTo($instant));
+            $this->assertSame($instant->getTimestamp(), (int) DB::scalar('SELECT EXTRACT(EPOCH FROM selected_at)::bigint FROM order_captain_selections WHERE id = ?', [$selection->id]));
+            app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::Confirmed, null);
+            $history = $c['order']->statusHistory()->where('new_status', OrderOperationalStatus::Confirmed)->sole()->fresh();
+            $this->assertTrue($history->changed_at->equalTo($instant));
+            $this->assertSame($instant->getTimestamp(), (int) DB::scalar('SELECT EXTRACT(EPOCH FROM changed_at)::bigint FROM order_status_history WHERE id = ?', [$history->id]));
+            $captain = $c['captains'][1];
+            $captain->user->roles()->attach(Role::where('code', 'CAPTAIN')->sole());
+            $self = app(CaptainInformationQuery::class)->selfSnapshot($captain->user, 'today');
+            $this->assertSame(1, $self['activity']['metrics']['assigned']);
+            $this->assertSame(0, $self['activity']['metrics']['delivered']);
+            $this->assertDatabaseCount('financial_transactions', 0);
+        });
+    }
 
     public function test_multi_shop_max_pricing_and_actual_per_shop_shares_count_principal_once(): void
     {

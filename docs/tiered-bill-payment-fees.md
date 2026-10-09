@@ -1,15 +1,15 @@
 # External bill-payment fee schedules
 
 The existing fee administration page supports fixed fees and SYP tiered schedules.
-The default tier form contains the owner-approved schedule:
+The current owner-approved effective SYP schedule is:
 
 | Positive principal (SYP) | Fee |
 | --- | --- |
 | Below 300 | 10 SYP |
 | From 300 to below 1000 | 20 SYP |
-| From 1000 | 2% of the entire principal, rounded to the nearest multiple of 5 SYP (halfway up) |
+| From 1000 | 3% of the entire principal, rounded to the nearest multiple of 5 SYP (halfway up) |
 
-These defaults are form configuration, not seeded or automatically activated rules.
+The original form preset and historical regression fixtures use the initial 2% schedule. The owner intentionally configured the current effective version at 3%; configuration, not the preset, determines a request's bound policy. Neither version is seeded or automatically activated.
 An authorized administrator must explicitly save a schedule with an effective date.
 Tier ranges must cover all positive principals with no gaps or overlaps. The existing
 per-currency effective-interval exclusion still prevents competing active versions.
@@ -30,8 +30,8 @@ independently enforces the same result at insertion and deferred commit. Princip
 inputs still must be exact at the configured Currency precision; no input rounding
 or Currency precision changes are introduced.
 
-Examples: 1025 → 20; 1100 → 20; 1125 → 25; 1250 → 25; 1350 → 25;
-1375 → 30; 1500 → 30. Fixed fees and other financial amounts retain their
+Current 3% examples: 1000 → 30; 1025 → 30; 1100 → 35; 1250 → 40;
+1500 → 45. Under the original 2% version, 1125 → 25 and 1500 → 30 remain valid historical results. Fixed fees and other financial amounts retain their
 existing policy. Development SYP has zero decimal places, so fractional principals
 remain invalid there; tier boundaries can be checked at four-decimal test precision.
 

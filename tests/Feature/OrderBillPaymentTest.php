@@ -210,7 +210,7 @@ SQL, [$payment->id]);
             }
             $delivery = $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole();
             try {
-                DB::transaction(fn () => DB::table('order_status_history')->where('id', $delivery->id)->update(['changed_at' => now()->addMinute()]));
+                DB::transaction(fn () => DB::table('order_status_history')->where('id', $delivery->id)->update(['changed_at' => now()->addMinute()->format('Y-m-d H:i:s.uP')]));
                 $this->fail('The historical delivery timestamp cannot change after bill payment.');
             } catch (QueryException) {
                 $this->assertSame($delivery->changed_at->toISOString(), $delivery->fresh()->changed_at->toISOString());
@@ -241,7 +241,7 @@ SQL, [$payment->id]);
             try {
                 DB::transaction(fn () => DB::table('order_status_history')->insert([
                     'order_id' => $c['order']->id, 'new_status' => 'DELIVERED',
-                    'changed_at' => now()->addMinute(), 'created_at' => now(), 'updated_at' => now(),
+                    'changed_at' => now()->addMinute()->format('Y-m-d H:i:s.uP'), 'created_at' => now(), 'updated_at' => now(),
                 ]));
                 $this->fail('A new delivery timestamp cannot supersede the payment source.');
             } catch (QueryException) {
@@ -771,7 +771,7 @@ SQL);
                 'currency_id' => $c['currency']->id, 'fee_rule_id' => $rule->id, 'bill_number' => 'FORGED', 'bill_date' => today(),
                 'principal_amount' => '1025', 'service_fee' => '21', 'total_customer_cash' => '1046',
                 'delivered_at' => $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole()->changed_at,
-                'paid_at' => now(), 'paid_by' => $c['employee']->id, 'payment_reference' => 'FORGED']));
+                'paid_at' => now()->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id, 'payment_reference' => 'FORGED']));
             $this->fail('PostgreSQL accepted a forged completed fee.');
         } catch (QueryException $exception) {
             $this->assertStringContainsString('does not match its request', $exception->getMessage());

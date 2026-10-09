@@ -39,6 +39,7 @@ class ShopManagementTest extends TestCase
             'name' => 'Central Market',
             'code' => 'CENTRAL',
             'shop_type_id' => $type?->id,
+            'business_classification' => 'SHOP',
             'area_id' => $area->id,
             'is_mobile_visible' => true,
             'accepts_online_orders' => true,

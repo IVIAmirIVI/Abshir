@@ -77,7 +77,14 @@ trait SharedPurchaseFixtures
 
     protected function sharedData(array $c, string $amount = '80'): array
     {
-        return ['currency_id' => $c['currency']->id, 'amount' => $amount, 'purchased_at' => now()->subMinute()->format('Y-m-d H:i:s.uP'),
+        $purchasedAt = now()->subMinute();
+        $latestAssignment = $c['order']->captainAssignments()->whereNull('removed_at')->orderByDesc('assigned_at')->first();
+        if ($latestAssignment && $purchasedAt->lessThan($latestAssignment->assigned_at)) {
+            // A freshly changed participant selection cannot purchase before it exists.
+            $purchasedAt = $latestAssignment->assigned_at;
+        }
+
+        return ['currency_id' => $c['currency']->id, 'amount' => $amount, 'purchased_at' => $purchasedAt->format('Y-m-d H:i:s.uP'),
             'request_key' => (string) str()->uuid()];
     }
 

@@ -7,7 +7,7 @@ The Laravel Boost guidelines are specifically curated by Laravel maintainers for
 
 ## Foundational Context
 
-This application is a Laravel application running on PHP 8.4. You are an expert with the Laravel ecosystem. Always use the APIs that match the installed major version of each package — do not assume a version.
+This application is a Laravel application running on PHP 8.5. You are an expert with the Laravel ecosystem. Always use the APIs that match the installed major version of each package — do not assume a version.
 
 Before relying on a package's API, confirm its installed version:
 - PHP packages: run `composer show --direct` to list direct dependencies with versions, or `composer show <vendor/package>` for a single package.
@@ -140,6 +140,14 @@ Before relying on a package's API, confirm its installed version:
 ## Vite Error
 
 - If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+
+=== livewire/core rules ===
+
+# Livewire
+
+- Livewire allows you to build dynamic, reactive interfaces in PHP without writing JavaScript.
+- You can use Alpine.js for client-side interactions instead of JavaScript frameworks.
+- Keep state server-side so the UI reflects it. Validate and authorize in actions as you would in HTTP requests.
 
 === pint/core rules ===
 

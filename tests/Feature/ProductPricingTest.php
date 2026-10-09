@@ -16,10 +16,13 @@ use App\Models\Unit;
 use App\Models\User;
 use App\Services\PriceEstimationSettings;
 use App\Services\ProductPriceService;
+use App\Support\UiDate;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ProductPricingTest extends TestCase
@@ -116,6 +119,57 @@ class ProductPricingTest extends TestCase
             'observed_at' => now()->format('Y-m-d H:i:s'),
             'source' => PriceObservationSource::Manual->value,
         ])->assertSessionHasErrors('unit_id');
+    }
+
+    public static function observationInstants(): array
+    {
+        return [
+            'UTC session' => ['UTC', '2026-10-08T23:59:59+00:00', false],
+            'Damascus session UTC input' => ['Asia/Damascus', '2026-10-08T23:59:59+00:00', false],
+            'Damascus offset crossing midnight' => ['Asia/Damascus', '2026-10-09T02:59:59+03:00', false],
+            'negative offset' => ['America/New_York', '2026-10-08T19:59:59-04:00', false],
+            'positive offset date object' => ['Asia/Damascus', '2026-10-09T13:59:59+14:00', true],
+            'offset-free application UTC input' => ['Asia/Damascus', '2026-10-08 23:59:59', false],
+        ];
+    }
+
+    #[DataProvider('observationInstants')]
+    public function test_observation_preserves_absolute_instant_across_postgres_session_timezones(string $sessionTimezone, string $input, bool $asObject): void
+    {
+        $this->assertSame('abshir_testing', DB::scalar('SELECT current_database()'));
+        $this->assertSame('UTC', config('app.timezone'));
+        DB::select("SELECT set_config('TimeZone', ?, true)", [$sessionTimezone]);
+        $context = $this->context();
+        $expected = Carbon::parse($input);
+        $observation = app(ProductPriceService::class)->record($this->account(), [
+            'product_id' => $context['product']->id, 'shop_id' => $context['shop']->id,
+            'unit_id' => $context['unit']->id, 'currency_id' => $context['currency']->id,
+            'price' => '10.0000', 'observed_at' => $asObject ? $expected->toDateTimeImmutable() : $input,
+            'source' => PriceObservationSource::Manual,
+        ])->fresh();
+
+        $this->assertTrue($observation->observed_at->equalTo($expected));
+        $this->assertSame($expected->getTimestamp(), (int) DB::scalar('SELECT EXTRACT(EPOCH FROM observed_at)::bigint FROM product_price_history WHERE id = ?', [$observation->id]));
+        $this->assertSame('09/10/2026 02:59:59', UiDate::datetime($observation->observed_at, true));
+        $this->assertSame('UTC', config('app.timezone'));
+    }
+
+    public function test_estimation_boundaries_are_absolute_instants_despite_damascus_session_timezone(): void
+    {
+        DB::select("SELECT set_config('TimeZone', 'Asia/Damascus', true)");
+        $context = $this->context();
+        $boundary = $this->observation($context, '15.0000', '2026-10-06T00:00:00+00:00');
+        foreach (['2026-10-05T23:59:59+00:00', '2026-10-09T00:00:01+00:00'] as $excludedAt) {
+            $other = $this->context();
+            foreach (['product', 'unit', 'currency'] as $dimension) {
+                $other[$dimension] = $context[$dimension];
+            }
+            $this->observation($other, '1.0000', $excludedAt);
+        }
+        $result = app(ProductPriceService::class)->estimateUnknownShopPrice($context['product'], $context['unit'], $context['currency'], Carbon::parse('2026-10-09T00:00:00+00:00'));
+
+        $this->assertSame($boundary->id, $result->sourceObservationId);
+        $this->assertSame('15.0000', $result->price);
     }
 
     public function test_latest_known_shop_price_uses_observed_at_and_deterministic_id_tie_break(): void
@@ -249,7 +303,7 @@ class ProductPricingTest extends TestCase
         $this->assertSame($latest->id, $rows->sole()->id);
         $this->assertEquals('12.0000', $rows->sole()->price);
         $this->actingAs($admin)->get(route('products.price-comparison', $context['product']))
-            ->assertOk()->assertSee('2026-09-15 10:00:00')->assertSee('12')->assertDontSee('8.0000');
+            ->assertOk()->assertSee(UiDate::datetime($latest->observed_at, true))->assertSee('12')->assertDontSee('8.0000');
     }
 
     public function test_append_only_model_rejects_deletion(): void

@@ -45,7 +45,7 @@ class InlineProductConcurrencyTest extends TestCase
         $address = $customer->addresses()->create(['area_id' => $area->id, 'address_line_1' => 'Race']);
         $unit = Unit::create(['name' => $name, 'code' => $tag]);
         $type = ShopType::create(['name' => $name, 'business_classification' => 'SHOP']);
-        $shop = Shop::create(['name' => $name, 'area_id' => $area->id, 'shop_type_id' => $type->id]);
+        $shop = Shop::create(['name' => $name, 'area_id' => $area->id, 'shop_type_id' => $type->id, 'business_classification' => 'SHOP']);
         $orders = [];
         $shops = [];
         $workers = [];

@@ -218,8 +218,8 @@ class SharedOrderExceptionsTest extends TestCase
             DB::transaction(fn () => DB::table('order_bill_payments')->insert($data + [
                 'order_id' => $c['order']->id, 'request_id' => $request->id, 'fee_rule_id' => $request->fee_rule_id,
                 'captain_id' => $support->captain_id, 'service_fee' => '25', 'total_customer_cash' => '1150',
-                'paid_by' => $c['actor']->id, 'payment_reference' => 'SQL', 'paid_at' => now(),
-                'delivered_at' => $c['order']->statusHistory()->where('new_status', 'DELIVERED')->value('changed_at'),
+                'paid_by' => $c['actor']->id, 'payment_reference' => 'SQL', 'paid_at' => now()->format('Y-m-d H:i:s.uP'),
+                'delivered_at' => $c['order']->statusHistory()->where('new_status', 'DELIVERED')->value('changed_at')->format('Y-m-d H:i:s.uP'),
                 'created_at' => now(), 'updated_at' => now(),
             ]));
             $this->fail('SQL must enforce the selected collector, not merely an active participant.');

@@ -19,6 +19,7 @@ use App\Services\OrderCancellationFinalizationService;
 use App\Services\OrderCancellationIntentService;
 use App\Services\OrderShopReturnService;
 use Brick\Math\BigDecimal;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -213,12 +214,14 @@ class CaptainReceivableRecoveryTest extends TestCase
         $history = $this->history();
         $c = app(InvoiceFinancialCorrectionService::class)->request($f['employee'], $f['invoice'], InvoiceFinancialCorrectionKind::CancelAndRefund, [], 'Cancel after paid purchase', 'Return goods', (string) Str::uuid());
         $c = $this->prepareAndRefund($f, $c);
-        $this->actingAs($f['employee'])->get(route('orders.show', $f['order']))->assertOk()->assertSee(__('orders.ui_start_return'));
+        $this->actingAs($f['employee'])->get(route('orders.workflow', $f['order']))->assertOk()->assertSee(__('orders.ui_start_return'));
         app(OrderCancellationIntentService::class)->create($f['employee'], $f['order']->fresh(), OrderCancellationReason::CustomerCancelled, 'Return goods', (string) Str::uuid());
         $shop = $f['order']->shops()->sole();
+        // PostgreSQL now() is fixed at the outer test transaction's start.
+        $transactionTime = CarbonImmutable::parse(DB::scalar('SELECT CURRENT_TIMESTAMP'));
         app(OrderShopReturnService::class)->record($f['employee'], $f['order']->fresh(), $shop, [
             'returning_order_captain_id' => $f['order']->captainAssignments()->sole()->id,
-            'refund_amount' => '100', 'returned_at' => now()->subSeconds(20)->format('Y-m-d H:i:s.uP'), 'refunded_at' => now()->subSeconds(10)->format('Y-m-d H:i:s.uP'),
+            'refund_amount' => '100', 'returned_at' => $transactionTime->subSeconds(20)->format('Y-m-d H:i:s.uP'), 'refunded_at' => $transactionTime->subSeconds(10)->format('Y-m-d H:i:s.uP'),
             'refund_method' => 'CASH', 'request_key' => (string) Str::uuid()], ['RETURN_AND_REFUND_PROOF' => $this->proof()]);
         $this->blocked(fn () => app(OrderCancellationFinalizationService::class)->finalize($f['admin'], $f['order']->fresh()));
         $this->blocked(fn () => app(InvoiceFinancialCorrectionService::class)->finalize($f['admin'], $c));
