@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Support\DemoOrderReset\OrderResetMaintenance;
 use App\Support\DemoOrderReset\PostgresBackup;
+use App\Support\DemoOrderReset\ResetInventory;
 use Illuminate\Console\Command;
 use PDO;
 use Throwable;
@@ -11,6 +12,8 @@ use Throwable;
 final class ResetDemoOrders extends Command
 {
     protected $signature = 'abshir:reset-demo-orders
+        {--full : Inspect full demo cleanup scope; execution is blocked pending immutable-history approval}
+        {--dry-run : Read-only inventory; never back up, delete records, or change SQL guards}
         {--preview : Use ONLY abshir_cleanup_preview to validate the reset; never the normal runtime connection}';
 
     protected $description = 'Interactively back up and reset all DEVELOPMENT demo Orders, preserving masters and independent finances';
@@ -19,6 +22,24 @@ final class ResetDemoOrders extends Command
     {
         $pdo = null;
         try {
+            if ($this->option('full') && ! $this->option('dry-run')) {
+                $this->error(ResetInventory::FULL_BLOCKER);
+
+                return self::FAILURE;
+            }
+            if ($this->option('dry-run')) {
+                if (config('database.default') !== 'pgsql') {
+                    throw new \RuntimeException('The normal development connection must be pgsql/abshir.');
+                }
+                if ($this->option('full') && $this->option('preview')) {
+                    throw new \RuntimeException('Full demo inventory is restricted to the local abshir database.');
+                }
+                $pdo = OrderResetMaintenance::connect(config('database.connections.pgsql'), app()->environment(), (bool) $this->option('preview'));
+                $report = (new ResetInventory)->inspect($pdo, (bool) $this->option('full'));
+                $this->line(json_encode($report, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+
+                return self::SUCCESS;
+            }
             // There is deliberately no --force, --yes, configurable target, or unattended mode.
             if (! $this->input->isInteractive()) {
                 $this->error('Interactive confirmation is required. --no-interaction is not supported.');

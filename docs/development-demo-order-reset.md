@@ -1,5 +1,55 @@
 # Development demo Order reset
 
+## Full demo cleanup boundary and read-only assessment, 2026-10-10
+
+The original interactive Order-only command and its exact-row deletion allowlist
+remain unchanged. New read-only options are available:
+
+```powershell
+php artisan abshir:reset-demo-orders --dry-run
+php artisan abshir:reset-demo-orders --full --dry-run
+```
+
+These use a REPEATABLE READ, READ ONLY PostgreSQL transaction containing SELECTs
+only. They neither create backups nor delete rows, change guards, make temporary
+manifests, acquire maintenance write locks, or operate on attachment files. The
+report includes database/environment identity, candidate table totals, preserved
+tables, source/event counts, existing balances and actual incoming preserved FK
+references. Totals are explicitly **not** an approved deletion manifest; the
+Order-only inventory's ledger totals include protected independent transactions.
+Read-only assessment does not establish that future destructive cleanup is safe.
+
+`--full` without `--dry-run` always refuses before connecting or creating a backup,
+even with interactive input or `--preview`. Full preview inventory is also refused.
+There is no executable full cleanup mode and no confirmation phrase can enable it.
+
+The owner's Phase C stop condition applies: the independent 5000 SYP deposit is
+demo data, but PostgreSQL still prohibits deleting its receipt and immutable
+ledger. Existing Order maintenance deliberately excludes independent deposits.
+Deleting them would require extending the immutable-history exception beyond the
+already reviewed Order contract. No such exception has been installed or tested.
+No fabricated payout, reversal, handover or settlement is used to zero a balance.
+
+The safer go-live alternative is a separately provisioned clean database, followed
+by a reviewed selective transfer of approved accounts, Captain identities, roles,
+Branches/Areas, currencies, settings and pricing policies (including current 3%
+SYP and required historical configuration versions). Existing demo data remains
+archived. Provisioning, transfer, credential handling and application cutover need
+separate owner approval; no database has been created or switched by this task.
+
+If in-place deletion is still desired, separately approve the exact financial
+maintenance contract and the treatment of independent catalog data/Shop-owned
+financial identities. Unknown dependencies, real business data and mixed sources
+must fail closed. Do not use full reset after operations begin. The current
+assessment is not an authorization to run the original Order reset either.
+
+Tests for this addition run only through `tests/Support/run_isolated_pgsql.php`
+inside `abshir_testing` generated schemas. The real read-only inspector is tested
+against a genuine production-service deposit: row fingerprints, financial guards,
+configuration and evidence files remain identical across repeat assessments.
+Full deletion, rollback of full deletion, zero residual balances and successful
+interactive full execution remain **unimplemented/unverified**, not passing tests.
+
 The command is implemented and validated on `abshir_cleanup_preview`. The first
 execution on the real `abshir` database still requires the owner's review of this
 preview result. No real-development cleanup has been performed.

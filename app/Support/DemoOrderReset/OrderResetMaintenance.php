@@ -25,6 +25,12 @@ final class OrderResetMaintenance
         'captain_receivable_recovery_allocations', 'financial_transactions', 'financial_entries',
     ];
 
+    /** Inventory only; exposure does not extend the deletion allowlist. */
+    public static function orderTables(): array
+    {
+        return self::TABLES;
+    }
+
     private PDO $pdo;
 
     private string $database;
