@@ -37,7 +37,8 @@ class CustomerRefundService
         $committed = false;
         try {
             $refund = DB::transaction(function () use ($actor, $source, $requestKey, $when, $reference, $file, $metadata, &$path): CustomerRefund {
-                Order::query()->lockForUpdate()->findOrFail($source->order_id);
+                $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+                abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
                 $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
                 $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($correction->original_collection_id);
                 if ($correction->customer_delta === null || ! BigDecimal::of($correction->customer_delta)->isLessThan(0)) {

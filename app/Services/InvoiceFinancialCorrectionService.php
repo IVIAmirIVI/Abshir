@@ -107,6 +107,7 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
                 throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
             }
@@ -159,8 +160,9 @@ class InvoiceFinancialCorrectionService
     {
         Gate::forUser($actor)->authorize('invoice_corrections.prepare');
 
-        return DB::transaction(function () use ($source): InvoiceFinancialCorrection {
-            Order::query()->lockForUpdate()->findOrFail($source->order_id);
+        return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
+            $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
             if (! in_array($correction->state, [InvoiceFinancialCorrectionState::Requested, InvoiceFinancialCorrectionState::Prepared], true)
                 || $correction->refund()->exists()) {
@@ -179,6 +181,7 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
                 throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
             }

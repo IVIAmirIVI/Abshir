@@ -2,6 +2,12 @@
 
 Manual browser UAT and the full regression suite are deferred until the integrated design is complete. Component tests do not prove intermittent browser races resolved.
 
+## Release gate R2 — authorization retest
+
+- Two confirmed cross-Branch mutation gaps were fixed in their production services: editing a hidden address of a shared Customer by moving it into an accessible Area, and delegated prepare/abandon/refund/finalize permissions acting on another Branch's Invoice correction. The new regression covers HTTP and direct services, unchanged historical rows/evidence on denial, same-Branch success and Super Admin access. See `release-gate-r2.md` for results.
+- In the single consolidated UAT session, verify these denials and the legitimate same-Branch paths with restricted roles. No default role permission or financial policy changed; unsupported shared returns/collected corrections remain blocked.
+- The intermittent Wizard browser draft-loss item below is still open. R2 server tests and source inspection do not close browser acceptance or establish production readiness.
+
 ## Wizard reliability investigation — after final shared-schema activation
 
 - **CONFIRMED AND FIXED — pending registered Shop after a genuine Branch change:** select a Shop without adding it, change Branch, then advance back to Shops. The old `shopId` reached `knownShopClassification()` / `accessibleShop()` in rendering and produced HTTP 404. The Branch update now clears only the pending registered Shop reference/search/classification and old Branch Area references. Added groups remain present for explicit validation/removal; Customer, phone, source, notes, product editor and one-time Shop text remain intact. A regression failed with 404 before the fix and passes afterward.
