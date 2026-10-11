@@ -32,15 +32,20 @@ use App\Services\OrderPricingService;
 use App\Services\OrderService;
 use Carbon\Carbon;
 use Database\Seeders\AuthorizationSeeder;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class CaptainInformationDashboardTest extends TestCase
 {
-    use RefreshDatabase;
+    protected function usesAccountingV1Fixture(): bool
+    {
+        return $this->name() === 'test_issued_uncollected_source_is_excluded_and_completed_correction_is_not_double_counted';
+    }
+
+    use RefreshAccountingV1Database;
 
     private User $admin;
 

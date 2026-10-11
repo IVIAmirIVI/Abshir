@@ -65,7 +65,6 @@ use App\Services\ShopProductService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -73,11 +72,19 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class InvoiceAndCollectionTest extends TestCase
 {
-    use RefreshDatabase;
+    protected function usesAccountingV1Fixture(): bool
+    {
+        return str_contains($this->name(), 'phase_9c3a_')
+            || in_array($this->name(), ['test_uat_corrected_current_invoice_is_settled_not_collectible_and_open_order_can_finish',
+                'test_uat_pending_correction_blocks_delivery_assessment_until_explicit_resolution'], true);
+    }
+
+    use RefreshAccountingV1Database;
 
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
@@ -466,7 +473,9 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertSame($c['employee']->id, $collection->recorded_by);
         $this->assertNotNull($collection->collected_at);
         $this->assertTrue($c['order']->isFinanciallyComplete());
-        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertDatabaseCount('financial_transactions', 1);
+        $this->assertDatabaseHas('financial_transactions', ['event_type' => 'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED', 'source_id' => (string) $collection->id]);
+        $this->assertDatabaseHas('financial_entries', ['amount' => $issued->delivery_total, 'direction' => 'INCREASE']);
         try {
             app(OrderCancellationIntentService::class)->create($c['employee'], $c['order'],
                 OrderCancellationReason::CustomerCancelled, null, (string) Str::uuid());

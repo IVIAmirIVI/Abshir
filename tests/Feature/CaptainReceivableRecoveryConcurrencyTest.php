@@ -5,17 +5,18 @@ namespace Tests\Feature;
 use App\Models\CaptainReceivableRecovery;
 use App\Services\CaptainReceivableRecoveryEvidenceService;
 use App\Services\InvoiceFinancialCorrectionService;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\Process\Process;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\Support\ReceivableDispositionFixtures;
 use Tests\TestCase;
 
 class CaptainReceivableRecoveryConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
     use ReceivableDispositionFixtures, \Tests\Support\CaptainRecoveryFixtures;
 
     public function test_cancellation_cannot_outrun_missing_recovery_and_retry_completes_after_cash(): void
@@ -272,7 +273,7 @@ class CaptainReceivableRecoveryConcurrencyTest extends TestCase
             config([$key => $schema]);
             DB::purge($connection);
             DB::reconnect($connection);
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             $callback();
         } finally {
             while (DB::transactionLevel()) {

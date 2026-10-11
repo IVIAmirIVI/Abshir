@@ -14,6 +14,7 @@ use App\Models\Customer;
 use App\Models\FinancialTransaction;
 use App\Models\Order;
 use App\Models\OrderCaptain;
+use App\Models\OrderStatusHistory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
@@ -56,9 +57,7 @@ class OrderBillPaymentConcurrencyTest extends TestCase
             $pending = $service->request($c['employee'], $c['order'], $c['currency']->id);
             $cancelled = $service->request($c['employee'], $c['order'], $c['currency']->id);
             $service->cancel($c['employee'], $c['order'], $cancelled, 'Legacy cancellation');
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $this->deliveredHistory($c);
             $payment = $service->complete($c['employee'], $c['order'], $request, [
                 'order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id,
                 'bill_number' => 'LEGACY', 'bill_date' => today()->toDateString(),
@@ -137,8 +136,7 @@ class OrderBillPaymentConcurrencyTest extends TestCase
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $this->deliveredHistory($c);
             DB::unprepared(<<<'SQL'
 CREATE FUNCTION reject_test_bill_evidence_at_commit() RETURNS trigger AS $$
 BEGIN
@@ -191,8 +189,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $history = $this->deliveredHistory($c);
             $at = now()->startOfSecond();
             $attributes = [
                 'request_id' => $request->id, 'order_id' => $c['order']->id,
@@ -323,13 +320,7 @@ SQL);
             foreach ($cases as $case) {
                 $requests[$case] = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
             }
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $deliveredAt = $history->fresh()->changed_at;
             $accounts = app(FinancialAccountService::class);
             $owner = $accounts->ownerForCaptain($c['assignment']->captain);
@@ -472,8 +463,7 @@ SQL);
             $principal = $tiered ? '1500' : '100';
             $fee = $tiered ? '30.0000' : '2.0000';
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $this->deliveredHistory($c);
             $filesBefore = Storage::disk(OrderBillPaymentService::DISK)->allFiles();
             $results = $this->race([
                 ['operation' => 'complete', 'evidence_name' => 'proof-worker-a.png', 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id, 'request_id' => $request->id, 'data' => ['order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id, 'bill_number' => 'B-1', 'bill_date' => today()->toDateString(), 'principal_amount' => $principal, 'payment_reference' => 'SHAM-1']],
@@ -566,13 +556,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $at = now()->startOfSecond();
             [$mutation, $payment] = $this->raceDeliverySource(
                 ['operation' => 'mutate_delivery_hold', 'history_id' => $history->id],
@@ -621,13 +605,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $originalDeliveryAt = $history->fresh()->changed_at;
             $completion = [
                 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id,
@@ -778,6 +756,17 @@ SQL);
             DB::reconnect($connection);
             DB::statement('DROP SCHEMA IF EXISTS "'.$schema.'" CASCADE');
         }
+    }
+
+    private function deliveredHistory(array $c): OrderStatusHistory
+    {
+        return DB::transaction(function () use ($c): OrderStatusHistory {
+            $previous = $c['order']->fresh()->operational_status;
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+
+            return $c['order']->statusHistory()->create(['previous_status' => $previous,
+                'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+        });
     }
 
     private function fixture(bool $tiered = false): array

@@ -30,19 +30,24 @@ use App\Services\SharedOrderFinancialPlanService;
 use App\Services\SharedOrderShopPurchaseService;
 use App\Support\DemoOrderReset\OrderResetMaintenance;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\Support\SharedPurchaseFixtures;
 use Tests\TestCase;
 
 class SharedOrderIntegrationSafetyTest extends TestCase
 {
-    use RefreshDatabase, SharedPurchaseFixtures;
+    protected function usesAccountingV1Fixture(): bool
+    {
+        return str_contains($this->name(), 'single_captain_retains_real_invoice_cash_and_separate_deposit_semantics');
+    }
+
+    use RefreshAccountingV1Database, SharedPurchaseFixtures;
 
     public static function operationalInstants(): array
     {

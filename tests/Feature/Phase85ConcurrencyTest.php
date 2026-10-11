@@ -50,10 +50,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\TestCase;
 
 class Phase85ConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
+
     public function test_phase_9c3a_refunded_cancellation_and_legacy_finalizer_cannot_both_create_cancellation(): void
     {
         $this->requirePostgresConcurrency();
@@ -395,7 +398,12 @@ class Phase85ConcurrencyTest extends TestCase
         $fixture = $this->fixture();
         $captain = $this->captain($fixture['branch']);
         app(OrderCaptainService::class)->assign($fixture['actor'], $fixture['order'], $captain, OrderCaptainRole::PrimaryCollection);
-        $fixture['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+        DB::transaction(function () use ($fixture): void {
+            $previous = $fixture['order']->fresh()->operational_status;
+            $fixture['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+            $fixture['order']->statusHistory()->create(['previous_status' => $previous, 'new_status' => OrderOperationalStatus::Delivered,
+                'changed_by' => $fixture['actor']->id, 'changed_at' => now()]);
+        });
 
         try {
             $results = $this->raceServices($fixture['order'], [
@@ -782,7 +790,11 @@ class Phase85ConcurrencyTest extends TestCase
 
     private function fixture(): array
     {
-        Artisan::call('migrate', ['--force' => true]);
+        if (str_contains($this->name(), 'phase_9c3a_')) {
+            $this->migrateAccountingV1Schema();
+        } else {
+            Artisan::call('migrate', ['--force' => true]);
+        }
         $this->seed(AuthorizationSeeder::class);
         $branch = Branch::factory()->create();
         $area = Area::factory()->for($branch)->create();

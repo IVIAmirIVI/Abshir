@@ -18,6 +18,8 @@ $schema = 'mc_testing_'.bin2hex(random_bytes(8));
 $configPath = base_path('.phpunit-mc-'.bin2hex(random_bytes(8)).'.xml');
 $config = file_get_contents(base_path('phpunit.pgsql.xml'));
 $config = str_replace('name="DB_SCHEMA" value="public"', 'name="DB_SCHEMA" value="'.$schema.'"', $config);
+// Storage::fake must be isolated per run as well as PostgreSQL.
+$config = str_replace('<php>', '<php><server name="TEST_TOKEN" value="'.$schema.'" force="true"/>', $config);
 DB::statement('CREATE SCHEMA "'.$schema.'"');
 try {
     file_put_contents($configPath, $config);

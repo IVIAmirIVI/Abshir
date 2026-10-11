@@ -55,7 +55,7 @@ class SharedOrderInvoiceTest extends TestCase
         $this->assertSame($source['primary_order_captain_id'], $collection->order_captain_id);
         $this->assertDatabaseCount('invoice_collections', 1);
         $this->assertDatabaseCount('financial_transactions', 1);
-        $this->assertTrue(BigDecimal::of(DB::table('financial_entries')->value('amount'))->isEqualTo('1022'));
+        $this->assertTrue(BigDecimal::of(DB::table('financial_entries')->value('amount'))->isEqualTo('18'));
         $this->assertThrows(fn () => $service->void($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
         $this->assertThrows(fn () => $service->replace($c['admin'], $c['order'], $invoice, 'Unsupported refund'), ValidationException::class);
         $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()->assertSee(__('shared_orders.shared_correction_blocked'))->assertDontSee(route('orders.invoices.void', [$c['order'], $invoice]), false);

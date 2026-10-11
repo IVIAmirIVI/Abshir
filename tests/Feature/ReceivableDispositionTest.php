@@ -18,17 +18,17 @@ use App\Services\InvoiceFinancialCorrectionService;
 use App\Services\OrderStatusService;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ReceivableDispositionFixtures;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class ReceivableDispositionTest extends TestCase
 {
-    use ReceivableDispositionFixtures, RefreshDatabase;
+    use ReceivableDispositionFixtures, RefreshAccountingV1Database;
 
     public static function examples(): array
     {

@@ -19,20 +19,22 @@ use App\Services\InvoiceService;
 use App\Services\OrderCaptainService;
 use App\Services\OrderService;
 use Database\Seeders\AuthorizationSeeder;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use PgSql\Connection;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\TestCase;
 
 class InvoiceConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
+
     public function test_current_invoice_creation_serializes_on_the_order_row_in_postgresql(): void
     {
         if (DB::getDriverName() !== 'pgsql' || ! function_exists('pg_send_query')) {
             $this->markTestSkipped('This locking regression test requires PostgreSQL async-query support.');
         }
-        Artisan::call('migrate', ['--force' => true]);
+        $this->migrateAccountingV1Schema();
         $this->seed(AuthorizationSeeder::class);
         $branch = Branch::factory()->create();
         $area = Area::factory()->for($branch)->create();
@@ -186,7 +188,7 @@ class InvoiceConcurrencyTest extends TestCase
         config([$configurationKey => $schema]);
         DB::purge($connection);
         DB::reconnect($connection);
-        Artisan::call('migrate', ['--force' => true]);
+        $this->migrateAccountingV1Schema();
         $this->seed(AuthorizationSeeder::class);
         $currency = Currency::create(['name' => 'Concurrency currency', 'code' => strtoupper(substr(bin2hex(random_bytes(2)), 0, 3)), 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);

@@ -51,18 +51,18 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class OrderFinancialPostingTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshAccountingV1Database;
 
     public function test_completed_payout_cannot_be_reversed_by_service_or_direct_sql(): void
     {

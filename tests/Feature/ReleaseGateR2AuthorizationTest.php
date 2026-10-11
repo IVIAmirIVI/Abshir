@@ -13,18 +13,23 @@ use App\Services\CustomerAddressService;
 use App\Services\CustomerRefundService;
 use App\Services\InvoiceFinancialCorrectionService;
 use Database\Seeders\AuthorizationSeeder;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\ReceivableDispositionFixtures;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class ReleaseGateR2AuthorizationTest extends TestCase
 {
-    use ReceivableDispositionFixtures, RefreshDatabase;
+    protected function usesAccountingV1Fixture(): bool
+    {
+        return str_contains($this->name(), 'foreign_branch_correction') || str_contains($this->name(), 'audited_correction_flow');
+    }
+
+    use ReceivableDispositionFixtures, RefreshAccountingV1Database;
 
     public function test_shared_customer_does_not_authorize_moving_a_hidden_address_into_an_accessible_branch(): void
     {

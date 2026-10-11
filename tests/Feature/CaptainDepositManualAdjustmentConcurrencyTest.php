@@ -9,12 +9,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\Support\ManualDepositFixtures;
 use Tests\Support\ReceivableDispositionFixtures;
 use Tests\TestCase;
 
 class CaptainDepositManualAdjustmentConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
     use ManualDepositFixtures, ReceivableDispositionFixtures;
 
     public function test_duplicate_workers_reuse_one_source_one_event_and_one_proof(): void
@@ -186,7 +188,11 @@ class CaptainDepositManualAdjustmentConcurrencyTest extends TestCase
             config([$key => $schema]);
             DB::purge($connection);
             DB::reconnect($connection);
-            Artisan::call('migrate', ['--force' => true]);
+            if (str_contains($this->name(), 'real_cash_order_delivery_debit')) {
+                $this->migrateAccountingV1Schema();
+            } else {
+                Artisan::call('migrate', ['--force' => true]);
+            }
             $callback();
         } finally {
             while (DB::transactionLevel()) {

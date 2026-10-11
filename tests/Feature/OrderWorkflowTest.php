@@ -327,7 +327,11 @@ class OrderWorkflowTest extends TestCase
 
     private function purchase(array $c): void
     {
-        app(OrderShopPurchaseConfirmationService::class)->record($c['actor'], $c['order'], $c['shop'], ['order_captain_id' => $c['order']->captainAssignments()->whereNull('removed_at')->sole()->id, 'currency_id' => $c['currency']->id, 'amount' => '20', 'purchased_at' => now()->subSecond()->format('Y-m-d H:i:s'), 'request_key' => (string) Str::uuid()], $this->file());
+        // RefreshDatabase wraps the whole test in a transaction; PostgreSQL now()
+        // stays at its start even when fixture construction takes several seconds.
+        // Match the legacy column's whole-second precision without rounding forward.
+        $purchasedAt = DB::scalar("SELECT date_trunc('second', CURRENT_TIMESTAMP)");
+        app(OrderShopPurchaseConfirmationService::class)->record($c['actor'], $c['order'], $c['shop'], ['order_captain_id' => $c['order']->captainAssignments()->whereNull('removed_at')->sole()->id, 'currency_id' => $c['currency']->id, 'amount' => '20', 'purchased_at' => $purchasedAt, 'request_key' => (string) Str::uuid()], $this->file());
     }
 
     private function evidence(array $c): void

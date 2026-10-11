@@ -22,7 +22,6 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -31,11 +30,12 @@ use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\ReceivableDispositionFixtures;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class CaptainReceivableRecoveryTest extends TestCase
 {
-    use ReceivableDispositionFixtures,RefreshDatabase;
+    use ReceivableDispositionFixtures,RefreshAccountingV1Database;
 
     public static function overpayments(): array
     {
