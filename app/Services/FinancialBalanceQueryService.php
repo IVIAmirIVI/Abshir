@@ -135,6 +135,7 @@ class FinancialBalanceQueryService
     public function payableReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
     {
         $eventTypes = [
+            'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE', 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE',
             'ORDER_CASH_DELIVERY_SHORTFALL_DUE',
             'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE',
             'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE',
@@ -152,7 +153,7 @@ class FinancialBalanceQueryService
             $eventTypes[] = 'RECEIVABLE_CORRECTED_RESIDUAL_DUE';
         }
 
-        return $this->receivableSourceEntries($captain, $branch, $currency, $eventTypes);
+        return $this->receivableSourceEntries($captain, $branch, $currency, $eventTypes, v2SharedOnly: false);
     }
 
     /** Reserved amounts remain economic liabilities until atomic correction completion. */
@@ -184,8 +185,9 @@ class FinancialBalanceQueryService
         // Shared liabilities stay visible in balances, but are not an operator payout workflow.
         // Account for them here so they cannot block unrelated, already-supported payouts.
         $shared = $this->receivableSourceEntries($captain, $branch, $currency, [
+            'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE', 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE',
             'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE', 'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE',
-        ]);
+        ], v2SharedOnly: true);
         if (! DB::scalar("SELECT to_regprocedure('corrected_receivable_payouts_active()') IS NOT NULL")
             || DB::scalar('SELECT corrected_receivable_payouts_active()')) {
             return $shared;
@@ -220,7 +222,7 @@ class FinancialBalanceQueryService
         return $sources->concat($shared);
     }
 
-    private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes, bool $reserved = false): Collection
+    private function receivableSourceEntries(Captain $captain, Branch $branch, Currency $currency, array $eventTypes, bool $reserved = false, ?bool $v2SharedOnly = null): Collection
     {
         $orderLookup = Schema::hasTable('invoice_financial_corrections')
             ? "CASE WHEN t.source_type = 'INVOICE_COLLECTION' THEN (SELECT ic.order_id FROM invoice_collections ic WHERE ic.id::text = t.source_id) WHEN t.source_type = 'INVOICE_FINANCIAL_CORRECTION' THEN (SELECT c.order_id FROM invoice_financial_corrections c WHERE c.id::text = t.source_id) END"
@@ -248,6 +250,12 @@ class FinancialBalanceQueryService
             ->selectRaw("e.id AS financial_entry_id, t.id AS financial_transaction_id, t.event_type, t.source_type, t.source_id, t.occurred_at, e.amount, COALESCE(SUM(p.amount), 0) AS paid_amount, e.amount - COALESCE(SUM(p.amount), 0) AS remaining_amount, (SELECT o.order_number FROM orders o WHERE o.id = {$orderLookup} LIMIT 1) AS order_number")
             ->havingRaw('e.amount - COALESCE(SUM(p.amount), 0) > 0')
             ->orderBy('t.occurred_at')->orderBy('e.id');
+        if ($v2SharedOnly !== null && Schema::hasTable('order_captain_selections')) {
+            $exists = $v2SharedOnly ? 'EXISTS' : 'NOT EXISTS';
+            $query->whereRaw("(t.event_type NOT IN ('ORDER_V2_PRODUCT_REIMBURSEMENT_DUE','ORDER_V2_DELIVERY_ENTITLEMENT_DUE') OR {$exists}
+                (SELECT 1 FROM invoice_collections vc JOIN order_captain_selections vs ON vs.order_id=vc.order_id
+                 WHERE vc.id::text=t.source_id AND t.source_type='INVOICE_COLLECTION' AND vs.contract='SHARED_COMPANY_V1'))");
+        }
         if (Schema::hasTable('invoice_correction_receivable_dispositions')) {
             $query->whereNotExists(fn ($q) => $q->selectRaw('1')->from('invoice_correction_receivable_dispositions as d')
                 ->join('invoice_financial_corrections as c', 'c.id', '=', 'd.invoice_financial_correction_id')

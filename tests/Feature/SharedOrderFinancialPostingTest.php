@@ -6,7 +6,6 @@ use App\Enums\FinancialAccountKind;
 use App\Enums\InvoiceCollectionMethod;
 use App\Enums\OrderCaptainRole;
 use App\Enums\OrderOperationalStatus;
-use App\Exceptions\FinancialIdempotencyConflictException;
 use App\Livewire\Orders\CaptainAssignments;
 use App\Livewire\Orders\Workflow;
 use App\Models\FinancialTransaction;
@@ -60,7 +59,7 @@ class SharedOrderFinancialPostingTest extends TestCase
             $actual = $balances->captainBalances($captain, $c['currency']);
             $this->assertSame('0.0000', $actual[FinancialAccountKind::CaptainDeposit->value]);
             $this->assertSame('0.0000', $actual[FinancialAccountKind::CaptainCompanyReceivable->value]);
-            $this->assertSame($method === 'CASH' && $index === 0 ? '100.0000' : '0.0000', $actual[FinancialAccountKind::CaptainCashCustody->value]);
+            $this->assertSame($method === 'CASH' && $index === 0 ? '20.0000' : '0.0000', $actual[FinancialAccountKind::CaptainCashCustody->value]);
         }
         foreach ([OrderOperationalStatus::Confirmed, OrderOperationalStatus::CaptainAssigned, OrderOperationalStatus::HeadingToShops,
             OrderOperationalStatus::Shopping, OrderOperationalStatus::HeadingToCustomer, OrderOperationalStatus::Delivered] as $status) {
@@ -71,14 +70,14 @@ class SharedOrderFinancialPostingTest extends TestCase
         app(SharedOrderFinancialPostingService::class)->postIfReady($c['order']);
         app(SharedOrderFinancialPostingService::class)->postIfReady($c['order']);
         $this->assertSame($before, DB::table('financial_entries')->orderBy('id')->get()->toJson());
-        $this->assertDatabaseCount('financial_transactions', $method === 'CASH' ? 3 : 2);
-        $this->assertDatabaseCount('financial_entries', $method === 'CASH' ? 5 : 4);
+        $this->assertDatabaseCount('financial_transactions', 2);
+        $this->assertDatabaseCount('financial_entries', $method === 'CASH' ? 3 : 4);
         $this->assertDatabaseCount('captain_receivable_payouts', 0);
         $this->assertDatabaseCount('captain_deposit_receipts', 0);
         $this->assertDatabaseCount('order_bill_payment_principal_handovers', 0);
         foreach ($c['captains'] as $captain) {
             $actual = $balances->captainBalances($captain, $c['currency']);
-            $this->assertSame('45.0000', $actual[FinancialAccountKind::CaptainCompanyReceivable->value]);
+            $this->assertSame($method === 'CASH' ? '5.0000' : '45.0000', $actual[FinancialAccountKind::CaptainCompanyReceivable->value]);
             $this->assertSame('0.0000', $actual[FinancialAccountKind::CaptainDeposit->value]);
         }
         $this->assertSame($method === 'CASH' ? $c['assignments'][0]->id : null, $collection->order_captain_id);
@@ -87,11 +86,11 @@ class SharedOrderFinancialPostingTest extends TestCase
         $captain = $c['captains'][1];
         // Company settlement is off-system policy: no new selectable payout sources or fake payment.
         $this->assertCount(0, $balances->payableReceivableEntries($captain, $c['branch'], $c['currency']));
-        $this->assertCount(2, $balances->gatedCorrectedReceivableEntries($captain, $c['branch'], $c['currency']));
+        $this->assertCount($method === 'CASH' ? 1 : 2, $balances->gatedCorrectedReceivableEntries($captain, $c['branch'], $c['currency']));
         $product = DB::table('financial_entries as e')->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
             ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
             ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
-            ->where('o.captain_id', $captain->id)->where('t.event_type', 'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE')->value('e.id');
+            ->where('o.captain_id', $captain->id)->where('t.event_type', 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE')->value('e.id');
         $this->assertThrows(fn () => app(CaptainReceivablePayoutService::class)->record($c['admin'], $captain, $c['branch'], $c['currency'],
             ['request_key' => (string) str()->uuid(), 'amount' => '20', 'occurred_at' => now()->format('Y-m-d H:i:s.uP')],
             [['financial_entry_id' => $product, 'amount' => '20']], $this->sharedImage()), ValidationException::class);
@@ -106,8 +105,8 @@ class SharedOrderFinancialPostingTest extends TestCase
             $this->assertCount(1, $self['earnings']);
             $this->assertSame('5.0000', $self['earnings']->sole()->amount);
             $this->assertCount(1, $self['balanceRows']);
-            $this->assertSame('45.0000', $self['balanceRows'][0]['values'][FinancialAccountKind::CaptainCompanyReceivable->value]);
-            $this->assertSame($method === 'CASH' && $index === 0 ? '100.0000' : '0.0000', $self['balanceRows'][0]['values'][FinancialAccountKind::CaptainCashCustody->value]);
+            $this->assertSame($method === 'CASH' ? '5.0000' : '45.0000', $self['balanceRows'][0]['values'][FinancialAccountKind::CaptainCompanyReceivable->value]);
+            $this->assertSame($method === 'CASH' && $index === 0 ? '20.0000' : '0.0000', $self['balanceRows'][0]['values'][FinancialAccountKind::CaptainCashCustody->value]);
         }
         $this->actingAs($captain->user)->get(route('captain.self-information').'?captain_id='.$c['captains'][0]->id)
             ->assertOk()->assertViewHas('captain', fn ($record) => $record->id === $captain->id);
@@ -152,7 +151,7 @@ class SharedOrderFinancialPostingTest extends TestCase
         $this->assertDatabaseCount('order_bill_payment_principal_handovers', 0);
         $this->assertFalse(Schema::hasTable('invoice_cash_handovers'));
         $balances = app(FinancialBalanceQueryService::class);
-        $this->assertSame('98.0000', $balances->captainBalances($c['captains'][1], $c['currency'])[FinancialAccountKind::CaptainCashCustody->value]);
+        $this->assertSame('18.0000', $balances->captainBalances($c['captains'][1], $c['currency'])[FinancialAccountKind::CaptainCashCustody->value]);
         $this->assertSame('0.0000', $balances->captainBalances($c['captains'][0], $c['currency'])[FinancialAccountKind::CaptainCashCustody->value]);
         DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
     }
@@ -196,7 +195,7 @@ class SharedOrderFinancialPostingTest extends TestCase
         $payable = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency']);
         $this->assertCount(2, $payable);
         $this->assertFalse($payable->contains(fn ($row) => str_starts_with($row->event_type, 'SHARED_')));
-        $source = $payable->firstWhere('event_type', 'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE');
+        $source = $payable->firstWhere('event_type', 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE');
         Storage::fake('captain_financial_evidence');
         $payout = app(CaptainReceivablePayoutService::class)->record($c['admin'], $captain, $c['branch'], $c['currency'],
             ['request_key' => (string) str()->uuid(), 'amount' => '5', 'occurred_at' => now()->format('Y-m-d H:i:s.uP')],
@@ -205,6 +204,16 @@ class SharedOrderFinancialPostingTest extends TestCase
         $this->assertSame('55.0000', $balances->captainBalances($captain, $c['currency'])[FinancialAccountKind::CaptainCompanyReceivable->value]);
         $this->assertCount(2, $balances->gatedCorrectedReceivableEntries($captain, $c['branch'], $c['currency']));
         $this->assertDatabaseCount('captain_receivable_payouts', 1);
+        $sharedEntry = $balances->gatedCorrectedReceivableEntries($captain, $c['branch'], $c['currency'])->first();
+        try {
+            DB::transaction(fn () => DB::table('captain_receivable_payout_allocations')->insert([
+                'captain_receivable_payout_id' => $payout->id, 'financial_entry_id' => $sharedEntry->financial_entry_id, 'amount' => '1',
+            ]));
+            $this->fail('Direct SQL must not make a shared V2 claim payable through the single-Order payout contract.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Shared V2 payout requires attributed settlement sources', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('captain_receivable_payout_allocations', 1);
     }
 
     public static function methods(): array
@@ -222,7 +231,7 @@ class SharedOrderFinancialPostingTest extends TestCase
         }
         DB::unprepared(<<<'SQL'
 CREATE FUNCTION mc4_test_fail_entitlement() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN IF NEW.event_type='SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE' THEN RAISE EXCEPTION 'Injected final claim failure' USING ERRCODE='23514'; END IF; RETURN NEW; END;
+BEGIN IF NEW.event_type='ORDER_V2_DELIVERY_ENTITLEMENT_DUE' THEN RAISE EXCEPTION 'Injected final claim failure' USING ERRCODE='23514'; END IF; RETURN NEW; END;
 $$;
 CREATE TRIGGER mc4_test_fail_entitlement BEFORE INSERT ON financial_transactions FOR EACH ROW EXECUTE FUNCTION mc4_test_fail_entitlement();
 SQL);
@@ -254,7 +263,7 @@ SQL);
             DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         }), QueryException::class);
         $this->assertThrows(fn () => app(FinancialPostingService::class)->reverse(FinancialTransaction::findOrFail($row->id),
-            'MANUAL', '1', 'REVERSAL', 1, now(), 'No refund source', $c['branch'], $c['admin']), FinancialIdempotencyConflictException::class);
+            'MANUAL', '1', 'REVERSAL', 1, now(), 'No refund source', $c['branch'], $c['admin']), QueryException::class);
         $this->assertDatabaseCount('financial_transactions', 1);
         $this->assertDatabaseCount('financial_entries', 1);
     }

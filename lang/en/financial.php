@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'accounting_v2_correction_blocked' => 'Correcting a collected V2 Invoice requires an audited refund and settlement contract; the old Deposit correction cannot be reused.',
     'accounts' => [
         'CAPTAIN_DEPOSIT' => 'Captain operating funds held with Abshir',
         'CAPTAIN_COMPANY_RECEIVABLE' => 'Abshir owes Captain',
@@ -49,6 +50,9 @@ return [
         'ORDER_CASH_DELIVERY_SHORTFALL_DUE' => 'Cash order delivery shortfall due',
         'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE' => 'Sham Cash order product reimbursement due',
         'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE' => 'Sham Cash order delivery entitlement due',
+        'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED' => 'V2: Collected delivery fee held by Captain',
+        'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE' => 'V2: Unpaid Sham Cash product reimbursement due',
+        'ORDER_V2_DELIVERY_ENTITLEMENT_DUE' => 'V2: Unpaid Captain delivery entitlement due',
         'BILL_PAYMENT_CASH_COLLECTED' => 'External bill-payment cash collected',
         'BILL_PAYMENT_PRINCIPAL_HANDED_OVER' => 'External bill-payment principal handed over',
         'BILL_PAYMENT_SERVICE_FEE_RETAINED' => 'External bill-payment service fee retained',

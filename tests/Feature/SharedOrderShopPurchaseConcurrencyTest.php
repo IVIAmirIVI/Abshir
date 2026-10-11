@@ -4,10 +4,14 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceCollectionMethod;
 use App\Enums\OrderOperationalStatus;
+use App\Exceptions\FinancialLedgerException;
 use App\Models\OrderShopPurchaseConfirmation;
 use App\Services\BillPaymentFeeRuleService;
+use App\Services\CorrectedOrderFinancialService;
+use App\Services\FinancialBalanceQueryService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\OrderAccountingV2Service;
 use App\Services\OrderBillPaymentService;
 use App\Services\OrderCaptainSelectionService;
 use App\Services\OrderReturnEvidenceService;
@@ -16,11 +20,13 @@ use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
 use App\Services\OrderStatusService;
 use App\Services\SharedOrderShopPurchaseService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\Support\SharedPurchaseFixtures;
 use Tests\Support\TestDatabaseSafety;
@@ -122,19 +128,27 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
         });
     }
 
-    public function test_real_shared_collections_contend_and_only_one_full_custody_source_wins(): void
+    #[DataProvider('collectionParticipants')]
+    public function test_real_v2_collections_contend_and_only_one_delivery_custody_source_wins(int $participants, string $custody): void
     {
-        $this->isolated(function (): void {
-            [$c, $invoice] = $this->sharedInvoice();
-            $data = ['invoice_id' => $invoice->id, 'method' => 'CASH', 'amount' => '100', 'currency_id' => $c['currency']->id, 'collected_at' => now()->toIso8601String()];
+        $this->isolated(function () use ($participants, $custody): void {
+            [$c, $invoice] = $this->sharedInvoice(participants: $participants);
+            $data = ['invoice_id' => $invoice->id, 'method' => 'CASH', 'amount' => $invoice->grand_total, 'currency_id' => $c['currency']->id, 'collected_at' => now()->toIso8601String()];
             $results = $this->race($c, ['collection', 'collection'], [$data, $data]);
             $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
             $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
             $this->assertSame(1, DB::table('invoice_collections')->count());
             $this->assertSame(1, DB::table('financial_transactions')->count());
             $this->assertSame(1, DB::table('financial_entries')->count());
+            $this->assertSame($custody, DB::table('financial_entries')->value('amount'));
+            $this->assertSame(2, DB::table('financial_transactions')->value('source_version'));
             DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
         });
+    }
+
+    public static function collectionParticipants(): array
+    {
+        return ['single' => [1, '10.0000'], 'shared' => [2, '20.0000']];
     }
 
     public function test_real_deliveries_contend_and_each_shared_claim_is_posted_once(): void
@@ -150,25 +164,120 @@ class SharedOrderShopPurchaseConcurrencyTest extends TestCase
             $results = $this->race($c, ['delivery', 'delivery'], [[], []]);
             $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
             $this->assertSame(ValidationException::class, collect($results)->firstWhere('status', 'error')['class']);
-            $this->assertSame(3, DB::table('financial_transactions')->count());
-            $this->assertSame(5, DB::table('financial_entries')->count());
+            $this->assertSame(2, DB::table('financial_transactions')->count());
+            $this->assertSame(3, DB::table('financial_entries')->count());
             $this->assertSame(1, $c['order']->statusHistory()->where('new_status', 'DELIVERED')->count());
             DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
         });
     }
 
-    private function sharedInvoice(bool $migrate = true): array
+    private function sharedInvoice(bool $migrate = true, int $participants = 2): array
     {
         if ($migrate) {
             Artisan::call('migrate', ['--force' => true]);
         }
-        $c = $this->sharedContext();
-        app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'], array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid());
-        app(SharedOrderShopPurchaseService::class)->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c), $this->sharedImage());
+        $c = $this->sharedContext(count: $participants);
+        if ($participants === 2) {
+            app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'], array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid());
+        }
+        $service = $participants === 2 ? SharedOrderShopPurchaseService::class : OrderShopPurchaseConfirmationService::class;
+        app($service)->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c) + ['order_captain_id' => $c['assignments'][0]->id], $this->sharedImage());
         $service = app(InvoiceService::class);
         $invoice = $service->issue($c['actor'], $c['order'], $service->refresh($c['actor'], $c['order'], $service->createDraft($c['actor'], $c['order'])));
 
         return [$c, $invoice];
+    }
+
+    public function test_accounting_v2_upgrade_preserves_all_four_v1_scenarios_and_immutable_history(): void
+    {
+        $this->isolated(function (): void {
+            $path = 'database/migrations/2026_10_11_185816_add_versioned_order_accounting_contracts.php';
+            $prior = array_values(array_filter(glob(database_path('migrations/*.php')),
+                fn ($file) => basename($file) < basename($path)));
+            Artisan::call('migrate', ['--path' => $prior, '--realpath' => true, '--force' => true]);
+            Storage::fake('order_returns');
+            Storage::fake('order_receipts');
+            $contexts = [];
+            foreach ([1, 2] as $count) {
+                foreach (['CASH', 'SHAM_CASH'] as $method) {
+                    $c = $this->sharedContext(2, $count);
+                    if ($count === 2) {
+                        app(OrderCaptainSelectionService::class)->select($c['actor'], $c['order'], array_column($c['captains'], 'id'), $c['captains'][0]->id, (string) str()->uuid());
+                    }
+                    $service = $count === 2 ? SharedOrderShopPurchaseService::class : OrderShopPurchaseConfirmationService::class;
+                    app($service)->record($c['actor'], $c['order'], $c['shop'], $this->sharedData($c) + ['order_captain_id' => $c['assignments'][0]->id], $this->sharedImage());
+                    app(OrderShopReceiptService::class)->upload($c['actor'], $c['order'], $c['shop'], $this->sharedImage(), null);
+                    app(OrderShopProgressService::class)->record($c['actor'], $c['order'], $c['shop'], 'picked_up_at');
+                    $invoices = app(InvoiceService::class);
+                    $invoice = $invoices->issue($c['actor'], $c['order'], $invoices->refresh($c['actor'], $c['order'], $invoices->createDraft($c['actor'], $c['order'])));
+                    foreach (['CONFIRMED', 'CAPTAIN_ASSIGNED', 'HEADING_TO_SHOPS', 'SHOPPING', 'HEADING_TO_CUSTOMER', 'DELIVERED'] as $status) {
+                        app(OrderStatusService::class)->transition($c['actor'], $c['order'], OrderOperationalStatus::from($status), null);
+                    }
+                    app(InvoiceCollectionService::class)->record($c['actor'], $invoice, InvoiceCollectionMethod::from($method), $invoice->grand_total,
+                        $c['currency']->id, now(), null, $method === 'SHAM_CASH' ? 'Historical payment' : null);
+                    $contexts[] = [$c, $invoice, $count, $method];
+                }
+            }
+            $tables = ['invoices', 'invoice_items', 'invoice_collections', 'order_financial_source_snapshots',
+                'order_financial_source_snapshot_lines', 'financial_accounts', 'financial_transactions', 'financial_entries',
+                'order_shop_purchase_confirmations', 'order_shop_purchase_allocations', 'order_captains', 'order_status_history'];
+            $before = [];
+            foreach ($tables as $table) {
+                $before[$table] = DB::table($table)->orderBy('id')->get()->toJson();
+            }
+            $triggerCatalog = fn () => collect(DB::select(<<<'SQL'
+SELECT c.relname || '.' || t.tgname AS identity, t.tgenabled, t.tgfoid::text AS handler_oid,
+    t.tgtype, t.tgdeferrable, t.tginitdeferred
+FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname=current_schema() AND NOT t.tgisinternal
+    AND c.relname IN ('orders','invoices','invoice_collections','financial_owners','financial_accounts',
+        'financial_transactions','financial_entries','order_financial_source_snapshots',
+        'order_financial_source_snapshot_lines','captain_receivable_payout_allocations')
+ORDER BY c.relname,t.tgname
+SQL))->mapWithKeys(fn ($row) => [$row->identity => (array) $row])->all();
+            $triggersBefore = $triggerCatalog();
+            $this->assertNotEmpty($triggersBefore);
+            $ordersBefore = DB::table('orders')->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
+            Artisan::call('migrate', ['--path' => $path, '--force' => true]);
+            $this->assertSame($triggersBefore, array_intersect_key($triggerCatalog(), $triggersBefore));
+            foreach ($contexts as [$c, $invoice, $count, $method]) {
+                $this->assertSame(1, (int) $c['order']->fresh()->accounting_contract_version);
+                $this->assertThrows(fn () => app(OrderAccountingV2Service::class)->assess($c['order']), FinancialLedgerException::class);
+                $this->assertThrows(fn () => app(OrderAccountingV2Service::class)->postIfReady($c['order']), FinancialLedgerException::class);
+                $collection = $invoice->collection()->sole();
+                $this->assertThrows(fn () => DB::transaction(fn () => DB::select(<<<'SQL'
+SELECT order_financial_event_source_order_id(jsonb_populate_record(NULL::financial_transactions,
+    jsonb_build_object('transaction_kind','EVENT','source_type','INVOICE_COLLECTION','source_id',?::text,
+        'event_type','ORDER_V2_DELIVERY_ENTITLEMENT_DUE','source_version',2)))
+SQL, [(string) $collection->id])), QueryException::class, 'V2 event requires an authoritative V2 Order');
+                app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+                DB::select('SELECT assert_shared_order_financial_set(?)', [$c['order']->id]);
+                foreach ($c['captains'] as $index => $captain) {
+                    $balances = app(FinancialBalanceQueryService::class)->captainBalances($captain, $c['currency']);
+                    $this->assertSame($count === 1 && $method === 'CASH' ? '-5.0000' : '0.0000', $balances['CAPTAIN_DEPOSIT']);
+                    $this->assertSame($count === 2 && $method === 'CASH' && $index === 0 ? '100.0000' : '0.0000', $balances['CAPTAIN_CASH_CUSTODY']);
+                    $this->assertSame($count === 1 ? ($method === 'SHAM_CASH' ? '85.0000' : '0.0000') : '45.0000', $balances['CAPTAIN_COMPANY_RECEIVABLE']);
+                }
+                $this->assertThrows(fn () => DB::transaction(fn () => DB::table('orders')->where('id', $c['order']->id)->update(['accounting_contract_version' => 2])), QueryException::class);
+            }
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], DB::table($table)->orderBy('id')->get()->toJson(), $table);
+            }
+            $ordersAfter = DB::table('orders')->orderBy('id')->get()->map(function ($row): array {
+                $row = (array) $row;
+                unset($row['accounting_contract_version']);
+
+                return $row;
+            })->all();
+            $this->assertSame($ordersBefore, $ordersAfter);
+            $event = DB::table('financial_transactions')->where('status', 'POSTED')->first();
+            $this->assertThrows(fn () => DB::transaction(fn () => DB::table('financial_transactions')->where('id', $event->id)->update(['notes' => 'Rewrite history'])), QueryException::class);
+            $entry = DB::table('financial_entries')->first();
+            $this->assertThrows(fn () => DB::transaction(fn () => DB::table('financial_entries')->where('id', $entry->id)->update(['amount' => '1'])), QueryException::class);
+            $this->assertThrows(fn () => (require base_path($path))->down(), \RuntimeException::class);
+            $new = $this->sharedContext(2, 1);
+            $this->assertSame(2, (int) $new['order']->fresh()->accounting_contract_version);
+        });
     }
 
     public function test_exception_upgrade_preserves_existing_shared_cash_and_single_bill_financial_history(): void

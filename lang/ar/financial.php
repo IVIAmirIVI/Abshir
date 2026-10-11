@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'accounting_v2_correction_blocked' => 'تصحيح فاتورة محصّلة بعقد V2 يحتاج عقد استرداد وتسوية موثّقًا؛ لا يمكن استخدام تصحيح Deposit القديم.',
     'accounts' => [
         'CAPTAIN_DEPOSIT' => 'رصيد تشغيل الكابتن لدى أبشر',
         'CAPTAIN_COMPANY_RECEIVABLE' => 'مستحقات الكابتن لدى أبشر',
@@ -49,6 +50,9 @@ return [
         'ORDER_CASH_DELIVERY_SHORTFALL_DUE' => 'مستحق نقص أجرة التوصيل للكابتن — طلب نقدي',
         'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE' => 'مستحق تعويض مشتريات طلب شام كاش',
         'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE' => 'مستحق توصيل طلب شام كاش',
+        'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED' => 'V2: أجرة التوصيل المحصّلة في عهدة الكابتن',
+        'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE' => 'V2: مستحق تعويض مشتريات شام كاش غير مدفوع',
+        'ORDER_V2_DELIVERY_ENTITLEMENT_DUE' => 'V2: مستحق توصيل الكابتن غير مدفوع',
         'BILL_PAYMENT_CASH_COLLECTED' => 'تحصيل نقد لتسديد فاتورة خارجية',
         'BILL_PAYMENT_PRINCIPAL_HANDED_OVER' => 'تسليم أصل مبلغ الفاتورة الخارجية',
         'BILL_PAYMENT_SERVICE_FEE_RETAINED' => 'تسجيل أجرة خدمة تسديد الفاتورة الخارجية',

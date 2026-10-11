@@ -63,6 +63,9 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order, $allowLegacy): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->assess($order);
+            }
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
                 return app(SharedOrderFinancialPostingService::class)->assess($order);
             }
@@ -76,6 +79,9 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->postIfReady($order);
+            }
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
                 return app(SharedOrderFinancialPostingService::class)->postIfReady($order);
             }

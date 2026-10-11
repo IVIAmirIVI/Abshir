@@ -47,6 +47,9 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source, $kind, $proposal, $reason, $explanation, $requestKey): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            if ((int) $order->accounting_contract_version === 2) {
+                throw ValidationException::withMessages(['invoice' => __('financial.accounting_v2_correction_blocked')]);
+            }
             if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
                 throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
             }

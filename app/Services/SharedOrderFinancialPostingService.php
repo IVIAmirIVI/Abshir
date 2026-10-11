@@ -32,6 +32,9 @@ class SharedOrderFinancialPostingService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->postIfReady($order);
+            }
             $invoice = $order->currentInvoice()->lockForUpdate()->first();
             if (! $invoice || $invoice->status !== InvoiceStatus::Issued || ! $invoice->issued_at) {
                 return [];
@@ -84,6 +87,9 @@ class SharedOrderFinancialPostingService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->assess($order);
+            }
             $invoice = $order->currentInvoice()->first();
             if (! $invoice || $invoice->status !== InvoiceStatus::Issued) {
                 return ['state' => 'waiting_invoice', 'invoice_id' => $invoice?->id];
