@@ -98,6 +98,7 @@ class InvoiceCollectionService
                 'notes' => $notes,
             ]);
             $this->financials->postIfReady($order);
+            app(ShopCommissionAccountingService::class)->postIfReady($order);
 
             return $collection;
         });

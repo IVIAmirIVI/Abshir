@@ -142,13 +142,13 @@ class InvoiceAndCollectionTest extends TestCase
             ->assertOk()->assertSee('مسودة')->assertSee('الفاتورة الحالية')->assertSee(__('financial.ui.refresh_help'));
         $ready = $service->refresh($c['employee'], $c['order'], $draft);
         $this->get(route('orders.invoices.show', [$c['order'], $ready]))->assertOk()
-            ->assertSee('جاهزة للإصدار')->assertSee('إصدار الفاتورة')->assertSee('30.0000');
+            ->assertSee('جاهزة للإصدار')->assertSee('إصدار الفاتورة')->assertSee('>30</bdi>', false);
         $issued = $service->issue($c['employee'], $c['order'], $ready);
         $this->get(route('invoices.index'))->assertOk()->assertSee('فواتير')->assertSee('صادرة')->assertSee($issued->invoice_number);
         $print = $this->get(route('orders.invoices.print', [$c['order'], $issued]))->assertOk()
             ->assertSee('أبشر')->assertSee('فاتورة الزبون')->assertSee('إجمالي الفاتورة')
             ->assertSee('صادرة')->assertSee('الفاتورة الحالية')
-            ->assertSee('dir="rtl"', false)->assertSee('30.0000')->assertSee('25.0000')->assertSee('USD')
+            ->assertSee('dir="rtl"', false)->assertSee('>30 USD</bdi>', false)->assertSee('>25 USD</bdi>', false)->assertSee('USD')
             ->assertSee('Snapshot Customer')->assertSee('Snapshot Street');
         $this->assertStringContainsString('<bdi dir="ltr"', $print->getContent());
         $print->assertSee('flex-wrap:wrap', false);
@@ -156,7 +156,7 @@ class InvoiceAndCollectionTest extends TestCase
         $this->get(route('orders.invoices.show', [$c['order'], $issued]))->assertOk()
             ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('Historical replacement reason');
         $this->get(route('orders.invoices.print', [$c['order'], $issued]))->assertOk()
-            ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('30.0000');
+            ->assertSee('مستبدلة')->assertSee('فاتورة تاريخية')->assertSee('>30 USD</bdi>', false);
         $this->get(route('orders.show', $c['order']))->assertOk()
             ->assertSee('فاتورة تاريخية')->assertSee('الفاتورة الحالية');
         $replacement = $service->issue($c['admin'], $c['order'], $replacement);
@@ -518,7 +518,7 @@ class InvoiceAndCollectionTest extends TestCase
         $this->assertSame('SC-123', $collection->payment_reference);
         $this->actingAs($c['employee'])->get(route('orders.invoices.show', [$c['order'], $issued]))
             ->assertOk()->assertSee('محصّلة بالكامل')->assertSee('شام كاش')
-            ->assertSee(__('financial.ui.direct_sham'))->assertSee('SC-123')->assertSee('30.0000');
+            ->assertSee(__('financial.ui.direct_sham'))->assertSee('SC-123')->assertSee('>30</bdi>', false);
         $this->get(route('invoice-collections.index'))->assertOk()->assertSee('تحصيلات الزبائن')
             ->assertSee('شام كاش')->assertSee('SC-123')->assertSee($c['employee']->name);
         $this->assertSame($c['employee']->id, $collection->recorded_by);
@@ -1015,9 +1015,10 @@ class InvoiceAndCollectionTest extends TestCase
         $refund = $source->refund()->sole();
         $this->assertSame(InvoiceCollectionMethod::ShamCash, $refund->method);
         $this->assertNull($refund->refunding_captain_id);
+        $this->assertSame('5.0000', $refund->amount);
         $this->get(route('orders.invoices.show', [$c['order'], $invoice]))->assertOk()
             ->assertSee('جاهز للإتمام')->assertSee(__('financial.ui.customer_refund_evidence'))
-            ->assertSee(__('financial.ui.company_refund'))->assertSee('5.0000');
+            ->assertSee(__('financial.ui.company_refund'))->assertSee('>5</bdi>', false);
         $this->actingAs($c['employee'])->get(route('customer-refunds.evidence', $refund))->assertOk();
         $this->actingAs($otherEmployee)->get(route('customer-refunds.evidence', $refund))->assertForbidden();
         $c['captain']->user->roles()->attach(Role::where('code', 'CAPTAIN')->sole());

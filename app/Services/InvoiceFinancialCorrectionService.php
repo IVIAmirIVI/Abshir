@@ -283,6 +283,7 @@ class InvoiceFinancialCorrectionService
             } else {
                 $this->posting->postIfDeliveredLocked($order->fresh(), $correction->fresh());
             }
+            app(ShopCommissionAccountingService::class)->correctLocked($correction->fresh());
 
             return $correction->fresh();
         }, 3);

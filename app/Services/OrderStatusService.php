@@ -78,6 +78,7 @@ class OrderStatusService
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);
             if ($target === OrderOperationalStatus::Delivered) {
                 $this->financials->postIfReady($order);
+                app(ShopCommissionAccountingService::class)->postIfReady($order);
             }
         });
     }

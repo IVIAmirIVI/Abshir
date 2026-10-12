@@ -75,6 +75,7 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => __('domain.another_current_invoice_exists')]);
             }
             $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $actor->id]);
+            app(ShopCommissionAccountingService::class)->freezeIssued($invoice->fresh());
             $this->financialSources->capture($invoice->fresh());
             $this->correctedFinancials->postIfReady($order);
 
