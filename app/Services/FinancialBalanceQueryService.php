@@ -19,6 +19,21 @@ use Illuminate\Support\Facades\Schema;
 
 class FinancialBalanceQueryService
 {
+    /** Posted Captain balances through an exclusive cutoff, grouped by Currency and account kind. */
+    public function reportingBalances(?array $branchIds, ?int $currencyId, string $until): Collection
+    {
+        return DB::table('financial_entries as e')->join('financial_transactions as t', 't.id', '=', 'e.financial_transaction_id')
+            ->join('financial_accounts as a', 'a.id', '=', 'e.financial_account_id')
+            ->join('financial_owners as o', 'o.id', '=', 'a.financial_owner_id')
+            ->where('o.owner_type', FinancialOwnerType::Captain->value)->where('t.status', 'POSTED')
+            ->where('t.occurred_at', '<', $until)
+            ->when($branchIds !== null, fn ($q) => $q->whereIn('t.branch_id', $branchIds))
+            ->when($currencyId !== null, fn ($q) => $q->where('a.currency_id', $currencyId))
+            ->groupBy('a.currency_id', 'a.account_kind')
+            ->selectRaw('a.currency_id, a.account_kind, COALESCE(SUM(CASE WHEN e.direction = ? THEN e.amount ELSE -e.amount END),0)::text AS amount', [FinancialEntryDirection::Increase->value])
+            ->get();
+    }
+
     public function balance(FinancialAccount $account): string
     {
         $value = DB::table('financial_entries')

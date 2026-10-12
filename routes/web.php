@@ -32,6 +32,7 @@ use App\Http\Controllers\InternalNoticeController;
 use App\Http\Controllers\InvoiceCollectionController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceFinancialCorrectionController;
+use App\Http\Controllers\ManagementReportController;
 use App\Http\Controllers\OrderBillPaymentController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderDeliveryPricingController;
@@ -63,6 +64,9 @@ Route::get('/dashboard', DashboardController::class)
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/reports', ManagementReportController::class)->name('reports.index');
+    Route::get('/reports/{type}/csv', [ManagementReportController::class, 'export'])->name('reports.export');
+    Route::get('/reports/{type}', [ManagementReportController::class, 'detail'])->name('reports.detail');
     Route::get('/notifications', [InternalNoticeController::class, 'index'])->name('notifications.index');
     Route::get('/notifications/create', [InternalNoticeController::class, 'create'])->name('notifications.create');
     Route::post('/notifications', [InternalNoticeController::class, 'store'])->name('notifications.store');

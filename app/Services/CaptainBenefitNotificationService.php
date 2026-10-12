@@ -81,13 +81,17 @@ class CaptainBenefitNotificationService
 
     public function visible(User $actor): Builder
     {
-        return $actor->notifications()->getQuery()->where('type', CaptainBenefitWorkflowNotice::class)
-            ->where(function ($query) use ($actor): void {
-                foreach (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'] as $event) {
-                    $query->orWhere(fn ($q) => $q->where('data->event', $event)
-                        ->whereIn(DB::raw("(notifications.data->>'request_id')::bigint"), $this->permittedRequests($actor, $event)->select('captain_benefit_requests.id')));
-                }
-            });
+        $query = $actor->notifications()->getQuery()->where('type', CaptainBenefitWorkflowNotice::class);
+        if (! Schema::hasTable('captain_benefit_requests') || ! Schema::hasTable('captain_benefit_reviews')) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function ($query) use ($actor): void {
+            foreach (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'] as $event) {
+                $query->orWhere(fn ($q) => $q->where('data->event', $event)
+                    ->whereIn(DB::raw("(notifications.data->>'request_id')::bigint"), $this->permittedRequests($actor, $event)->select('captain_benefit_requests.id')));
+            }
+        });
     }
 
     public function destination(User $actor, array $data): string

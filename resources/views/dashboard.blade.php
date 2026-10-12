@@ -1,6 +1,7 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="font-semibold text-xl text-brand-primary">{{ __('messages.dashboard_title') }}</h2></x-slot>
     @if($showOperationalDashboard)
+        <div class="px-4 pt-4 sm:px-6 lg:px-8"><a class="btn btn-outline" href="{{ route('reports.index') }}">{{ __('reports.title') }}</a></div>
         <livewire:dashboard.operational-dashboard />
     @else
     <div class="py-8 sm:py-12"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
