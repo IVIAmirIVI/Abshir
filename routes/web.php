@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\DeliveryPricingSettingController;
 use App\Http\Controllers\Admin\PriceEstimationSettingController;
 use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\SecurityAuditController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AreaController;
 use App\Http\Controllers\BillPaymentFeeRuleController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\CustomerPhoneMatchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeliveryOverrideController;
 use App\Http\Controllers\DeliveryPricingRuleController;
+use App\Http\Controllers\InternalNoticeController;
 use App\Http\Controllers\InvoiceCollectionController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceFinancialCorrectionController;
@@ -61,6 +63,11 @@ Route::get('/dashboard', DashboardController::class)
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/notifications', [InternalNoticeController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/create', [InternalNoticeController::class, 'create'])->name('notifications.create');
+    Route::post('/notifications', [InternalNoticeController::class, 'store'])->name('notifications.store');
+    Route::post('/notifications/{id}/read', [InternalNoticeController::class, 'read'])->name('notifications.read');
+    Route::get('/notifications/{id}/open', [InternalNoticeController::class, 'open'])->name('notifications.open');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::get('/my-captain-information', [CaptainInformationController::class, 'self'])->name('captain.self-information');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -69,6 +76,7 @@ Route::middleware('auth')->group(function () {
 require __DIR__.'/auth.php';
 
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
+    Route::get('security-audit', [SecurityAuditController::class, 'index'])->name('security-audit.index');
     Route::resource('users', UserController::class)->except(['show', 'destroy']);
     Route::patch('users/{user}/status', [UserController::class, 'status'])->name('users.status');
     Route::resource('branches', BranchController::class)->except(['show', 'destroy']);

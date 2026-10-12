@@ -19,6 +19,9 @@ class ManageUser
             if ($user->exists) {
                 $user = User::query()->lockForUpdate()->findOrFail($user->id);
             }
+            $audit = app(SecurityAuditService::class);
+            $before = $audit->userValues($user);
+            $creating = ! $user->exists;
             abort_if(! $actor->isSuperAdmin() && ($user->is($actor) || ($user->exists && $user->isSuperAdmin())), 403);
             $roles = $data['role_ids'] ?? null;
             $branches = $data['branch_ids'] ?? null;
@@ -44,6 +47,7 @@ class ManageUser
             if ($branches !== null) {
                 $user->branches()->sync($branches);
             }
+            $audit->record($actor, 'USER', $user->id, $creating ? 'USER_CREATED' : 'USER_ACCESS_CHANGED', $before, $audit->userValues($user));
 
             return $user;
         });
@@ -55,6 +59,7 @@ class ManageUser
         DB::transaction(function () use ($actor, $user, $active) {
             Role::where('code', Role::SUPER_ADMIN)->lockForUpdate()->sole();
             $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            $before = ['is_active' => $user->is_active];
             abort_if(! $actor->isSuperAdmin() && ($user->is($actor) || $user->isSuperAdmin()), 403);
             if (! $active) {
                 $this->guardLastAdministrator($user);
@@ -67,6 +72,7 @@ class ManageUser
                 }
             }
             $user->save();
+            app(SecurityAuditService::class)->record($actor, 'USER', $user->id, 'USER_STATUS_CHANGED', $before, ['is_active' => $user->is_active]);
         });
     }
 

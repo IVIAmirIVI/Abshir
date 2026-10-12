@@ -32,6 +32,8 @@ class ApplicationNavigation
                 ['delivery_pricing_overrides.approve', 'delivery-overrides.index', 'delivery_approvals', ['delivery-overrides.*']],
             ],
             'administration' => [
+                [StaffInbox::ABILITY, 'notifications.index', 'notifications', ['notifications.*']],
+                ['manage-authorization', 'admin.security-audit.index', 'security_audit', ['admin.security-audit.*']],
                 ['branches.view', 'admin.branches.index', 'branches', ['admin.branches.*']],
                 ['users.view', 'admin.users.index', 'users', ['admin.users.*']],
                 ['roles.view', 'admin.roles.index', 'roles', ['admin.roles.*'], true],

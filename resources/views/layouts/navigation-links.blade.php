@@ -6,7 +6,7 @@
         <summary aria-expanded="false" :aria-expanded="expanded.toString()">{{ $group['label'] }}<x-mary-icon name="o-chevron-down" class="h-4 w-4 shrink-0" /></summary>
         <div class="space-y-1 pb-3">
             @foreach($group['items'] as $link)
-                <a href="{{ route($link['route']) }}" @class(['app-nav-link', 'is-active' => $link['active']]) @if($link['active']) aria-current="page" @endif>{{ $link['label'] }}</a>
+                <a href="{{ route($link['route']) }}" @class(['app-nav-link', 'is-active' => $link['active']]) @if($link['active']) aria-current="page" @endif>{{ $link['label'] }}@if($link['route'] === 'notifications.index')<span class="badge badge-neutral badge-sm"><x-ltr>{{ app(\App\Services\InternalNoticeService::class)->unreadCount(auth()->user()) }}</x-ltr></span>@endif</a>
             @endforeach
         </div>
     </details>

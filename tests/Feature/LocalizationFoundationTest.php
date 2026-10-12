@@ -201,6 +201,12 @@ class LocalizationFoundationTest extends TestCase
                 }
             }
         }
+        if (in_array($code, ['SUPER_ADMIN', 'ORDER_EMPLOYEE'], true)) {
+            $expected[] = route('notifications.index');
+        }
+        if ($code === 'SUPER_ADMIN') {
+            $expected[] = route('admin.security-audit.index');
+        }
         foreach (['desktop', 'mobile'] as $surface) {
             $actual = [];
             foreach ($xpath->query('//*[@data-navigation="'.$surface.'"]//a[@href]') as $anchor) {

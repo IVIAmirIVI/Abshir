@@ -13,6 +13,7 @@ use App\Models\Currency;
 use App\Models\FinancialTransaction;
 use App\Models\User;
 use Brick\Math\BigDecimal;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
@@ -31,6 +32,22 @@ class CaptainBenefitReviewService
     public function permission(CaptainBenefitRequest $proposal): string
     {
         return $proposal->kind === 'BONUS' ? 'captain_bonuses.approve' : 'captain_expenses.approve';
+    }
+
+    public function approvalRequests(User $actor): Builder
+    {
+        return $this->requests->accessibleRecords($actor)
+            ->where(function ($query) use ($actor): void {
+                $query->whereRaw('1 = 0');
+                foreach (['BONUS' => 'captain_bonuses.approve', 'EXPENSE' => 'captain_expenses.approve'] as $kind => $permission) {
+                    if ($actor->can($permission)) {
+                        $query->orWhere('kind', $kind);
+                    }
+                }
+            })
+            ->where('created_by_user_id', '!=', $actor->id)
+            ->where('recorded_by_user_id', '!=', $actor->id)
+            ->whereDoesntHave('reviews', fn ($q) => $q->where('action', 'SUBMIT')->where('actor_id', $actor->id));
     }
 
     public function act(User $actor, Captain $captain, CaptainBenefitRequest $proposal, array $data): CaptainBenefitReview
@@ -58,6 +75,8 @@ class CaptainBenefitReviewService
                     throw ValidationException::withMessages(['request_key' => __('captain_requests.conflict')]);
                 }
 
+                app(CaptainBenefitNotificationService::class)->enqueue($existing);
+
                 return $existing;
             }
             if ($proposal->nextVersion()->exists()) {
@@ -76,6 +95,7 @@ class CaptainBenefitReviewService
                 if (in_array($actor->id, [$proposal->created_by_user_id, $proposal->recorded_by_user_id, $reviews->get('SUBMIT')->actor_id], true)) {
                     throw ValidationException::withMessages(['proposal' => __('captain_requests.self_approval')]);
                 }
+                abort_unless($this->approvalRequests($actor)->whereKey($proposal->id)->exists(), 403);
                 try {
                     $this->posting->validatePlannedAmount($currency, $proposal->amount);
                 } catch (FinancialLedgerException) {
@@ -115,6 +135,8 @@ class CaptainBenefitReviewService
                 $this->posting->reverse($original, 'CAPTAIN_BENEFIT_REVERSAL', $review->id,
                     FinancialEventType::CaptainBenefitReversed->value, 1, $review->recorded_at, $reason, $proposal->branch, $actor);
             }
+
+            app(CaptainBenefitNotificationService::class)->enqueue($review);
 
             return $review;
         }, 3);

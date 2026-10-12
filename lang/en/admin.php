@@ -7,6 +7,8 @@ return [
         'CAPTAIN' => 'Captain',
     ],
     'navigation' => [
+        'notifications' => 'Internal notifications',
+        'security_audit' => 'Security audit',
         'my_captain_information' => 'My dashboard',
         'dashboard' => 'Dashboard',
         'daily' => 'Daily operations',

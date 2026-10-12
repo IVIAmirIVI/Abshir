@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Captain;
 use App\Models\CaptainBenefitRequest;
 use App\Models\Currency;
+use App\Services\CaptainBenefitNotificationService;
 use App\Services\CaptainBenefitRequestService;
 use App\Services\CaptainBenefitReviewService;
 use App\Services\CaptainFinancialEvidenceService;
@@ -83,9 +84,15 @@ class CaptainBenefitRequestController extends Controller
 
     public function review(Request $request, Captain $captain, CaptainBenefitRequest $proposal, CaptainBenefitReviewService $service): RedirectResponse
     {
-        $service->act($request->user(), $captain, $proposal, $request->only(['request_key', 'action', 'reason']));
+        $review = $service->act($request->user(), $captain, $proposal, $request->only(['request_key', 'action', 'reason']));
 
-        return redirect()->route('captains.requests.show', [$captain, $proposal])->with('status', __('captain_requests.review_recorded'));
+        $response = redirect()->route('captains.requests.show', [$captain, $proposal])->with('status', __('captain_requests.review_recorded'));
+        if ($review->action === 'SUBMIT' && $service->summary($proposal)['state'] === 'PENDING'
+            && app(CaptainBenefitNotificationService::class)->reviewers($proposal)->isEmpty()) {
+            $response->with('warning', __('internal.no_reviewer'));
+        }
+
+        return $response;
     }
 
     private function input(Request $request): array

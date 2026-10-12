@@ -18,6 +18,37 @@ class CaptainBenefitConcurrencyTest extends TestCase
 {
     use CaptainBenefitFixtures;
 
+    public function test_real_outer_rollback_and_concurrent_submit_retry_never_duplicate_workflow_notifications(): void
+    {
+        $this->isolated(function (): void {
+            $c = $this->benefitContext();
+            DB::beginTransaction();
+            try {
+                $this->benefitAction($c, 'SUBMIT');
+                $this->assertDatabaseCount('notifications', 0);
+                $this->assertDatabaseCount('captain_benefit_notification_events', 1);
+            } finally {
+                DB::rollBack();
+            }
+            $this->assertDatabaseCount('captain_benefit_reviews', 0);
+            $this->assertDatabaseCount('captain_benefit_notification_events', 0);
+            $this->assertDatabaseCount('notifications', 0);
+
+            $job = ['operation' => 'review', 'actor' => $c['creator']->id, 'proposal' => $c['proposal']->id,
+                'data' => ['request_key' => (string) Str::uuid(), 'action' => 'SUBMIT']];
+            $results = $this->race($c, [$job, $job]);
+
+            $this->assertSame(['success', 'success'], array_column($results, 'status'), json_encode($results));
+            $this->assertSame($results[0]['id'], $results[1]['id']);
+            $this->assertDatabaseCount('captain_benefit_reviews', 1);
+            $this->assertDatabaseCount('captain_benefit_notification_events', 1);
+            $this->assertDatabaseCount('notifications', 1);
+            $this->assertDatabaseHas('notifications', ['notifiable_id' => $c['reviewer']->id]);
+            $this->assertNotNull(DB::table('captain_benefit_notification_events')->value('delivered_at'));
+            $this->assertDatabaseCount('financial_transactions', 0);
+        });
+    }
+
     public function test_real_approval_and_payout_races_share_locks_without_duplicate_or_excessive_effects(): void
     {
         $this->isolated(function (): void {

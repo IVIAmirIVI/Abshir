@@ -57,6 +57,8 @@ class AuthorizationSeeder extends Seeder
                 'captain_deposit_manual_adjustments' => ['create'],
                 'captain_receivable_payouts' => ['view', 'create'],
                 'captain_financial_evidence' => ['download'],
+                'captain_bonuses' => ['approve'],
+                'captain_expenses' => ['approve'],
                 'bill_payments' => ['record', 'view'],
                 'bill_payment_fees' => ['manage'],
             ];

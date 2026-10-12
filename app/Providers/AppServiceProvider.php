@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\User;
 use App\Support\CaptainSelfView;
+use App\Support\StaffInbox;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,6 +24,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('manage-authorization', fn (User $user): bool => $user->isSuperAdmin());
+        Gate::define(StaffInbox::ABILITY, fn (User $user): bool => StaffInbox::allowed($user));
         Gate::define(CaptainSelfView::ABILITY, fn (User $user): bool => app(CaptainSelfView::class)->resolve($user) !== null);
         Gate::before(function (User $user, string $ability): ?bool {
             if (! $user->is_active) {

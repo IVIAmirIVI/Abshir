@@ -9,6 +9,7 @@ use App\Models\CaptainBenefitRequest;
 use App\Models\Currency;
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -20,6 +21,13 @@ use Illuminate\Validation\ValidationException;
 class CaptainBenefitRequestService
 {
     public function __construct(private readonly CaptainFinancialEvidenceService $evidence) {}
+
+    public function accessibleRecords(User $actor): Builder
+    {
+        return CaptainBenefitRequest::query()
+            ->when(! $actor->is_active || ! $actor->can('captains.view'), fn ($q) => $q->whereRaw('1 = 0'))
+            ->whereIn('branch_id', $actor->availableBranches()->select('branches.id'));
+    }
 
     public function assertView(User $actor, Captain $captain): void
     {
@@ -74,6 +82,10 @@ class CaptainBenefitRequestService
         $saved = null;
         try {
             $saved = DB::transaction(function () use ($actor, $captain, $data, $file, $metadata, $previous, &$path): CaptainBenefitRequest {
+                if ($path) {
+                    $this->evidence->delete($path);
+                    $path = null;
+                }
                 DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['captain-request:'.$data['request_key']]);
                 $branch = Branch::query()->lockForUpdate()->findOrFail($data['branch_id']);
                 $order = filled($data['order_id'] ?? null) ? Order::query()->lockForUpdate()->findOrFail($data['order_id']) : null;
@@ -136,7 +148,7 @@ class CaptainBenefitRequestService
                     'recorded_by_user_id' => $actor->id,
                     'created_at' => $previous?->created_at ?? now(), 'recorded_at' => now(),
                 ]);
-            });
+            }, 3);
 
             return $saved;
         } finally {

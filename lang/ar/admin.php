@@ -7,6 +7,8 @@ return [
         'CAPTAIN' => 'الكابتن',
     ],
     'navigation' => [
+        'notifications' => 'الإشعارات الداخلية',
+        'security_audit' => 'التدقيق الأمني',
         'my_captain_information' => 'لوحتي',
         'dashboard' => 'لوحة العمل',
         'daily' => 'العمل اليومي',

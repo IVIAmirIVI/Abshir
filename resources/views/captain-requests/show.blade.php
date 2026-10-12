@@ -4,6 +4,7 @@
         <a class="link" href="{{ route('captains.requests.index', $captain) }}">{{ __('captain_requests.back') }}</a>
         <p class="alert">{{ __('captain_requests.disclaimer') }}</p>
         @if(session('status'))<p role="status" class="alert alert-success">{{ session('status') }}</p>@endif
+        @if(session('warning'))<p role="alert" class="alert alert-warning">{{ session('warning') }}</p>@endif
         @if($errors->any())<ul role="alert" class="alert alert-error">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>@endif
         <x-management.record>
             <p>{{ __('captain_requests.states.'.$summary['state']) }} · {{ $proposal->branch->name }} · <x-money :amount="$proposal->amount" :currency="$proposal->currency->code" /></p>
