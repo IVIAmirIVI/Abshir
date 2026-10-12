@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'primary' => 'Primary Captain',
+    'second' => 'Second Captain',
+    'add_second' => 'Add a second Captain',
+    'remove_second' => 'Remove second Captain',
+    'second_required' => 'Choose two different Captains or remove the second Captain option.',
+    'single_collector' => 'The sole Captain is automatically responsible for CASH collection.',
+    'collector_help' => 'Explicitly choose the shared Order collector; external bill payments use this identity under existing rules.',
+    'choose_primary_above' => 'Choose the Captain in the section above.',
     'shared_purchase_help' => 'Both Captains fund this purchase. Each Shop allocation is recorded automatically; the lowest assignment ID receives any extra minor unit.',
     'shared_correction_blocked' => 'Collected shared Invoice corrections require refund and receivable sources attributed to each actual payer. Refunds are never automatically assigned to the collector.',
     'invoice_version_activation_required' => 'Uncollected shared Invoice replacement and void support must be activated first.',

@@ -1,6 +1,23 @@
 <?php
 
 return [
+    'order_history' => 'Captain Order history',
+    'order_history_help' => 'All participating Orders, including ended assignments. Shared means two Captains participated simultaneously in the Order history. These filters are independent of the activity period.',
+    'orders_from' => 'From date',
+    'orders_to' => 'To date',
+    'orders_all' => 'All',
+    'orders_kind' => 'Participation type',
+    'orders_single' => 'Individual',
+    'orders_shared' => 'Shared',
+    'orders_role' => 'Participation role',
+    'orders_collector' => 'Collector',
+    'orders_support' => 'Non-collecting participant',
+    'orders_former' => 'Ended assignment',
+    'orders_clear' => 'Clear history filters',
+    'orders_uncollected' => 'No recorded collection',
+    'orders_fee' => 'Delivery entitlement in pricing',
+    'orders_fee_help' => 'Last documented pricing allocation for this Captain in the Order; not a balance, payout, or proof of posted financial entitlement.',
+    'orders_empty' => 'No participating Orders match the filters.',
     'title' => 'Captain information dashboard',
     'read_only' => 'Read-only administrative information within authorized branches; no task execution or financial operations.',
     'self_read_only' => 'Your financial information and activity, read-only. No task execution, administration or financial operations.',
