@@ -236,7 +236,14 @@ class AuthorizationTest extends TestCase
         $role->permissions()->detach();
         $this->seed(AuthorizationSeeder::class);
         $this->assertDatabaseCount('roles', 3);
-        $this->assertDatabaseCount('permissions', 147);
+        $this->assertDatabaseCount('permissions', 149);
+        $phase11Permissions = ['captain_bonuses.approve', 'captain_expenses.approve'];
+        $this->assertEqualsCanonicalizing($phase11Permissions, Permission::whereIn('code', $phase11Permissions)->pluck('code')->all());
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        foreach ($phase11Permissions as $ability) {
+            $this->assertTrue(Gate::forUser($admin)->allows($ability));
+        }
         $this->assertEqualsCanonicalizing([
             'areas.view',
             'branches.view',

@@ -39,6 +39,8 @@ return [
         'close_menu' => 'إغلاق قائمة التنقل',
     ],
     'permission_groups' => [
+        'captain_bonuses' => 'اعتماد مكافآت الكباتن',
+        'captain_expenses' => 'اعتماد تعويض مصاريف الكباتن',
         'areas' => 'المناطق',
         'bill_payment_fees' => 'أجور تسديد الفواتير',
         'bill_payments' => 'تسديد الفواتير الخارجية',

@@ -38,6 +38,9 @@ return [
         'CANCEL_AND_REFUND' => 'إلغاء ورد المبلغ',
     ],
     'events' => [
+        'CAPTAIN_BONUS_DUE' => 'مكافأة الكابتن المعتمدة المستحقة — لم تُصرف',
+        'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE' => 'تعويض مصروف تشغيلي معتمد للكابتن — لم يُصرف',
+        'CAPTAIN_BENEFIT_REVERSED' => 'عكس مستحق مكافأة أو مصروف كابتن غير مصروف',
         'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE' => 'مستحق تعويض مشتريات الطلب المشترك — غير مدفوع',
         'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE' => 'مستحق توصيل الطلب المشترك — غير مدفوع',
         'SHARED_INVOICE_CASH_CUSTODY_RECEIVED' => 'استلام نقد الفاتورة المشتركة بعهدة الكابتن المحصّل',

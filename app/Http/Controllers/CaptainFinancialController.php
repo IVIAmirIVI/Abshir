@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -69,6 +70,7 @@ class CaptainFinancialController extends Controller
             'currencies' => $currencies, 'selectedBranch' => $selectedBranch,
             'selectedCurrency' => $selectedCurrency, 'outstanding' => $outstanding,
             'manualAdjustmentsEnabled' => $manualAdjustmentsEnabled,
+            'benefitPayoutMetadataAvailable' => Schema::hasColumn('captain_receivable_payouts', 'payment_method'),
             'manualAdjustments' => $manualAdjustmentsEnabled
                 ? CaptainDepositManualAdjustment::query()->where('captain_id', $captain->id)
                     ->with(['branch', 'currency', 'adjustedBy'])->latest('id')->limit(30)->get() : collect(),
@@ -79,7 +81,7 @@ class CaptainFinancialController extends Controller
                     ->with(['branch', 'currency', 'receivedBy'])->latest('id')->limit(30)->get() : collect(),
             'payouts' => $request->user()->can('captain_receivable_payouts.view')
                 ? CaptainReceivablePayout::query()->where('captain_id', $captain->id)->whereIn('branch_id', $branchIds)
-                    ->with(['branch', 'currency', 'paidBy', 'allocations'])->latest('id')->limit(30)->get() : collect(),
+                    ->with(['branch', 'currency', 'paidBy', 'receivedBy', 'allocations'])->latest('id')->limit(30)->get() : collect(),
         ]);
     }
 
@@ -109,6 +111,8 @@ class CaptainFinancialController extends Controller
             'allocations' => ['required', 'array', 'min:1'],
             'allocations.*.financial_entry_id' => ['required', 'integer'],
             'allocations.*.amount' => ['nullable', 'string'],
+            'payment_method' => ['nullable', 'in:CASH,TRANSFER'],
+            'received_by_user_id' => ['nullable', 'integer'],
         ]);
         $allocations = collect($data['allocations'])->filter(fn ($allocation) => filled($allocation['amount'] ?? null)
             && ! preg_match('/^0+(?:\.0+)?$/', trim((string) $allocation['amount'])))->values()->all();

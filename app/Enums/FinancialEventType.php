@@ -4,6 +4,9 @@ namespace App\Enums;
 
 enum FinancialEventType: string
 {
+    case CaptainBonusDue = 'CAPTAIN_BONUS_DUE';
+    case CaptainExpenseReimbursementDue = 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE';
+    case CaptainBenefitReversed = 'CAPTAIN_BENEFIT_REVERSED';
     case OrderV2CashDeliveryCustodyReceived = 'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED';
     case OrderV2ProductReimbursementDue = 'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE';
     case OrderV2DeliveryEntitlementDue = 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE';

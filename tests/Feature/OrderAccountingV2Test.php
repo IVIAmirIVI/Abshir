@@ -12,7 +12,10 @@ use App\Models\Currency;
 use App\Models\DeliveryPricingRule;
 use App\Models\FinancialTransaction;
 use App\Models\InvoiceCollection;
+use App\Models\Role;
 use App\Models\User;
+use App\Services\CaptainBenefitRequestService;
+use App\Services\CaptainBenefitReviewService;
 use App\Services\CaptainReceivablePayoutService;
 use App\Services\CorrectedOrderFinancialService;
 use App\Services\DeliveryPricingRuleService;
@@ -310,6 +313,53 @@ SQL);
     public static function paymentMethods(): array
     {
         return [['CASH'], ['SHAM_CASH']];
+    }
+
+    public function test_shared_order_payout_stays_blocked_while_independent_approved_bonus_is_payable(): void
+    {
+        [$c, $invoice] = $this->prepared(2);
+        $this->collect($c, $invoice, 'CASH');
+        $this->deliver($c);
+        Storage::fake('captain_financial_evidence');
+        $captain = $c['captains'][0];
+        $proposal = app(CaptainBenefitRequestService::class)->save($c['admin'], $captain, [
+            'request_key' => (string) str()->uuid(), 'kind' => 'BONUS', 'branch_id' => $c['branch']->id,
+            'currency_id' => $c['currency']->id, 'amount' => '20', 'description' => 'Independent bonus',
+        ]);
+        $reviewer = User::factory()->create();
+        $reviewer->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        $reviews = app(CaptainBenefitReviewService::class);
+        $reviews->act($c['admin'], $captain, $proposal, ['request_key' => (string) str()->uuid(), 'action' => 'SUBMIT']);
+        $reviews->act($reviewer, $captain, $proposal, ['request_key' => (string) str()->uuid(), 'action' => 'APPROVE']);
+        $balances = app(FinancialBalanceQueryService::class);
+        $payable = $balances->payableReceivableEntries($captain, $c['branch'], $c['currency'])->sole();
+        $this->assertSame('CAPTAIN_BONUS_DUE', $payable->event_type);
+        $gated = $balances->gatedCorrectedReceivableEntries($captain, $c['branch'], $c['currency'])->first();
+        $service = app(CaptainReceivablePayoutService::class);
+        $data = ['request_key' => (string) str()->uuid(), 'amount' => '20', 'occurred_at' => now()->format('Y-m-d H:i:s.uP'),
+            'payment_method' => 'CASH', 'received_by_user_id' => $captain->user_id];
+        $this->assertThrows(fn () => $service->record($c['admin'], $captain, $c['branch'], $c['currency'], $data,
+            [['financial_entry_id' => $gated->financial_entry_id, 'amount' => '20']], $this->sharedImage()), ValidationException::class);
+        $payout = $service->record($c['admin'], $captain, $c['branch'], $c['currency'], $data,
+            [['financial_entry_id' => $payable->financial_entry_id, 'amount' => '20']], $this->sharedImage());
+        $this->assertSame('60.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+        $this->assertSame('240.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCashCustody));
+        try {
+            DB::transaction(function () use ($payout, $gated): void {
+                $facts = $payout->getRawOriginal();
+                unset($facts['id']);
+                $facts['request_key'] = (string) str()->uuid();
+                $facts['amount'] = '1';
+                $id = DB::table('captain_receivable_payouts')->insertGetId($facts);
+                DB::table('captain_receivable_payout_allocations')->insert(['captain_receivable_payout_id' => $id,
+                    'financial_entry_id' => $gated->financial_entry_id, 'amount' => '1', 'created_at' => now()]);
+            });
+            $this->fail('SQL accepted a shared V2 payout');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Shared V2 payout', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('captain_receivable_payouts', 1);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
     }
 
     protected function prepared(int $count = 2, ?string $discount = null): array

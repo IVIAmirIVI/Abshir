@@ -37,11 +37,11 @@ class CaptainDepositManualAdjustmentTest extends TestCase
 
     public static function directions(): array
     {
-        return [['INCREASE', '35.0000'], ['DECREASE', '-15.0000']];
+        return [['INCREASE', '35.0000', '35'], ['DECREASE', '-15.0000', '-15']];
     }
 
     #[DataProvider('directions')]
-    public function test_exact_deposit_math_can_be_negative_and_preserves_physical_receipt(string $direction, string $balance): void
+    public function test_exact_deposit_math_can_be_negative_and_preserves_physical_receipt(string $direction, string $balance, string $displayBalance): void
     {
         $f = $this->manualFixture();
         $receipt = $this->deposit($f, '10');
@@ -62,7 +62,7 @@ class CaptainDepositManualAdjustmentTest extends TestCase
         $this->assertDatabaseMissing('financial_accounts', ['account_kind' => 'CAPTAIN_CASH_CUSTODY']);
         $this->assertDatabaseMissing('financial_accounts', ['account_kind' => 'CAPTAIN_COMPANY_RECEIVABLE']);
         $this->actingAs($f['admin'])->get(route('captains.financials.show', $f['captain']))
-            ->assertOk()->assertSee(__('financial.terms.manual_deposit_adjustment'))->assertSee(UiLabels::label('financial.directions', $direction))->assertSee($a->reason)->assertSee($balance);
+            ->assertOk()->assertSee(__('financial.terms.manual_deposit_adjustment'))->assertSee(UiLabels::label('financial.directions', $direction))->assertSee($a->reason)->assertSee('>'.$displayBalance.'</bdi>', false);
     }
 
     public function test_branches_and_currencies_stay_independent_after_real_transfer(): void

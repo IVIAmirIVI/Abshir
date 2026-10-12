@@ -39,6 +39,8 @@ return [
         'close_menu' => 'Close navigation menu',
     ],
     'permission_groups' => [
+        'captain_bonuses' => 'Captain bonus approval',
+        'captain_expenses' => 'Captain expense reimbursement approval',
         'areas' => 'areas',
         'bill_payment_fees' => 'bill payment fees',
         'bill_payments' => 'bill payments',

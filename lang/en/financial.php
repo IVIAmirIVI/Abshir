@@ -38,6 +38,9 @@ return [
         'CANCEL_AND_REFUND' => 'Cancel and refund',
     ],
     'events' => [
+        'CAPTAIN_BONUS_DUE' => 'Approved Captain bonus due — unpaid',
+        'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE' => 'Approved Captain operational expense reimbursement due — unpaid',
+        'CAPTAIN_BENEFIT_REVERSED' => 'Unpaid Captain bonus or expense entitlement reversed',
         'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE' => 'Shared order product reimbursement due — unpaid',
         'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE' => 'Shared order delivery entitlement due — unpaid',
         'SHARED_INVOICE_CASH_CUSTODY_RECEIVED' => 'Shared invoice cash received and held by collecting Captain',

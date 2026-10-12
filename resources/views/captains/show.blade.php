@@ -1,6 +1,9 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800 break-words">{{ $captain->user->name }}</h2></x-slot>
     <x-management.page>
+        @can('captains.view')
+            <a class="btn btn-outline max-w-full whitespace-normal" href="{{ route('captains.requests.index', $captain) }}">{{ __('captain_requests.title') }}</a>
+        @endcan
         @if(app(\App\Services\CaptainInformationQuery::class)->canView(auth()->user()))
             <a class="btn btn-primary max-w-full whitespace-normal" href="{{ route('captains.information', $captain) }}">{{ __('captain_dashboard.title') }}</a>
         @endif
