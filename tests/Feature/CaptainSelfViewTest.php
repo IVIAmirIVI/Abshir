@@ -183,7 +183,7 @@ class CaptainSelfViewTest extends TestCase
                 collect($before)->firstWhere('currency.code', $currency->code)['values']);
         }
         $this->actingAs($this->user)->get(route('captain.self-information'))->assertOk()
-            ->assertSee('-29.8766 USD')->assertSee('12.2500 USD')->assertSee('301.2500 USD')->assertSee('2005.0000 SYP')
+            ->assertSee('-29.8766 USD')->assertSee('12.25 USD')->assertSee('301.25 USD')->assertSee('2005 SYP')
             ->assertDontSee('data-global-currency="EUR"', false);
     }
 
@@ -222,7 +222,7 @@ class CaptainSelfViewTest extends TestCase
         $accounts->getOrCreate($accounts->ownerForCaptain($this->captain), $currency, FinancialAccountKind::CaptainDeposit);
         $values = app(FinancialBalanceQueryService::class)->captainBalancesByCurrency($this->captain);
         $this->assertSame(['CAPTAIN_DEPOSIT' => '0.0000', 'CAPTAIN_COMPANY_RECEIVABLE' => '0.0000', 'CAPTAIN_CASH_CUSTODY' => '0.0000'], $values[$currency->id]);
-        $this->actingAs($this->user)->get(route('captain.self-information'))->assertOk()->assertSee('0.0000 USD');
+        $this->actingAs($this->user)->get(route('captain.self-information'))->assertOk()->assertSee('0 USD');
         $this->assertDatabaseCount('financial_accounts', 1);
         $this->assertDatabaseCount('financial_entries', 0);
     }

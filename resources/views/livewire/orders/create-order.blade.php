@@ -45,7 +45,7 @@
                 <p class="mt-1 text-xs text-gray-600">{{ __('orders.ui_search_selection_hint') }}</p>
                 @if($this->selectedCustomer)<p wire:key="wizard-selected-customer-{{ $customerId }}" class="mt-2 rounded-lg bg-stone-50 p-2 text-sm" data-wizard-selected-customer>{{ __('wizard_delivery.selected_customer') }}: <strong>{{ $this->selectedCustomer->name }}</strong></p>@endif
                 <x-input-error :messages="$errors->get('customerId')" class="mt-1" />
-                @can('customers.create')<button type="button" wire:click="toggleCustomerCreate" class="mt-2 text-sm font-semibold text-brand-primary hover:underline">{{ __('orders.ui_add_new_customer') }}</button>@endcan
+                @can('customers.create')<x-orders.action type="button" variant="quiet" wire:click="toggleCustomerCreate" class="mt-2">{{ __('orders.ui_add_new_customer') }}</x-orders.action>@endcan
             </label>
 
             <label class="block">
@@ -59,7 +59,7 @@
                 </select>
                 @endif
                 <x-input-error :messages="$errors->get('customerPhoneId')" class="mt-1" />
-                @can('customers.update')<button type="button" wire:click="openPhoneCreate" @disabled(!$customerId) class="mt-2 text-sm font-semibold text-brand-primary">{{ __('order_ux.add_phone') }}</button>@endcan
+                @can('customers.update')<x-orders.action type="button" variant="quiet" wire:click="openPhoneCreate" :disabled="!$customerId" class="mt-2">{{ __('order_ux.add_phone') }}</x-orders.action>@endcan
             </label>
 
             <label class="block">
@@ -76,7 +76,7 @@
                 </select>
                 @endif
                 @if($customerId && $branchId && $this->addresses->isEmpty())<p class="mt-1 text-sm text-amber-700">{{ __('orders.ui_no_customer_addresses') }}</p>@endif
-                @if($customerId) @can('customers.update')<button type="button" wire:click="openAddressCreate" class="mt-2 text-sm font-semibold text-brand-primary hover:underline">{{ __('orders.wizard.add_address') }}</button>@endcan @endif
+                @if($customerId) @can('customers.update')<x-orders.action type="button" variant="quiet" wire:click="openAddressCreate" class="mt-2">{{ __('orders.wizard.add_address') }}</x-orders.action>@endcan @endif
                 <x-input-error :messages="$errors->get('customerAddressId')" class="mt-1" />
             </label>
         </div>
@@ -134,7 +134,7 @@
                 <div wire:key="create-customer-modal" role="dialog" aria-modal="true" aria-labelledby="create-customer-title" data-customer-create-modal x-data x-trap.inert.noscroll="true" x-on:keydown.escape.stop="$wire.closeCustomerCreate()" x-on:keydown.enter="if ($event.target.matches('input:not(.select2-search__field)')) { $event.preventDefault(); $wire.createCustomer(); }" class="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6">
                     <button type="button" wire:click="closeCustomerCreate" class="fixed inset-0 bg-gray-900/50" tabindex="-1" aria-label="{{ __('common.actions.cancel') }}"></button>
                     <div class="relative mx-auto w-full max-w-2xl rounded-xl bg-white p-5 shadow-xl sm:p-6">
-                        <div class="mb-5 flex items-center justify-between gap-3"><h4 id="create-customer-title" class="text-lg font-semibold text-brand-primary">{{ __('orders.ui_add_new_customer') }}</h4><button type="button" wire:click="closeCustomerCreate" class="rounded px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">{{ __('common.actions.cancel') }}</button></div>
+                        <div class="mb-5 flex items-center justify-between gap-3"><h4 id="create-customer-title" class="text-lg font-semibold text-brand-primary">{{ __('orders.ui_add_new_customer') }}</h4><x-orders.action type="button" variant="secondary" wire:click="closeCustomerCreate">{{ __('common.actions.cancel') }}</x-orders.action></div>
                         <div class="grid gap-4 sm:grid-cols-2">
                     <label><span class="text-sm font-medium">{{ __('common.fields.name') }}</span><input aria-invalid="{{ $errors->has('newCustomerName') ? 'true' : 'false' }}" wire:model="newCustomerName" dir="auto" class="mt-1 block w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('newCustomerName')" /></label>
                     <label><span class="text-sm font-medium">{{ __('orders.ui_customer_phone') }}</span><input aria-invalid="{{ $errors->has('newCustomerPhone') ? 'true' : 'false' }}" wire:model="newCustomerPhone" type="tel" inputmode="numeric" pattern="09[0-9]{8}" maxlength="10" dir="ltr" class="mt-1 block w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('newCustomerPhone')" /></label>
@@ -150,7 +150,7 @@
     @include('livewire.orders.wizard-modals')
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white p-4" data-wizard-navigation>
         @if($step > 1)<x-orders.action type="button" variant="secondary" wire:click="goToStep({{ $step - 1 }})" wire:loading.attr="disabled">{{ __('orders.wizard.back') }}</x-orders.action>@else<a href="{{ route('orders.index') }}" class="text-sm text-gray-600">{{ __('common.actions.cancel') }}</a>@endif
-        @if($step < 4)<x-orders.action type="button" wire:click="nextStep" wire:loading.attr="disabled">{{ __('orders.wizard.next') }}</x-orders.action>
+        @if($step < 4)<x-orders.action type="button" wire:click="nextStep" wire:loading.attr="disabled"><span wire:loading.remove wire:target="nextStep">{{ __('orders.wizard.next') }}</span><span wire:loading wire:target="nextStep">{{ __('orders.ui_saving') }}</span></x-orders.action>
         @else<x-orders.action type="button" wire:click="submit" wire:loading.attr="disabled"><span wire:loading.remove wire:target="submit">{{ __('orders.wizard.create') }}</span><span wire:loading wire:target="submit">{{ __('orders.ui_saving') }}</span></x-orders.action>@endif
     </div>
 </form>

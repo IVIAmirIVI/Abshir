@@ -203,7 +203,7 @@ class CreateOrderWizardTest extends TestCase
         $this->rule($c['actor'], $c['area'], $c['area'], $c['currency'], 'MULTI_SHOP', '8');
         $this->rule($c['actor'], $origin, $c['area'], $c['currency'], 'MULTI_SHOP', '12');
         $component = $this->group($this->start($c)->call('nextStep'), $c);
-        $this->group($component, $c, $shop)->call('nextStep')->assertSee('12.0000')->call('beginDeliveryOverride')
+        $this->group($component, $c, $shop)->call('nextStep')->assertSeeText('12 WIZ')->call('beginDeliveryOverride')
             ->set('deliveryOverrideAmount', '10')->set('deliveryOverrideReason', 'سبب متعدد المحلات')
             ->set('deliveryOverrideCaptainId', (string) $captain->id)->call('nextStep')->call('submit')->assertHasNoErrors();
         $pricing = Order::sole()->currentDeliveryPricing;
@@ -499,7 +499,7 @@ class CreateOrderWizardTest extends TestCase
         $this->rule($c['actor'], $c['area'], $c['area'], $c['currency'], 'MULTI_SHOP', '8');
         $this->rule($c['actor'], $origin, $c['area'], $c['currency'], 'MULTI_SHOP', '12');
         $component = $this->group($this->start($c)->call('nextStep'), $c);
-        $this->group($component, $c, $second)->call('nextStep')->assertSee('12.0000')->assertSee('كفر بطنا')
+        $this->group($component, $c, $second)->call('nextStep')->assertSeeText('12 WIZ')->assertSee('كفر بطنا')
             ->assertDontSee('MULTI_SHOP')->assertDontSee('from_area_id')->call('nextStep')->call('submit')->assertHasNoErrors();
         $this->assertSame('MULTI_SHOP', Order::sole()->pricing_class->value);
         $this->assertDatabaseCount('order_shops', 2);
@@ -514,7 +514,7 @@ class CreateOrderWizardTest extends TestCase
         $component = $this->group($this->start($c)->call('nextStep'), $c)->call('nextStep')->call('nextStep')
             ->assertSet('step', 3)->assertHasErrors('delivery')->assertSee(__('orders.wizard.missing_route'));
         $this->rule($c['actor'], $origin, $c['area'], $c['currency'], 'SINGLE_SHOP', '11');
-        $component->call('nextStep')->assertSet('step', 4)->assertSee('11.0000');
+        $component->call('nextStep')->assertSet('step', 4)->assertSeeText('11 WIZ');
         $this->assertDatabaseCount('orders', 0);
     }
 
@@ -522,7 +522,7 @@ class CreateOrderWizardTest extends TestCase
     {
         $c = $this->context();
         $component = $this->group($this->start($c)->set('entryMode', 'HISTORICAL_MANUAL')->set('orderedAt', now()->subDays(10)->format('Y-m-d\TH:i'))->call('nextStep'), $c);
-        $component->call('goToStep', 4)->assertSee('7.0000')->call('submit')->assertHasNoErrors();
+        $component->call('goToStep', 4)->assertSeeText('7 WIZ')->call('submit')->assertHasNoErrors();
         $this->assertTrue(Order::sole()->ordered_at->isBefore(now()->subDays(9)));
     }
 
@@ -710,7 +710,7 @@ class CreateOrderWizardTest extends TestCase
         $c['type']->update(['business_classification' => 'RESTAURANT']);
         $c['shop']->update(['business_classification' => 'RESTAURANT']);
         $this->rule($c['actor'], $c['area'], $c['area'], $c['currency'], 'SINGLE_RESTAURANT', '9');
-        $this->ready($c)->assertSee('9.0000')->assertDontSee('SINGLE_RESTAURANT')->call('submit')->assertHasNoErrors();
+        $this->ready($c)->assertSeeText('9 WIZ')->assertDontSee('SINGLE_RESTAURANT')->call('submit')->assertHasNoErrors();
         $this->assertSame('SINGLE_RESTAURANT', Order::sole()->pricing_class->value);
     }
 
@@ -720,20 +720,20 @@ class CreateOrderWizardTest extends TestCase
         $second = Shop::create(['business_classification' => 'SHOP', 'name' => 'محل ثان', 'area_id' => $c['area']->id, 'shop_type_id' => $c['type']->id]);
         $this->rule($c['actor'], $c['area'], $c['area'], $c['currency'], 'MULTI_SHOP', '15');
         $component = $this->group($this->start($c)->call('nextStep'), $c);
-        $this->group($component, $c, $second)->call('nextStep')->assertSee('15.0000')->call('goToStep', 2)
-            ->call('removeDraftShop', $component->get('activeGroup'))->call('nextStep')->assertSee('7.0000');
+        $this->group($component, $c, $second)->call('nextStep')->assertSeeText('15 WIZ')->call('goToStep', 2)
+            ->call('removeDraftShop', $component->get('activeGroup'))->call('nextStep')->assertSeeText('7 WIZ');
     }
 
     public function test_current_fee_recalculates_after_rule_replacement_without_creating_an_order(): void
     {
         $c = $this->context();
-        $component = $this->group($this->start($c)->call('nextStep'), $c)->call('nextStep')->assertSee('7.0000');
+        $component = $this->group($this->start($c)->call('nextStep'), $c)->call('nextStep')->assertSeeText('7 WIZ');
         $rule = DeliveryPricingRule::where('from_area_id', $c['area']->id)->sole();
         app(DeliveryPricingRuleService::class)->version($c['actor'], $rule, [
             'from_area_id' => $c['area']->id, 'to_area_id' => $c['area']->id, 'currency_id' => $c['currency']->id,
             'order_pricing_class' => 'SINGLE_SHOP', 'delivery_unit_fee' => '13', 'effective_from' => now(),
         ]);
-        $component->call('$refresh')->assertSee('13.0000');
+        $component->call('$refresh')->assertSeeText('13 WIZ');
         $this->assertDatabaseCount('orders', 0);
     }
 
@@ -942,7 +942,7 @@ class CreateOrderWizardTest extends TestCase
                 ['method' => 'selectProduct', 'params' => [$c['product']->id], 'path' => ''],
                 ['method' => 'addDraftItem', 'params' => [], 'path' => ''],
                 ['method' => 'nextStep', 'params' => [], 'path' => ''],
-            ])->assertHasNoErrors()->assertSet('step', 3)->assertSee('7.0000');
+            ])->assertHasNoErrors()->assertSet('step', 3)->assertSeeText('7 WIZ');
             $groups = $component->get('groups');
             $component->call('nextStep')->assertHasNoErrors()->assertSet('step', 4)->assertSet('groups', $groups)
                 ->assertSet('customerId', (string) $c['customer']->id)->assertSee('حليب');

@@ -68,6 +68,11 @@ trait OverridesWizardDelivery
             $this->deliveryOverrideCaptainId = $this->wizardCollectorId;
         } elseif ($this->overrideCaptains->count() === 1) {
             $this->deliveryOverrideCaptainId = (string) $this->overrideCaptains->sole()->id;
+            if ($this->canSelectWizardCaptains && $this->wizardCaptainIds === []) {
+                $this->wizardCaptainIds = [$this->deliveryOverrideCaptainId];
+                $this->wizardCaptainFromOverride = true;
+                $this->synchronizeWizardCollector();
+            }
         }
         $this->resetValidation();
     }
@@ -75,6 +80,9 @@ trait OverridesWizardDelivery
     public function restoreAutomaticDelivery(): void
     {
         Gate::authorize('orders.create');
+        if ($this->wizardCaptainFromOverride) {
+            $this->reset('wizardCaptainIds', 'wizardCollectorId', 'wizardSecondCaptainEnabled', 'wizardCaptainFromOverride');
+        }
         $this->deliveryOverrideEnabled = false;
         $this->reset('deliveryOverrideAmount', 'deliveryOverrideReason', 'deliveryOverrideCaptainId', 'deliveryOverrideContext', 'reviewedDelivery');
         $this->resetValidation();

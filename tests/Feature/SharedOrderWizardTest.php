@@ -6,7 +6,9 @@ use App\Livewire\Orders\CaptainAssignments;
 use App\Livewire\Orders\CreateOrder;
 use App\Models\DeliveryFeeOverrideRequest;
 use App\Models\Order;
+use App\Models\Permission;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\Shop;
 use App\Models\Unit;
 use App\Services\InvoiceService;
@@ -130,6 +132,78 @@ class SharedOrderWizardTest extends TestCase
         $this->assertSame('20.0000', $order->currentDeliveryPricing->customer_delivery_total);
         $this->assertSame('PENDING', DeliveryFeeOverrideRequest::where('order_id', $order->id)->sole()->status->value);
         $this->assertSame(2, $order->captainAssignments()->whereNull('removed_at')->count());
+    }
+
+    public function test_primary_selector_automatically_binds_single_collector_and_persists_one_assignment(): void
+    {
+        $c = $this->wizardContext();
+        $id = (string) $c['captains'][0]->id;
+        $component = $this->stepThree($c)->set('wizardCaptainIds.0', $id)
+            ->assertSet('wizardCollectorId', $id)->assertSet('wizardSecondCaptainEnabled', false)
+            ->assertDontSee('id="wizard-collector"', false)->assertDontSee('wire:model="deliveryOverrideCaptainId"', false)
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 4);
+        $groups = $component->get('groups');
+        $component->call('goToStep', 2)->call('goToStep', 3)->call('nextStep')
+            ->assertSet('groups', $groups)->assertSet('wizardCaptainIds', [$id])->call('submit')->assertHasNoErrors();
+        $order = Order::latest('id')->firstOrFail();
+        $this->assertSame($c['captains'][0]->id, $order->captainAssignments()->sole()->captain_id);
+        $this->assertSame('PRIMARY_COLLECTION', $order->captainAssignments()->sole()->assignment_role->value);
+        $this->assertSame(1, $order->currentDeliveryPricing->captain_count_snapshot);
+        $this->assertSame(0, DB::table('financial_transactions')->count());
+    }
+
+    public function test_optional_second_selector_requires_explicit_collector_then_removes_stale_state(): void
+    {
+        $c = $this->wizardContext();
+        $ids = array_map('strval', array_column($c['captains'], 'id'));
+        $component = $this->stepThree($c)->set('wizardCaptainIds.0', $ids[0]);
+        $groups = $component->get('groups');
+        $component->call('addSecondWizardCaptain')->assertSet('wizardSecondCaptainEnabled', true)
+            ->call('nextStep')->assertHasErrors('wizardCaptainIds')->assertSet('step', 3)->assertSet('groups', $groups)
+            ->set('wizardCaptainIds.1', $ids[1])->assertSet('wizardCollectorId', '')
+            ->call('nextStep')->assertHasErrors('wizardCollectorId')
+            ->set('wizardCollectorId', $ids[1])->call('nextStep')->assertHasNoErrors()->assertSet('step', 4)
+            ->call('goToStep', 3)->call('removeSecondWizardCaptain')->assertSet('wizardCaptainIds', [$ids[0]])
+            ->assertSet('wizardCollectorId', $ids[0])->assertSet('wizardSecondCaptainEnabled', false)
+            ->assertSet('groups', $groups)->call('nextStep')->assertHasNoErrors()->call('submit')->assertHasNoErrors();
+        $this->assertSame(1, Order::latest('id')->firstOrFail()->captainAssignments()->count());
+    }
+
+    public function test_duplicate_or_foreign_captain_is_rejected_without_losing_draft(): void
+    {
+        $c = $this->wizardContext();
+        $id = (string) $c['captains'][0]->id;
+        $component = $this->stepThree($c)->set('wizardCaptainIds.0', $id)->call('addSecondWizardCaptain');
+        $groups = $component->get('groups');
+        $component->set('wizardCaptainIds.1', $id)->set('wizardCollectorId', $id)->call('nextStep')
+            ->assertHasErrors('wizardCaptainIds.0')->assertSet('step', 3)->assertSet('groups', $groups);
+        $foreign = $this->sharedContext();
+        $component->set('wizardCaptainIds.1', (string) $foreign['captains'][0]->id)->call('nextStep')
+            ->assertHasErrors('wizardCaptainIds')->assertSet('groups', $groups);
+        $this->assertSame(2, Order::count());
+    }
+
+    public function test_second_captain_control_cannot_be_called_without_assignment_permission(): void
+    {
+        $c = $this->wizardContext();
+        Role::where('code', 'ORDER_EMPLOYEE')->sole()->permissions()
+            ->detach(Permission::where('code', 'orders.captains.assign')->sole()->id);
+        Livewire::actingAs($c['actor'])->test(CreateOrder::class)->call('addSecondWizardCaptain')->assertForbidden();
+    }
+
+    public function test_restoring_automatic_fee_preserves_an_explicit_primary_captain(): void
+    {
+        $c = $this->wizardContext();
+        $c['actor'] = $c['admin'];
+        $id = (string) $c['captains'][0]->id;
+        $this->stepThree($c)->set('wizardCaptainIds.0', $id)->call('beginDeliveryOverride')
+            ->set('deliveryOverrideAmount', '12')->set('deliveryOverrideReason', 'Audited draft')
+            ->call('restoreAutomaticDelivery')->assertSet('wizardCaptainIds', [$id])->assertSet('wizardCollectorId', $id)
+            ->call('nextStep')->assertHasNoErrors()->call('submit')->assertHasNoErrors();
+        $order = Order::latest('id')->firstOrFail();
+        $this->assertSame('10.0000', $order->currentDeliveryPricing->applied_unit_fee);
+        $this->assertSame(1, $order->captainAssignments()->count());
+        $this->assertSame(0, DeliveryFeeOverrideRequest::where('order_id', $order->id)->count());
     }
 
     private function wizardContext(): array

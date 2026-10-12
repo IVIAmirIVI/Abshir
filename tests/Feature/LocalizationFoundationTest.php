@@ -133,9 +133,9 @@ class LocalizationFoundationTest extends TestCase
         $this->assertStringContainsString('users.view / 2026-10-01 / 012345', $html);
         $this->assertStringContainsString('&lt;script&gt;', $html);
         $this->assertStringNotContainsString('<script>', $html);
-        foreach (['1.2345', '-0.0001', '0', '12345678901234567890.0000'] as $amount) {
+        foreach (['1.2345' => '1.2345', '-0.0001' => '-0.0001', '0.0000' => '0', '12345678901234567890.0000' => '12345678901234567890'] as $amount => $display) {
             $html = Blade::render('<x-money :amount="$amount" currency="USD" />', compact('amount'));
-            $this->assertStringContainsString($amount.' USD', $html);
+            $this->assertStringContainsString($display.' USD', $html);
             $this->assertStringContainsString('dir="ltr"', $html);
         }
     }

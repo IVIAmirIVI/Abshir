@@ -49,6 +49,33 @@
 .app-button:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
 .app-button:disabled { opacity: .55; cursor: not-allowed; }
 .app-button > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
+
+/* Keep native uploads and their existing Livewire/form behavior; share the shell palette. */
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only), .financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only), .mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only) {
+    display: block; width: 100%; min-width: 0; max-width: 100%;
+    padding: .375rem; border: 1px solid #d6d9d0; border-radius: .625rem;
+    background: #fff; color: #374151; font-size: .875rem; line-height: 1.5;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button,
+.financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button,
+.mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button {
+    min-height: 2.25rem; max-width: 100%; padding: .5rem .75rem;
+    margin-inline-end: .75rem; border: 0; border-radius: .5rem;
+    background: #e8f1eb; color: #164d3b; font: inherit; font-weight: 600; cursor: pointer;
+}
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button:hover,
+.financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button:hover,
+.mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only)::file-selector-button:hover { background: #d8e9dd; }
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):focus-visible,
+.financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):focus-visible,
+.mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled,
+.financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled,
+.mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled { opacity: .55; cursor: not-allowed; }
+.app-shell input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled::file-selector-button,
+.financial-ui input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled::file-selector-button,
+.mary-surface input[type="file"]:not([hidden]):not(.hidden):not(.sr-only):disabled::file-selector-button { cursor: not-allowed; }
 [x-cloak] { display: none !important; }
 .app-shell { --sidebar-width: 17rem; min-height: 100dvh; }
 .app-sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 30; width: var(--sidebar-width); flex-direction: column; border-inline-end: 1px solid #e4e5de; background: #fff; }

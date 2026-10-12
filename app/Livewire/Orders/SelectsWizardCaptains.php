@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 
 trait SelectsWizardCaptains
 {
@@ -19,11 +20,64 @@ trait SelectsWizardCaptains
 
     public string $wizardCollectorId = '';
 
-    public function updatedWizardCollectorId(): void
+    public bool $wizardSecondCaptainEnabled = false;
+
+    #[Locked]
+    public bool $wizardCaptainFromOverride = false;
+
+    public function updatedWizardCaptainIds(mixed $value, ?string $key = null): void
     {
-        if ($this->deliveryOverrideEnabled && $this->wizardCaptainIds !== []) {
+        $this->wizardCaptainFromOverride = false;
+        if ($key === null) {
+            $this->wizardSecondCaptainEnabled = count($this->wizardCaptainIds) > 1;
+        }
+        $this->wizardCaptainIds = array_filter($this->wizardCaptainIds, fn ($id) => filled($id));
+        $this->synchronizeWizardCollector();
+    }
+
+    public function addSecondWizardCaptain(): void
+    {
+        $this->authorizeWizardCaptainControls();
+        $this->wizardCaptainFromOverride = false;
+        $this->wizardSecondCaptainEnabled = true;
+        $this->wizardCollectorId = '';
+        if ($this->deliveryOverrideEnabled) {
+            $this->deliveryOverrideCaptainId = '';
+        }
+    }
+
+    public function removeSecondWizardCaptain(): void
+    {
+        $this->authorizeWizardCaptainControls();
+        $this->wizardCaptainFromOverride = false;
+        $this->wizardSecondCaptainEnabled = false;
+        $this->wizardCaptainIds = filled($this->wizardCaptainIds[0] ?? null) ? [$this->wizardCaptainIds[0]] : [];
+        $this->synchronizeWizardCollector();
+        $this->resetValidation(['wizardCaptainIds', 'wizardCaptainIds.1', 'wizardCollectorId']);
+    }
+
+    private function authorizeWizardCaptainControls(): void
+    {
+        Gate::authorize('orders.create');
+        Gate::authorize('orders.captains.assign');
+        Gate::authorize('orders.view');
+    }
+
+    private function synchronizeWizardCollector(bool $syncOverride = true): void
+    {
+        if (count($this->wizardCaptainIds) === 1 && filled($this->wizardCaptainIds[0] ?? null)) {
+            $this->wizardCollectorId = (string) $this->wizardCaptainIds[0];
+        } elseif (! in_array($this->wizardCollectorId, array_map('strval', $this->wizardCaptainIds), true)) {
+            $this->wizardCollectorId = '';
+        }
+        if ($syncOverride && $this->deliveryOverrideEnabled) {
             $this->deliveryOverrideCaptainId = $this->wizardCollectorId;
         }
+    }
+
+    public function updatedWizardCollectorId(): void
+    {
+        $this->synchronizeWizardCollector();
     }
 
     #[Computed]
@@ -45,6 +99,9 @@ trait SelectsWizardCaptains
 
     private function validateWizardParticipants(): void
     {
+        if ($this->wizardSecondCaptainEnabled && count($this->wizardCaptainIds) !== 2) {
+            throw ValidationException::withMessages(['wizardCaptainIds' => __('shared_orders.second_required')]);
+        }
         if ($this->wizardCaptainIds === []) {
             if (filled($this->wizardCollectorId)) {
                 throw ValidationException::withMessages(['wizardCollectorId' => __('shared_orders.collector_participant')]);
@@ -58,14 +115,21 @@ trait SelectsWizardCaptains
         if (! $this->canSelectWizardCaptains) {
             throw ValidationException::withMessages(['wizardCaptainIds' => __('shared_orders.activation_required')]);
         }
+        $this->synchronizeWizardCollector(false);
         $this->validate(['wizardCaptainIds' => ['required', 'array', 'min:1', 'max:2'],
+            'wizardCaptainIds.0' => ['required', 'integer'],
             'wizardCaptainIds.*' => ['required', 'integer', 'distinct'], 'wizardCollectorId' => ['required', 'integer']]);
         unset($this->wizardCaptainCandidates);
         if (! in_array($this->wizardCollectorId, array_map('strval', $this->wizardCaptainIds), true)) {
             throw ValidationException::withMessages(['wizardCollectorId' => __('shared_orders.collector_participant')]);
         }
-        if (array_diff(array_map('intval', $this->wizardCaptainIds), $this->wizardCaptainCandidates->pluck('id')->all())) {
-            throw ValidationException::withMessages(['wizardCaptainIds' => __('domain.captain_is_not_currently_eligible_for_this_order_branch')]);
+        $ineligible = array_diff(array_map('intval', $this->wizardCaptainIds), $this->wizardCaptainCandidates->pluck('id')->all());
+        if ($ineligible) {
+            $errors = ['wizardCaptainIds' => __('domain.captain_is_not_currently_eligible_for_this_order_branch')];
+            if ($this->deliveryOverrideEnabled && in_array((int) $this->deliveryOverrideCaptainId, $ineligible, true)) {
+                $errors['deliveryOverrideCaptainId'] = $errors['wizardCaptainIds'];
+            }
+            throw ValidationException::withMessages($errors);
         }
         $this->requireCaptainShare();
         if ($this->deliveryOverrideEnabled && $this->deliveryOverrideCaptainId !== $this->wizardCollectorId) {

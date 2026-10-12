@@ -48,7 +48,7 @@ class FinancialLocalizationTest extends TestCase
             ->assertOk()->assertSee('رصيد تشغيل الكابتن لدى أبشر')->assertSee('مستحقات الكابتن لدى أبشر')
             ->assertSee('نقد أبشر بعهدة الكابتن')->assertSee('إيصال استلام مبلغ تشغيل من الكابتن')
             ->assertSee('صرف مستحقات الكابتن')->assertSee('تعديل إداري لرصيد التشغيل')
-            ->assertSee('تخفيض')->assertSee('12.3400')->assertSee('0.0100')->assertSee('-15.0000')
+            ->assertSee('تخفيض')->assertSee('12.34')->assertSee('0.01')->assertSee('-15')
             ->assertSee($f['branch']->name)->assertSee('USD')->assertSee($adjustment->reason)
             ->assertDontSee('financial.ui.')->assertSee('dir="rtl"', false);
         $this->assertStringContainsString('<bdi dir="ltr"', $response->getContent());

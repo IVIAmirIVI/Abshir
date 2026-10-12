@@ -204,7 +204,7 @@ class CreateOrder extends Component
             return;
         }
         unset($this->overrideCaptains);
-        $this->reset('wizardCaptainIds', 'wizardCollectorId');
+        $this->reset('wizardCaptainIds', 'wizardCollectorId', 'wizardSecondCaptainEnabled', 'wizardCaptainFromOverride');
         unset($this->wizardCaptainCandidates);
         unset($this->addresses, $this->areas);
         // A pending registered Shop belongs to the old Branch. Keep added

@@ -5,17 +5,40 @@
     @else
         <div><h4 class="font-semibold">{{ __('orders.wizard.from') }}</h4><ul class="mt-2 space-y-2">@foreach($proposal['routes'] as $route)<li class="break-words text-sm">{{ $route['shop']->shop_name_snapshot }} — {{ $route['origin']->name }}</li>@endforeach</ul></div>
         <div><h4 class="font-semibold">{{ __('orders.wizard.to') }}</h4><p class="mt-2 break-words text-sm">{{ $this->addresses->firstWhere('id', $customerAddressId)?->address_line_1 }} — {{ $proposal['destination']->name }}</p></div>
-        <div class="rounded-lg bg-stone-50 p-4"><h4 class="text-sm">{{ __('orders.wizard.suggested_fee') }}</h4><p class="mt-1 text-xl font-bold text-brand-primary"><bdi dir="ltr">{{ $proposal['currency']->code }} {{ $proposal['suggested_unit_fee'] }}</bdi></p></div>
+        <div class="rounded-lg bg-stone-50 p-4"><h4 class="text-sm">{{ __('orders.wizard.suggested_fee') }}</h4><p class="mt-1 text-xl font-bold text-brand-primary"><x-money :amount="$proposal['suggested_unit_fee']" :currency="$proposal['currency']->code" /></p></div>
         <p class="text-sm text-gray-600">{{ __('orders.wizard.pricing_help') }}</p>
         @if($this->canSelectWizardCaptains)
-        <details class="rounded-lg border p-3" @if($wizardCaptainIds) open @endif><summary class="cursor-pointer font-semibold">{{ __('shared_orders.title') }}</summary>
-            <fieldset class="mt-3 space-y-2"><legend class="text-sm">{{ __('shared_orders.participants') }}</legend>@foreach($this->wizardCaptainCandidates as $candidate)<label class="flex items-center gap-2" wire:key="wizard-captain-{{ $candidate->id }}"><input type="checkbox" wire:model.live="wizardCaptainIds" value="{{ $candidate->id }}"><span>{{ $candidate->user->name }}</span></label>@endforeach</fieldset>
+        <section class="space-y-3 rounded-lg border p-3" aria-labelledby="wizard-captain-title">
+            <h4 id="wizard-captain-title" class="font-semibold">{{ __('shared_orders.title') }}</h4>
+            <label class="block text-sm" for="wizard-primary-captain">{{ __('shared_orders.primary') }}</label>
+            <select id="wizard-primary-captain" wire:model.live="wizardCaptainIds.0" class="w-full rounded-lg border-gray-300">
+                <option value="">{{ __('orders.ui_choose_captain') }}</option>
+                @foreach($this->wizardCaptainCandidates as $candidate)<option value="{{ $candidate->id }}" @disabled((string) $candidate->id === (string) ($wizardCaptainIds[1] ?? ''))>{{ $candidate->user->name }}</option>@endforeach
+            </select>
+            <x-input-error :messages="$errors->get('wizardCaptainIds.0')" />
             <x-input-error :messages="$errors->get('wizardCaptainIds')" />
-            @if($wizardCaptainIds)<label class="mt-3 block text-sm">{{ __('shared_orders.collector') }}<select wire:model="wizardCollectorId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->wizardCaptainCandidates->filter(fn ($candidate) => in_array((string) $candidate->id, array_map('strval', $wizardCaptainIds), true)) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->user->name }}</option>@endforeach</select></label><x-input-error :messages="$errors->get('wizardCollectorId')" />@endif
-            @if(count($wizardCaptainIds) === 2)<p class="mt-3 text-sm text-amber-900">{{ __('shared_orders.pending_finance') }}</p>@endif
-        </details>
+            @if(!$wizardSecondCaptainEnabled)
+                <x-orders.action type="button" variant="quiet" wire:click="addSecondWizardCaptain" wire:loading.attr="disabled">{{ __('shared_orders.add_second') }}</x-orders.action>
+            @else
+                <label class="block text-sm" for="wizard-second-captain">{{ __('shared_orders.second') }}</label>
+                <select id="wizard-second-captain" wire:model.live="wizardCaptainIds.1" class="w-full rounded-lg border-gray-300">
+                    <option value="">{{ __('orders.ui_choose_captain') }}</option>
+                    @foreach($this->wizardCaptainCandidates as $candidate)<option value="{{ $candidate->id }}" @disabled((string) $candidate->id === (string) ($wizardCaptainIds[0] ?? ''))>{{ $candidate->user->name }}</option>@endforeach
+                </select>
+                <x-input-error :messages="$errors->get('wizardCaptainIds.1')" />
+                <x-orders.action type="button" variant="quiet" wire:click="removeSecondWizardCaptain" wire:loading.attr="disabled">{{ __('shared_orders.remove_second') }}</x-orders.action>
+                @if(count($wizardCaptainIds) === 2)
+                    <label class="block text-sm" for="wizard-collector">{{ __('shared_orders.collector') }}</label>
+                    <select id="wizard-collector" wire:model.live="wizardCollectorId" class="w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->wizardCaptainCandidates->whereIn('id', $wizardCaptainIds) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->user->name }}</option>@endforeach</select>
+                    <x-input-error :messages="$errors->get('wizardCollectorId')" />
+                    <p class="text-sm text-gray-600">{{ __('shared_orders.collector_help') }}</p>
+                    <p class="text-sm text-amber-900">{{ __('shared_orders.pending_finance') }}</p>
+                @endif
+            @endif
+            @if(count($wizardCaptainIds) === 1)<p class="text-sm text-gray-600">{{ __('shared_orders.single_collector') }}</p>@endif
+        </section>
         @endif
-        @if($wizardCaptainIds && $this->wizardCombinedDelivery !== null)<p class="font-semibold">{{ __('shared_orders.combined_delivery') }}: <bdi dir="ltr">{{ $proposal['currency']->code }} {{ $this->wizardCombinedDelivery }}</bdi></p>@endif
+        @if($wizardCaptainIds && $this->wizardCombinedDelivery !== null)<p class="font-semibold">{{ __('shared_orders.combined_delivery') }}: <x-money :amount="$this->wizardCombinedDelivery" :currency="$proposal['currency']->code" /></p>@endif
         @can('delivery_pricing.override')
         <details class="rounded-lg border border-gray-200 p-3" @if($deliveryOverrideEnabled) open @endif data-wizard-override>
             <summary class="cursor-pointer text-sm font-semibold">{{ __('orders.wizard.override') }}</summary>
@@ -26,23 +49,19 @@
                     <p class="text-sm text-gray-600">{{ __('wizard_delivery.captain_help') }}</p>
                     <label class="block text-sm">{{ __('wizard_delivery.requested') }}<input type="text" inputmode="decimal" dir="ltr" aria-invalid="{{ $errors->has('deliveryOverrideAmount') ? 'true' : 'false' }}" wire:model.live.debounce.250ms="deliveryOverrideAmount" class="mt-1 w-full rounded-lg border-gray-300"><x-input-error :messages="$errors->get('deliveryOverrideAmount')" /></label>
                     <label class="block text-sm">{{ __('wizard_delivery.reason') }}<textarea aria-invalid="{{ $errors->has('deliveryOverrideReason') ? 'true' : 'false' }}" wire:model="deliveryOverrideReason" maxlength="3000" dir="auto" class="mt-1 w-full rounded-lg border-gray-300"></textarea><x-input-error :messages="$errors->get('deliveryOverrideReason')" /></label>
-                    @if($wizardCaptainIds)
-                        <p class="text-sm">{{ __('shared_orders.collector') }}: {{ $this->wizardCaptainCandidates->firstWhere('id', $wizardCollectorId)?->user->name ?? __('orders.ui_choose_captain') }}</p>
-                        <x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" />
-                    @else
-                        <label class="block text-sm">{{ __('wizard_delivery.captain') }}<select aria-invalid="{{ $errors->has('deliveryOverrideCaptainId') ? 'true' : 'false' }}" wire:model="deliveryOverrideCaptainId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($this->overrideCaptains as $captain)<option value="{{ $captain->id }}">{{ $captain->user->name }}</option>@endforeach</select><x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" /></label>
-                    @endif
+                    <p class="text-sm">{{ __('shared_orders.collector') }}: {{ $this->wizardCaptainCandidates->firstWhere('id', $wizardCollectorId)?->user->name ?? __('shared_orders.choose_primary_above') }}</p>
+                    <x-input-error :messages="$errors->get('deliveryOverrideCaptainId')" />
                     @if($this->overrideCaptains->isEmpty())<p class="text-sm text-amber-800">{{ __('wizard_delivery.no_captains') }}</p>@endif
                     @php($outcome = $this->deliveryOverrideOutcome)
                     @if(isset($outcome['error']))<p role="alert" class="text-sm text-amber-800">{{ $outcome['error'] }}</p>@endif
-                    @if($outcome['context_changed'] ?? false)<button type="button" wire:click="reconfirmDeliveryOverride" class="text-sm font-semibold underline">{{ __('wizard_delivery.reconfirm') }}</button>@endif
-                    @if(isset($outcome['final_fee']))<x-orders.indicator :tone="$outcome['immediate'] ? 'approved' : 'pending'" data-wizard-approval-state>{{ __('order_design.'.($outcome['immediate'] ? 'approved' : 'pending')) }}</x-orders.indicator><p class="font-semibold" data-wizard-effective-fee>{{ __('wizard_delivery.final') }}: <bdi dir="ltr">{{ $proposal['currency']->code }} {{ $outcome['final_fee'] }}</bdi></p><p class="text-sm">{{ __('wizard_delivery.'.($outcome['immediate'] ? 'immediate' : 'pending')) }}</p>@endif
-                    <button type="button" wire:click="restoreAutomaticDelivery" class="text-sm font-semibold underline">{{ __('wizard_delivery.automatic') }}</button>
+                    @if($outcome['context_changed'] ?? false)<x-orders.action type="button" variant="quiet" wire:click="reconfirmDeliveryOverride">{{ __('wizard_delivery.reconfirm') }}</x-orders.action>@endif
+                    @if(isset($outcome['final_fee']))<x-orders.indicator :tone="$outcome['immediate'] ? 'approved' : 'pending'" data-wizard-approval-state>{{ __('order_design.'.($outcome['immediate'] ? 'approved' : 'pending')) }}</x-orders.indicator><p class="font-semibold" data-wizard-effective-fee>{{ __('wizard_delivery.final') }}: <x-money :amount="$outcome['final_fee']" :currency="$proposal['currency']->code" /></p><p class="text-sm">{{ __('wizard_delivery.'.($outcome['immediate'] ? 'immediate' : 'pending')) }}</p>@endif
+                    <x-orders.action type="button" variant="quiet" wire:click="restoreAutomaticDelivery">{{ __('wizard_delivery.automatic') }}</x-orders.action>
                 </div>
             @endif
         </details>
         @endcan
     @endif
-    <button type="button" wire:click="$refresh" class="text-sm font-semibold text-brand-primary">{{ __('orders.wizard.recalculate') }}</button>
+    <x-orders.action type="button" variant="quiet" wire:click="$refresh">{{ __('orders.wizard.recalculate') }}</x-orders.action>
     @if(!$deliveryOverrideEnabled)<p class="text-sm text-gray-600">{{ __('orders.wizard.captain_help') }}</p>@endif
 </x-orders.section>

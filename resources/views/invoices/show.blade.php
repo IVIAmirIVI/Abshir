@@ -30,7 +30,7 @@
             <h3 class="font-semibold">{{ __('financial.ui.customer_charges') }}</h3>
             @forelse($invoice->items as $item)
                 <article class="grid gap-1 rounded border p-3 sm:grid-cols-4">
-                    <strong>{{ $item->description }}</strong><span><x-ltr>{{ $item->quantity }}</x-ltr> {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> <x-ltr>{{ $invoice->currency?->code }}</x-ltr></span><span class="font-semibold"><x-money :amount="$item->line_total" /></span>
+                    <strong>{{ $item->description }}</strong><span><x-decimal :value="$item->quantity" /> {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> <x-ltr>{{ $invoice->currency?->code }}</x-ltr></span><span class="font-semibold"><x-money :amount="$item->line_total" /></span>
                 </article>
             @empty
                 <p>{{ __('financial.ui.refresh_help') }}</p>

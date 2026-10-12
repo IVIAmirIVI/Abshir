@@ -27,7 +27,7 @@
     <p dir="auto"><strong>{{ $invoice->customer_name_snapshot }}</strong><br><x-ltr>{{ $invoice->customer_phone_snapshot }}</x-ltr><br>{{ $invoice->area_snapshot }}<br>{{ $invoice->address_snapshot }}</p>
     <h2>{{ __('financial.ui.items_subtotal_heading') }}</h2>
     @foreach($invoice->items as $item)
-        <div class="line"><span dir="auto">{{ $item->description }} · <x-ltr>{{ $item->quantity }}</x-ltr> {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> × <x-ltr>{{ $item->quantity }}</x-ltr></span><strong><x-money :amount="$item->line_total" :currency="$invoice->currency->code" /></strong></div>
+        <div class="line"><span dir="auto">{{ $item->description }} · <x-decimal :value="$item->quantity" /> {{ $item->unit_name_snapshot }}</span><span><x-money :amount="$item->unit_price" /> × <x-decimal :value="$item->quantity" /></span><strong><x-money :amount="$item->line_total" :currency="$invoice->currency->code" /></strong></div>
     @endforeach
     <div class="totals">
         <div><span>{{ __('financial.ui.items_subtotal') }}</span><span><x-money :amount="$invoice->items_subtotal" /></span></div>

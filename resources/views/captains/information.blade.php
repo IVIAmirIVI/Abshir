@@ -13,6 +13,9 @@
                 <p class="w-full text-xs text-gray-600">{{ __('dashboard.timezone') }}</p>
                 @if($snapshot['globalBalances'])<p class="w-full text-xs text-gray-600">{{ __('captain_dashboard.filters_help') }}</p>@endif
             </form>
+            @if($orderHistory !== null)
+                @include('captains._order-history')
+            @endif
             @if($snapshot['financial'])
                 <section class="space-y-3" aria-labelledby="captain-current-balances">
                     <x-financial.account-guide />

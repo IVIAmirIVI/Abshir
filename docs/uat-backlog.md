@@ -120,3 +120,15 @@ Original phase mapping and precise gaps: `phase-alignment-u6.md`. Numbered miles
 - Unknown HTML conflict exception messages are not displayed. Existing translated evidence-integrity explanations remain visible; HTTP status and financial protections are unchanged.
 - Consolidated browser checks remain required at 375px/768px/1440px for labels/errors, checkbox groups, wrapped pagination, fee forms, approval buttons, existing PowerGrid sorting/filtering, modal/drawer keyboard navigation and long Arabic content. No browser acceptance claimed.
 - Intermittent Wizard state loss remains in the final browser backlog. Shared actual-payer returns/collected corrections and destructive demo-reset acceptance remain separate limitations, not new administration features.
+
+## Phase 9 clean V2 baseline — current consolidated acceptance
+
+The current [V2 UAT runbook](phase9-v2-uat-runbook.md) supersedes historical financial/accounting and disabled-service notes above. Stage B prepared abshir_uat_v2 with 85 migrations, preserved Captains 2/3 and zero balances. The application still uses abshir_uat; a separate owner-approved connection switch must precede browser financial writes. Do not repeat target import or migration.
+
+- **UAT-01 implemented / automated PASS:** money and relevant quantity displays trim only insignificant zeros (50.0000 -> 50, 1.2500 -> 1.25); exact inputs, stored values and financial authority remain unchanged. Inspect summary, Wizard, Workflow and Invoice print at 375px/768px/1440px, including genuine fractions, negatives and long values.
+- **UAT-03 implemented / automated PASS:** existing shared Wizard actions now cover inline creation, cancellation, delivery exception actions, disabled states and Next loading. Verify keyboard/touch targets, immediate Back/Next, validation and double-submit without changing the authoritative draft. The intermittent browser draft-loss concern remains unaccepted.
+- **UAT-06 implemented / build PASS:** scoped native file-control appearance preserves hidden inputs, Livewire progress, errors, MIME/limits and private authorized downloads. Verify actual mobile/desktop upload, long filename wrapping, disabled/focus states and existing evidence reuse; no visual/browser acceptance is inferred from CSS or PHP tests.
+- Verify the four persisted V2 financial scenarios and version binding after connection approval; no normal Order Deposit debit, no product costs in CASH Custody, no imaginary handover/payout, company-direct SHAM_CASH, immutable physical payer attribution and permission isolation.
+- Owner-approved off-system settlement remains outside normal Order UI. Existing supported single-Captain payouts stay distinct; shared payouts and collected V2 corrections/refunds remain guarded. A future attributed policy is needed only if the owner requires these blocked cases for first-release operation. Do not invent a settlement or refund workflow during UAT.
+
+No comprehensive browser UAT or full-suite rerun occurred in this implementation. Consolidated acceptance remains pending; no production readiness claim is made.
