@@ -96,11 +96,11 @@ class OrderCustomerAreaLocalizationTest extends TestCase
             ->assertDontSee(route('orders.shops.receipts.store', [$c['order'], $c['shop']]), false)
             ->assertDontSee('action="'.route('orders.cancel', $c['order']).'"', false)
             ->assertSee(route('orders.workflow', $c['order']), false)
-            ->assertSee('منتج Original')->assertSee('12.3400');
+            ->assertSee('منتج Original')->assertSee('12.34');
         $xpath = $this->xpath($show->getContent());
         $this->assertSame(1, $xpath->query('//bdi[@dir="ltr" and text()="'.$c['order']->order_number.'"]')->length);
         $this->assertGreaterThan(0, $xpath->query('//bdi[@dir="ltr" and text()="+963 944 123456"]')->length);
-        $this->assertGreaterThan(0, $xpath->query('//bdi[@dir="ltr" and text()="12.3400"]')->length);
+        $this->assertGreaterThan(0, $xpath->query('//bdi[@dir="ltr" and text()="12.34"]')->length);
         $this->assertSame('NEW', $c['order']->fresh()->operational_status->value);
         $this->assertSame('MANUAL', $c['order']->fresh()->source->value);
         $this->assertSame('12.3400', $c['item']->fresh()->estimated_unit_price);

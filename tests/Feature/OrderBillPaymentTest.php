@@ -739,7 +739,7 @@ SQL);
             'fee_tiers' => BillPaymentFeeRuleService::sypTiers(), 'effective_from' => now()->subDay()->toDateTimeString()])->assertSessionHasNoErrors()->assertRedirect();
         $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
         Livewire::actingAs($c['employee'])->test(BillPaymentFeePreview::class, ['order' => $c['order'], 'request' => $request])
-            ->set('principal', '1500')->assertSee('30.0000')->assertSee('1530.0000')->assertSee(__('bill_fees.total'))
+            ->set('principal', '1500')->assertSeeText('30 SYP')->assertSeeText('1530 SYP')->assertSee(__('bill_fees.total'))
             ->set('principal', '0')->assertDontSeeHtml('data-bill-fee-preview')
             ->set('principal', '300')->assertSee('320')->set('principal', '')->assertSee(__('bill_fees.enter_principal'));
         $other = User::factory()->create();

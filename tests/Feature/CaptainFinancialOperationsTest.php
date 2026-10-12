@@ -156,9 +156,9 @@ class CaptainFinancialOperationsTest extends TestCase
         $this->assertNotSame($branchB->id, $query['bindings'][$branchBindingPosition]);
 
         $this->actingAs($employee)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertSee('20.0000')->assertDontSee('30.0000');
+            ->assertSee('>20</bdi>', false)->assertDontSee('>30</bdi>', false);
         $this->actingAs($admin)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertSee('20.0000')->assertSee('30.0000');
+            ->assertSee('>20</bdi>', false)->assertSee('>30</bdi>', false);
         $adminRows = $balances->captainBalancesByBranch($captain, $currency, null);
         $this->assertEqualsCanonicalizing([$branchA->id, $branchB->id], array_map('intval', array_keys($adminRows)));
     }
@@ -219,9 +219,9 @@ class CaptainFinancialOperationsTest extends TestCase
         $captain->forceFill(['home_branch_id' => $new->id])->save();
 
         $this->actingAs($oldEmployee)->get(route('captain-financials.index'))->assertOk()->assertSee($captain->user->name);
-        $this->get(route('captains.financials.show', $captain))->assertOk()->assertSee($old->name)->assertSee('20.0000');
+        $this->get(route('captains.financials.show', $captain))->assertOk()->assertSee($old->name)->assertSee('>20</bdi>', false);
         $this->actingAs($newEmployee)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertDontSee($old->name)->assertDontSee('20.0000');
+            ->assertDontSee($old->name)->assertDontSee('>20</bdi>', false);
         $this->post(route('captains.financials.deposits.store', $captain), [
             'branch_id' => $old->id, 'currency_id' => $currency->id,
             'request_key' => (string) str()->uuid(), 'amount' => '10',
