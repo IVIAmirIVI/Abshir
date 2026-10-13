@@ -5,6 +5,7 @@ return [
     'dual_help' => 'Optional: reuse the image only when it proves both facts. Two separate records are saved; pickup is not recorded automatically.',
     'dual_saved' => 'Purchase evidence and Shop receipt saved from the same image.',
     'next' => 'Next available action',
+    'current_panel_help' => 'Complete this action in the open section below.',
     'waiting' => 'An authorized operator is required to complete the next action.',
     'items' => 'Add Shop products and record their actual purchase prices.',
     'purchase' => 'Record the Shop purchase and payment evidence.',

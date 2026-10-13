@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'accounting_v3_correction_blocked' => 'Collected V3 corrections require an approved, attributed refund and settlement policy; unsupported reversals are blocked.',
+    'accounting_v3_single_only' => 'V3 supports one Captain; shared settlement requires an approved policy.',
     'accounting_v2_correction_blocked' => 'Correcting a collected V2 Invoice requires an audited refund and settlement contract; the old Deposit correction cannot be reused.',
     'accounts' => [
         'CAPTAIN_DEPOSIT' => 'Captain operating funds held with Abshir',
@@ -53,6 +55,10 @@ return [
         'ORDER_CASH_DELIVERY_SHORTFALL_DUE' => 'Cash order delivery shortfall due',
         'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE' => 'Sham Cash order product reimbursement due',
         'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE' => 'Sham Cash order delivery entitlement due',
+        'ORDER_V3_CASH_COMPANY_SHARE_DEBIT' => 'V3: Company CASH delivery share debited to operating balance',
+        'ORDER_V3_CASH_SHORTFALL_DUE' => 'V3: Company-funded delivery shortfall due',
+        'ORDER_V3_SHAM_PRODUCT_REIMBURSEMENT_DUE' => 'V3: Unpaid Sham Cash product reimbursement due',
+        'ORDER_V3_SHAM_DELIVERY_ENTITLEMENT_DUE' => 'V3: Unpaid Sham Cash delivery entitlement due',
         'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED' => 'V2: Collected delivery fee held by Captain',
         'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE' => 'V2: Unpaid Sham Cash product reimbursement due',
         'ORDER_V2_DELIVERY_ENTITLEMENT_DUE' => 'V2: Unpaid Captain delivery entitlement due',

@@ -7,7 +7,7 @@
     </nav>
     <p wire:loading role="status" class="text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
     @if($this->selectedCustomer)<aside class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-stone-200 bg-white p-4 text-sm" data-wizard-selection-summary><span class="text-xs text-gray-500">{{ __('order_design.selected') }}</span><strong>{{ $this->selectedCustomer->name }}</strong><x-ltr>{{ $this->phones->firstWhere('id', $customerPhoneId)?->phone }}</x-ltr><span class="min-w-0 break-words">{{ $this->addresses->firstWhere('id', $customerAddressId)?->address_line_1 }}</span>@foreach($groups as $selectedGroup)<x-orders.indicator>{{ $selectedGroup['label'] }}</x-orders.indicator>@endforeach</aside>@endif
-    <x-input-error :messages="$errors->all()" role="alert" />
+    <x-input-error :messages="$step === 2 ? collect($errors->messages())->except('groups')->flatten()->all() : $errors->all()" role="alert" />
     @if(session('order-create-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-create-status') }}</p>@endif
     <div wire:key="wizard-step-{{ $step }}">
     @if($step === 1)

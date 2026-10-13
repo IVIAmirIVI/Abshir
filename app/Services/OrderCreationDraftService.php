@@ -47,7 +47,11 @@ class OrderCreationDraftService
         Gate::forUser($actor)->authorize('orders.update');
         $branch = Branch::query()->where('is_active', true)->findOrFail($branchId);
         abort_unless($actor->canAccessBranch($branch), 403);
-        Validator::make(['groups' => $groups], ['groups' => ['required', 'array', 'min:1', 'max:20']])->validate();
+        Validator::make(['groups' => $groups], ['groups' => ['required', 'array', 'min:1', 'max:20']], [
+            'groups.required' => __('orders.wizard.add_shop_required'),
+            'groups.min' => __('orders.wizard.add_shop_required'),
+            'groups.max' => __('orders.wizard.shop_limit'),
+        ], ['groups' => __('orders.wizard.steps.shops')])->validate();
         foreach ($groups as $key => $group) {
             $this->validateGroup($group, 'groups.'.$key);
         }
@@ -124,7 +128,18 @@ class OrderCreationDraftService
             'items.*.product_id' => ['nullable', 'required_if:items.*.item_type,CATALOG_ITEM', 'prohibited_if:items.*.item_type,ONE_TIME_ITEM', 'integer'],
             'items.*.item_name' => ['nullable', 'required_if:items.*.item_type,ONE_TIME_ITEM', 'prohibited_if:items.*.item_type,CATALOG_ITEM', 'string', 'max:255'],
         ];
-        $validator = Validator::make($group, $rules);
+        $validator = Validator::make($group, $rules, [
+            'items.required' => __('orders.wizard.add_product_required'),
+            'items.min' => __('orders.wizard.add_product_required'),
+        ], [
+            'shop_type' => __('orders.ui_shop_source'), 'shop_id' => __('orders.ui_registered_shop'),
+            'shop_name' => __('orders.ui_one_shop_name'), 'shop_phone' => __('orders.ui_one_phone'),
+            'shop_address' => __('orders.ui_one_address'), 'origin_area_id' => __('orders.ui_shop_area'),
+            'business_classification' => __('orders.ui_shop_classification'), 'items' => __('catalog.products'),
+            'items.*.item_type' => __('orders.ui_item_type'), 'items.*.unit_id' => __('common.terms.unit'),
+            'items.*.quantity' => __('orders.ui_quantity'), 'items.*.product_id' => __('common.terms.product'),
+            'items.*.item_name' => __('orders.ui_one_item_name'),
+        ]);
         if ($validator->fails()) {
             throw ValidationException::withMessages(collect($validator->errors()->messages())->mapWithKeys(fn ($messages, $field) => [$prefix.'.'.$field => $messages])->all());
         }

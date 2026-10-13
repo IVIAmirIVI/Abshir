@@ -12,10 +12,12 @@ use App\Models\Role;
 use App\Models\Shop;
 use App\Models\Unit;
 use App\Services\InvoiceService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\SharedPurchaseFixtures;
 use Tests\TestCase;
 
@@ -23,8 +25,10 @@ class SharedOrderWizardTest extends TestCase
 {
     use RefreshDatabase, SharedPurchaseFixtures;
 
-    public function test_two_captain_wizard_preserves_draft_prices_explicit_collector_and_replay(): void
+    #[DataProvider('accountingActivation')]
+    public function test_two_captain_wizard_preserves_draft_prices_explicit_collector_and_replay(bool $enabled): void
     {
+        config(['order_accounting.enable_v3_single_captain' => $enabled]);
         $c = $this->wizardContext();
         $component = $this->stepThree($c)->set('wizardCaptainIds', array_map('strval', array_column($c['captains'], 'id')))
             ->set('wizardCollectorId', (string) $c['captains'][1]->id)->call('nextStep')->assertHasNoErrors()->assertSet('step', 4);
@@ -38,6 +42,7 @@ class SharedOrderWizardTest extends TestCase
         $component->call('submit')->assertHasNoErrors();
         $order = Order::latest('id')->firstOrFail();
         $this->assertNotSame($c['order']->id, $order->id);
+        $this->assertSame(2, (int) $order->accounting_contract_version);
         $this->assertSame(2, $order->captainAssignments()->whereNull('removed_at')->count());
         $selection = $order->captainSelections()->sole();
         $this->assertSame($c['captains'][1]->id, $order->captainAssignments()->findOrFail($selection->collecting_order_captain_id)->captain_id);
@@ -134,8 +139,10 @@ class SharedOrderWizardTest extends TestCase
         $this->assertSame(2, $order->captainAssignments()->whereNull('removed_at')->count());
     }
 
-    public function test_primary_selector_automatically_binds_single_collector_and_persists_one_assignment(): void
+    #[DataProvider('accountingActivation')]
+    public function test_primary_selector_automatically_binds_single_collector_and_persists_one_assignment(bool $enabled): void
     {
+        config(['order_accounting.enable_v3_single_captain' => $enabled]);
         $c = $this->wizardContext();
         $id = (string) $c['captains'][0]->id;
         $component = $this->stepThree($c)->set('wizardCaptainIds.0', $id)
@@ -146,6 +153,7 @@ class SharedOrderWizardTest extends TestCase
         $component->call('goToStep', 2)->call('goToStep', 3)->call('nextStep')
             ->assertSet('groups', $groups)->assertSet('wizardCaptainIds', [$id])->call('submit')->assertHasNoErrors();
         $order = Order::latest('id')->firstOrFail();
+        $this->assertSame($enabled ? 3 : 2, (int) $order->accounting_contract_version);
         $this->assertSame($c['captains'][0]->id, $order->captainAssignments()->sole()->captain_id);
         $this->assertSame('PRIMARY_COLLECTION', $order->captainAssignments()->sole()->assignment_role->value);
         $this->assertSame(1, $order->currentDeliveryPricing->captain_count_snapshot);
@@ -204,6 +212,35 @@ class SharedOrderWizardTest extends TestCase
         $this->assertSame('10.0000', $order->currentDeliveryPricing->applied_unit_fee);
         $this->assertSame(1, $order->captainAssignments()->count());
         $this->assertSame(0, DeliveryFeeOverrideRequest::where('order_id', $order->id)->count());
+    }
+
+    public function test_override_only_captain_is_validated_before_v3_binding_without_duplicate_assignment(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-08T12:00:00Z'));
+        config(['order_accounting.enable_v3_single_captain' => true]);
+        $c = $this->wizardContext();
+        $c['actor'] = $c['admin'];
+        $component = $this->stepThree($c)->call('beginDeliveryOverride')->assertSet('wizardCaptainIds', [])
+            ->set('deliveryOverrideCaptainId', (string) $c['captains'][0]->id)
+            ->set('deliveryOverrideAmount', '12')->set('deliveryOverrideReason', 'Explicit single-Captain exception')
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 4);
+        $component->call('submit')->assertHasNoErrors();
+        $order = Order::latest('id')->firstOrFail();
+        $this->assertSame(3, (int) $order->accounting_contract_version);
+        $this->assertSame($c['captains'][0]->id, $order->captainAssignments()->sole()->captain_id);
+        $this->assertSame('SINGLE_V1', $order->captainSelections()->sole()->contract);
+        $this->assertSame('12.0000', $order->currentDeliveryPricing->applied_unit_fee);
+        $this->assertSame(1, DeliveryFeeOverrideRequest::where('order_id', $order->id)->count());
+        $before = Order::count();
+        $component->call('submit')->assertRedirect(route('orders.workflow', $order));
+        $this->assertSame($before, Order::count());
+        $this->assertSame(1, $order->captainAssignments()->count());
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public static function accountingActivation(): array
+    {
+        return ['disabled' => [false], 'enabled' => [true]];
     }
 
     private function wizardContext(): array

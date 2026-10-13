@@ -196,7 +196,8 @@ trait OverridesWizardDelivery
         if (! $this->deliveryOverrideEnabled) {
             return;
         }
-        if ($this->wizardCaptainIds === []) {
+        if ($this->wizardCaptainIds === [] && ! $order->captainAssignments()->whereNull('removed_at')
+            ->where('captain_id', $this->deliveryOverrideCaptainId)->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->exists()) {
             $this->domainAction(fn () => app(OrderCaptainService::class)->assign(auth()->user(), $order,
                 Captain::findOrFail($this->deliveryOverrideCaptainId), OrderCaptainRole::PrimaryCollection), ['captain_id' => 'deliveryOverrideCaptainId']);
         }

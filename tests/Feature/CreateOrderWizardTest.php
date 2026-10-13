@@ -37,6 +37,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class CreateOrderWizardTest extends TestCase
@@ -330,6 +331,67 @@ class CreateOrderWizardTest extends TestCase
         }
         $component->call('addDraftItem')->call('nextStep')->call('nextStep')->call('submit')->assertHasNoErrors();
         $this->assertSame(['1.0000', '4.0000'], Order::sole()->shops()->sole()->items()->orderBy('id')->pluck('current_quantity')->all());
+    }
+
+    #[DataProvider('wizardValidationLocales')]
+    public function test_selected_shop_requires_explicit_add_with_localized_inline_error_and_preserves_draft(string $locale): void
+    {
+        app()->setLocale($locale);
+        $c = $this->context();
+        $component = $this->start($c)->set('notes', 'Preserved draft')->call('nextStep')->assertSet('step', 2)
+            ->call('selectShop', $c['shop']->id)->set('quantity', '4');
+        $shopSearch = $component->get('shopSearch');
+        $message = __('orders.wizard.add_shop_required');
+        $component->call('nextStep')->assertHasErrors('groups')->assertSet('step', 2)
+            ->assertSet('shopId', (string) $c['shop']->id)->assertSet('shopSearch', $shopSearch)
+            ->assertSet('customerId', (string) $c['customer']->id)->assertSet('customerPhoneId', (string) $c['phone']->id)
+            ->assertSet('customerAddressId', (string) $c['address']->id)->assertSet('branchId', (string) $c['branch']->id)
+            ->assertSet('notes', 'Preserved draft')->assertSet('quantity', '4')->assertSet('groups', [])
+            ->assertSee($message)->assertSee(__('orders.wizard.shop_selected_not_added'))
+            ->assertSee('id="wizard-shop-add-error"', false)->assertDontSee('حقل groups مطلوب.')
+            ->assertDontSee('The groups field is required.');
+        $this->assertSame($message, $component->instance()->getErrorBag()->first('groups'));
+        $markup = new \DOMDocument;
+        @$markup->loadHTML('<?xml encoding="UTF-8">'.$component->html());
+        $xpath = new \DOMXPath($markup);
+        $this->assertSame(1, $xpath->query('//*[@data-wizard-shop-addition]//*[@id="wizard-shop-add-error"]')->length);
+        $component->call('addDraftShop')->assertHasNoErrors('groups')->assertDontSee('id="wizard-shop-add-error"', false);
+        $this->assertCount(1, $component->get('groups'));
+        $component->call('selectProduct', $c['product']->id)->call('addDraftItem')->call('nextStep')->assertHasNoErrors()->assertSet('step', 3);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('order_shops', 0);
+    }
+
+    #[DataProvider('wizardValidationLocales')]
+    public function test_empty_shop_products_have_localized_validation_without_internal_field_names(string $locale): void
+    {
+        app()->setLocale($locale);
+        $c = $this->context();
+        $component = $this->start($c)->call('nextStep')->call('selectShop', $c['shop']->id)->call('addDraftShop');
+        $groups = $component->get('groups');
+        $key = array_key_first($groups);
+        $component->call('nextStep')->assertSet('step', 2)->assertSet('groups', $groups)
+            ->assertHasErrors('groups.'.$key.'.items')->assertSee(__('orders.wizard.add_product_required'));
+        $this->assertSame(__('orders.wizard.add_product_required'), $component->instance()->getErrorBag()->first('groups.'.$key.'.items'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_pending_shop_does_not_invent_a_new_required_addition_rule_when_order_already_has_a_valid_shop(): void
+    {
+        $c = $this->context();
+        $component = $this->group($this->start($c)->call('nextStep'), $c);
+        $groups = $component->get('groups');
+        $other = Shop::create(['name' => 'Pending second shop', 'area_id' => $c['area']->id, 'business_classification' => 'SHOP']);
+        $component->call('selectShop', $other->id)->assertSee(__('orders.wizard.shop_selected_not_added'))
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 3)->assertSet('groups', $groups)
+            ->assertSet('shopId', (string) $other->id);
+        $this->assertCount(1, $component->get('groups'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public static function wizardValidationLocales(): array
+    {
+        return ['Arabic' => ['ar'], 'English' => ['en']];
     }
 
     public function test_step_validation_blocks_direct_skipping_and_submit_before_review(): void

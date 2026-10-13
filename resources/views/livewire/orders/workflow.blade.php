@@ -4,24 +4,36 @@
     @if(session('status'))<p role="status" class="rounded-lg bg-green-50 p-3">{{ session('status') }}</p>@endif
     @if($actionStatus)<p role="status" class="rounded-lg bg-green-50 p-3">{{ $actionStatus }}</p>@endif
     @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-3 text-red-800">@foreach($errors->all() as $error)<p>{{ $error }}</p>@endforeach</div>@endif
-    <x-orders.section id="workflow-overview" data-workflow-overview>
-        <header class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-xs font-semibold text-gray-500">{{ __('orders.workflow.title') }}</p><h2 class="mt-1 text-xl font-bold text-brand-primary"><x-ltr>{{ $order->order_number }}</x-ltr></h2></div><x-orders.indicator :tone="$workflow['exceptional'] ? 'blocked' : ($workflow['delivered'] ? 'complete' : 'neutral')">{{ \App\Support\UiLabels::label('orders.statuses', $order->operational_status) }}</x-orders.indicator></header>
-        <p class="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-600"><strong>{{ $order->customer_name_snapshot }}</strong><x-ltr>{{ $order->customer_phone_snapshot }}</x-ltr><span>{{ $order->branch->name }} · {{ $order->area_path_snapshot }}</span></p>
-        <div class="flex flex-wrap items-center gap-3"><a href="{{ route('orders.show', $order) }}" class="text-sm font-semibold text-brand-primary underline">{{ __('orders.workflow.summary') }}</a>@can('orders.create')<a href="{{ route('orders.create') }}" class="text-sm underline">{{ __('orders.workflow.create_another') }}</a>@endcan</div>
-        @if($workflow['primary'])<p class="rounded-lg bg-stone-50 p-3 text-sm"><span class="text-gray-600">{{ __('order_design.collector') }}:</span> <strong>{{ $workflow['primary']->captain?->user?->name }}</strong></p>@endif
-    </x-orders.section>
+    <section id="workflow-overview" class="workflow-overview" data-workflow-overview>
+        <header class="workflow-overview-heading"><div class="min-w-0"><p class="text-xs font-semibold text-gray-500">{{ __('orders.workflow.title') }}</p><h2 class="mt-1 break-words text-xl font-bold text-brand-primary"><x-ltr>{{ $order->order_number }}</x-ltr></h2></div><x-orders.indicator :tone="$workflow['exceptional'] ? 'blocked' : ($workflow['delivered'] ? 'complete' : 'neutral')">{{ \App\Support\UiLabels::label('orders.statuses', $order->operational_status) }}</x-orders.indicator></header>
+        <p class="workflow-overview-meta text-sm text-gray-600"><strong>{{ $order->customer_name_snapshot }}</strong><x-ltr>{{ $order->customer_phone_snapshot }}</x-ltr><span>{{ $order->branch->name }} · {{ $order->area_path_snapshot }}</span></p>
+        <div class="workflow-overview-footer">
+            @if($workflow['primary'])<p class="workflow-overview-collector text-sm"><span class="text-gray-600">{{ __('order_design.collector') }}:</span> <strong>{{ $workflow['primary']->captain?->user?->name }}</strong></p>@endif
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2"><a href="{{ route('orders.show', $order) }}" class="text-sm font-semibold text-brand-primary underline">{{ __('orders.workflow.summary') }}</a>@can('orders.create')<a href="{{ route('orders.create') }}" class="text-sm underline">{{ __('orders.workflow.create_another') }}</a>@endcan</div>
+        </div>
+    </section>
     <p wire:loading role="status" class="text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
     @if($action = $workflow['nextAction'])
-    <x-orders.section id="workflow-next-action" class="rounded-xl border-s-4 border-brand-primary" data-workflow-next-action="{{ $action['kind'] }}">
-        <h3 class="font-semibold">{{ __('order_execution.next') }}</h3>
-        @if(isset($action['shop_id']))<p class="text-sm">{{ $order->shops->firstWhere('id', $action['shop_id'])?->shop_name_snapshot }} · {{ __('order_execution.'.$action['kind']) }}</p>@endif
-        @if(!$action['allowed'])<p class="text-sm">{{ $workflow['transitionProblem'] ?? __('order_execution.waiting') }}</p>
-        @elseif($action['kind'] === 'status')
-            <p class="text-sm">{{ __('order_execution.status_explicit') }}</p>
+    <section id="workflow-next-action" class="workflow-next-action" aria-labelledby="workflow-next-action-title" data-workflow-next-action="{{ $action['kind'] }}">
+        <div class="workflow-next-action-copy">
+            <p class="workflow-next-action-label">{{ __('order_execution.next') }}</p>
+            <h3 id="workflow-next-action-title">{{ match($action['kind']) {
+                'status' => __('orders.workflow.transitions.'.$workflow['next']->value),
+                'items', 'purchase', 'receipt', 'pickup' => __('order_execution.'.$action['kind']),
+                'pricing' => __('orders.ui_create_pricing'),
+                default => __('orders.workflow.'.$action['panel']),
+            } }}</h3>
+            @if(isset($action['shop_id']))<p>{{ $order->shops->firstWhere('id', $action['shop_id'])?->shop_name_snapshot }}</p>@endif
+            @if(!$action['allowed'])<p>{{ $workflow['transitionProblem'] ?? __('order_execution.waiting') }}</p>
+            @elseif($action['kind'] === 'status')<p>{{ __('order_execution.status_explicit') }}</p>
+            @elseif($action['panel'] === $activePanel)<p>{{ __('order_execution.current_panel_help') }}</p>@endif
+        </div>
+        @if($action['allowed'])
+        @if($action['kind'] === 'status')
             <x-orders.action type="button" wire:click="advance" wire:loading.attr="disabled">{{ __('orders.workflow.transitions.'.$workflow['next']->value) }}</x-orders.action>
-        @elseif($action['panel'] !== $activePanel)<button type="button" wire:click="openStep('{{ $action['panel'] }}')" class="app-button rounded-lg bg-brand-primary px-4 py-2 font-semibold text-white">{{ __('orders.workflow.'.$action['panel']) }}</button>
-        @else<p class="text-sm">{{ __('orders.workflow.'.$action['panel']) }}</p>@endif
-    </x-orders.section>
+        @elseif($action['panel'] !== $activePanel)<x-orders.action type="button" wire:click="openStep('{{ $action['panel'] }}')">{{ __('orders.workflow.'.$action['panel']) }}</x-orders.action>@endif
+        @endif
+    </section>
     @endif
     <nav data-order-stepper aria-label="{{ __('orders.workflow.title') }}" class="grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4">
     @if($workflow['exceptional'])<span aria-current="step" class="rounded-lg bg-amber-50 p-3 font-semibold">{{ __('orders.workflow.exception') }}</span>@else

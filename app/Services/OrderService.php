@@ -20,7 +20,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderService
 {
-    public function create(User $actor, array $data): Order
+    public function create(User $actor, array $data, array $captainIds = [], ?int $collectorId = null, ?string $captainSelectionKey = null): Order
     {
         Gate::forUser($actor)->authorize('orders.create');
         $source = OrderSource::tryFrom((string) ($data['source'] ?? ''));
@@ -61,11 +61,22 @@ class OrderService
             throw ValidationException::withMessages(['customer_address_id' => __('domain.the_selected_address_is_outside_the_order_branch')]);
         }
 
-        return DB::transaction(function () use ($actor, $branch, $customer, $phone, $address, $data, $source, $entryMode, $orderedAt): Order {
-            $order = Order::query()->create(['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'destination_area_id' => $address->area_id, 'order_number' => 'PENDING-'.Str::uuid(), 'ordered_at' => $orderedAt, 'source' => $source, 'entry_mode' => $entryMode, 'operational_status' => OrderOperationalStatus::New, 'pricing_status' => OrderPricingStatus::Estimated, 'customer_name_snapshot' => $customer->name, 'customer_phone_snapshot' => $phone->phone, 'customer_phone_normalized_snapshot' => $phone->normalized_phone, 'address_label_snapshot' => $address->label, 'recipient_name_snapshot' => $address->recipient_name, 'area_name_snapshot' => $address->area->name, 'area_path_snapshot' => $address->area->path(), 'address_line_1_snapshot' => $address->address_line_1, 'address_line_2_snapshot' => $address->address_line_2, 'landmark_snapshot' => $address->landmark, 'latitude_snapshot' => $address->latitude, 'longitude_snapshot' => $address->longitude, 'notes' => $data['notes'] ?? null, 'created_by' => $actor->id]);
+        return DB::transaction(function () use ($actor, $branch, $customer, $phone, $address, $data, $source, $entryMode, $orderedAt, $captainIds, $collectorId, $captainSelectionKey): Order {
+            $selectionKey = $captainSelectionKey ?? (string) Str::uuid();
+            if ($captainIds !== [] || $collectorId !== null) {
+                $captainIds = app(OrderCaptainSelectionService::class)->validateForCreation($actor, $branch, $captainIds, $collectorId, $selectionKey);
+            }
+            $order = new Order(['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'destination_area_id' => $address->area_id, 'order_number' => 'PENDING-'.Str::uuid(), 'ordered_at' => $orderedAt, 'source' => $source, 'entry_mode' => $entryMode, 'operational_status' => OrderOperationalStatus::New, 'pricing_status' => OrderPricingStatus::Estimated, 'customer_name_snapshot' => $customer->name, 'customer_phone_snapshot' => $phone->phone, 'customer_phone_normalized_snapshot' => $phone->normalized_phone, 'address_label_snapshot' => $address->label, 'recipient_name_snapshot' => $address->recipient_name, 'area_name_snapshot' => $address->area->name, 'area_path_snapshot' => $address->area->path(), 'address_line_1_snapshot' => $address->address_line_1, 'address_line_2_snapshot' => $address->address_line_2, 'landmark_snapshot' => $address->landmark, 'latitude_snapshot' => $address->latitude, 'longitude_snapshot' => $address->longitude, 'notes' => $data['notes'] ?? null, 'created_by' => $actor->id]);
+            if (count($captainIds) === 1 && config('order_accounting.enable_v3_single_captain', false)) {
+                $order->forceFill(['accounting_contract_version' => 3]);
+            }
+            $order->save();
             $order->order_number = 'ORD-'.$order->ordered_at->format('Ymd').'-'.str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
             $order->save();
             $order->statusHistory()->create(['previous_status' => null, 'new_status' => OrderOperationalStatus::New, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => 'Order created']);
+            if ($captainIds !== []) {
+                app(OrderCaptainSelectionService::class)->select($actor, $order, $captainIds, $collectorId, $selectionKey);
+            }
 
             return $order;
         });

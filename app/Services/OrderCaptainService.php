@@ -51,6 +51,9 @@ class OrderCaptainService
 
         return DB::transaction(function () use ($actor, $order, $captain, $role): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 3 && $order->captainAssignments()->whereNull('removed_at')->exists()) {
+                throw ValidationException::withMessages(['captain_id' => __('financial.accounting_v3_single_only')]);
+            }
             $this->mutationGuard->assertMutableLocked($order);
             $this->assertLegacySelectionAllowed($order);
             if ($order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists()) {

@@ -289,6 +289,7 @@ class FinancialPostingService
             FinancialEventType::CaptainExpenseReimbursementDue->value,
             FinancialEventType::CaptainBenefitReversed->value,
             ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::accountingV2()),
+            ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::accountingV3()),
             ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived()),
             FinancialEventType::SharedInvoiceCashCustodyReceived->value,
             FinancialEventType::SharedOrderProductReimbursementDue->value,
@@ -394,6 +395,7 @@ class FinancialPostingService
         } elseif ($sourceType === 'INVOICE_COLLECTION'
             && in_array($eventType, [FinancialEventType::InvoiceCashCustodyReceived->value,
                 ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::accountingV2()),
+                ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::accountingV3()),
                 FinancialEventType::SharedInvoiceCashCustodyReceived->value, FinancialEventType::SharedOrderProductReimbursementDue->value, FinancialEventType::SharedOrderDeliveryEntitlementDue->value,
                 ...array_map(fn (FinancialEventType $type) => $type->value, FinancialEventType::correctedOrderDerived())], true)) {
             $orderId = DB::table('invoice_collections')->where('id', $id)->value('order_id');

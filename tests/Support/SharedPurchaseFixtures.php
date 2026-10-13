@@ -29,7 +29,7 @@ use Illuminate\Http\UploadedFile;
 
 trait SharedPurchaseFixtures
 {
-    protected function sharedContext(int $places = 2, int $count = 2): array
+    protected function sharedContext(int $places = 2, int $count = 2, bool $selectAtCreation = false): array
     {
         $this->seed(AuthorizationSeeder::class);
         $currency = Currency::create(['code' => strtoupper(str()->random(3)), 'name' => 'Test Currency', 'decimal_places' => $places]);
@@ -44,8 +44,18 @@ trait SharedPurchaseFixtures
         $actor->branches()->attach($branch);
         $admin = User::factory()->create();
         $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        $captains = [];
+        if ($selectAtCreation) {
+            for ($index = 0; $index < $count; $index++) {
+                $captain = Captain::create(['user_id' => User::factory()->create()->id, 'home_branch_id' => $branch->id,
+                    'operational_status' => CaptainOperationalStatus::Available]);
+                $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+                $captains[] = $captain;
+            }
+        }
         $order = app(OrderService::class)->create($actor, ['branch_id' => $branch->id, 'customer_id' => $customer->id,
-            'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE']);
+            'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE'],
+            $selectAtCreation ? array_column($captains, 'id') : [], $selectAtCreation ? $captains[0]->id : null);
         $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime,
             'business_classification_snapshot' => ShopBusinessClassification::Shop,
             'shop_name_snapshot' => 'Test shop', 'origin_area_id' => $from->id, 'sort_order' => 1]);
@@ -56,15 +66,19 @@ trait SharedPurchaseFixtures
             'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $actor->id]);
         app(OrderPricingService::class)->recalculate($order);
         $assignments = [];
-        $captains = [];
         for ($index = 0; $index < $count; $index++) {
-            $captain = Captain::create(['user_id' => User::factory()->create()->id, 'home_branch_id' => $branch->id,
-                'operational_status' => CaptainOperationalStatus::Available]);
-            $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
-            $assignments[] = app(OrderCaptainService::class)->assign($actor, $order, $captain,
-                $index === 0 ? OrderCaptainRole::PrimaryCollection : OrderCaptainRole::Support);
-            $assignments[$index]->update(['assigned_at' => now()->subMinutes(10)]);
-            $captains[] = $captain;
+            if ($selectAtCreation) {
+                $captain = $captains[$index];
+                $assignments[] = $order->captainAssignments()->where('captain_id', $captain->id)->sole();
+            } else {
+                $captain = Captain::create(['user_id' => User::factory()->create()->id, 'home_branch_id' => $branch->id,
+                    'operational_status' => CaptainOperationalStatus::Available]);
+                $captain->employmentPeriods()->create(['started_at' => now()->subMonth()]);
+                $assignments[] = app(OrderCaptainService::class)->assign($actor, $order, $captain,
+                    $index === 0 ? OrderCaptainRole::PrimaryCollection : OrderCaptainRole::Support);
+                $assignments[$index]->update(['assigned_at' => now()->subMinutes(10)]);
+                $captains[] = $captain;
+            }
         }
         app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
             'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value,

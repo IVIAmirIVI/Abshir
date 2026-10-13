@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'accounting_v3_correction_blocked' => 'تصحيح عقد V3 المحصّل يحتاج سياسة استرداد وتسوية معتمدة؛ لا يجوز عكس القيد دون مصدر موثّق.',
+    'accounting_v3_single_only' => 'عقد V3 يدعم كابتنًا واحدًا؛ تسوية الطلب المشترك تحتاج سياسة معتمدة.',
     'accounting_v2_correction_blocked' => 'تصحيح فاتورة محصّلة بعقد V2 يحتاج عقد استرداد وتسوية موثّقًا؛ لا يمكن استخدام تصحيح Deposit القديم.',
     'accounts' => [
         'CAPTAIN_DEPOSIT' => 'رصيد تشغيل الكابتن لدى أبشر',
@@ -53,6 +55,10 @@ return [
         'ORDER_CASH_DELIVERY_SHORTFALL_DUE' => 'مستحق نقص أجرة التوصيل للكابتن — طلب نقدي',
         'ORDER_SHAM_CASH_PRODUCT_REIMBURSEMENT_DUE' => 'مستحق تعويض مشتريات طلب شام كاش',
         'ORDER_SHAM_CASH_DELIVERY_ENTITLEMENT_DUE' => 'مستحق توصيل طلب شام كاش',
+        'ORDER_V3_CASH_COMPANY_SHARE_DEBIT' => 'V3: حسم حصة أبشر من التوصيل النقدي من الرصيد التشغيلي',
+        'ORDER_V3_CASH_SHORTFALL_DUE' => 'V3: مستحق عجز التوصيل الذي تتحمله أبشر',
+        'ORDER_V3_SHAM_PRODUCT_REIMBURSEMENT_DUE' => 'V3: مستحق تعويض مشتريات شام كاش غير مدفوع',
+        'ORDER_V3_SHAM_DELIVERY_ENTITLEMENT_DUE' => 'V3: مستحق توصيل شام كاش غير مدفوع',
         'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED' => 'V2: أجرة التوصيل المحصّلة في عهدة الكابتن',
         'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE' => 'V2: مستحق تعويض مشتريات شام كاش غير مدفوع',
         'ORDER_V2_DELIVERY_ENTITLEMENT_DUE' => 'V2: مستحق توصيل الكابتن غير مدفوع',

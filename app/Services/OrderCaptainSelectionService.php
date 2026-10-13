@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\OrderCaptainRole;
+use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptainSelection;
@@ -16,22 +17,27 @@ use Illuminate\Validation\ValidationException;
 /** Explicit participant/collector intent; historical legacy assignments are never converted automatically. */
 class OrderCaptainSelectionService
 {
+    /** Validate and lock real participants before the Order's immutable contract is bound. */
+    public function validateForCreation(User $actor, Branch $branch, array $captainIds, ?int $collectorId, string $requestKey): array
+    {
+        Gate::forUser($actor)->authorize('orders.captains.assign');
+        abort_unless($actor->canAccessBranch($branch), 403);
+        $ids = $this->validatedIds($captainIds, $collectorId, $requestKey, null);
+        Captain::query()->whereIn('id', $ids)->orderBy('id')->lock('FOR NO KEY UPDATE')->get();
+        $eligible = app(OrderCaptainService::class)->eligibleForBranch($actor, $branch)->pluck('id')->all();
+        if (array_diff($ids, $eligible)) {
+            throw ValidationException::withMessages(['captains' => __('domain.captain_is_not_currently_eligible_for_this_order_branch')]);
+        }
+
+        return $ids;
+    }
+
     public function select(User $actor, Order $order, array $captainIds, int $collectorId, string $requestKey, ?string $reason = null): OrderCaptainSelection
     {
         Gate::forUser($actor)->authorize('orders.captains.assign');
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
-        Validator::make(['captains' => $captainIds, 'collector' => $collectorId, 'key' => $requestKey, 'reason' => $reason], [
-            'captains' => ['required', 'array', 'min:1', 'max:2'], 'captains.*' => ['required', 'integer', 'distinct'],
-            'collector' => ['required', 'integer'], 'key' => ['required', 'uuid'], 'reason' => ['nullable', 'string', 'max:1000'],
-        ])->validate();
+        $ids = $this->validatedIds($captainIds, $collectorId, $requestKey, $reason);
         $requestKey = strtolower($requestKey);
-        $ids = collect($captainIds)->map(fn ($id) => (int) $id)->sort()->values()->all();
-        if (! in_array($collectorId, $ids, true)) {
-            throw ValidationException::withMessages(['collector' => __('shared_orders.collector_participant')]);
-        }
-        if (! Schema::hasTable('order_captain_selections')) {
-            throw ValidationException::withMessages(['captains' => __('shared_orders.activation_required')]);
-        }
 
         return DB::transaction(function () use ($actor, $order, $ids, $collectorId, $requestKey, $reason) {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
@@ -49,6 +55,9 @@ class OrderCaptainSelectionService
                 }
 
                 return $existing;
+            }
+            if ((int) $order->accounting_contract_version === 3 && count($ids) !== 1) {
+                throw ValidationException::withMessages(['captains' => __('financial.accounting_v3_single_only')]);
             }
             app(OrderMutationGuard::class)->assertMutableLocked($order);
             // Physical sources already identify their payers/collector. No reassignment without a reviewed reversal.
@@ -95,5 +104,22 @@ class OrderCaptainSelectionService
 
             return $selection->fresh();
         });
+    }
+
+    private function validatedIds(array $captainIds, ?int $collectorId, string $requestKey, ?string $reason): array
+    {
+        Validator::make(['captains' => $captainIds, 'collector' => $collectorId, 'key' => $requestKey, 'reason' => $reason], [
+            'captains' => ['required', 'array', 'min:1', 'max:2'], 'captains.*' => ['required', 'integer', 'distinct'],
+            'collector' => ['required', 'integer'], 'key' => ['required', 'uuid'], 'reason' => ['nullable', 'string', 'max:1000'],
+        ])->validate();
+        $ids = collect($captainIds)->map(fn ($id) => (int) $id)->sort()->values()->all();
+        if (! in_array($collectorId, $ids, true)) {
+            throw ValidationException::withMessages(['collector' => __('shared_orders.collector_participant')]);
+        }
+        if (! Schema::hasTable('order_captain_selections')) {
+            throw ValidationException::withMessages(['captains' => __('shared_orders.activation_required')]);
+        }
+
+        return $ids;
     }
 }

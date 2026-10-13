@@ -396,12 +396,17 @@ class CreateOrder extends Component
             $data = $this->validate();
             $draftValidated = true;
             $order = DB::transaction(function () use ($orders, $data) {
+                $overrideOnlyCaptain = $this->wizardCaptainIds === [] && $this->deliveryOverrideEnabled;
+                $creationCaptainIds = $overrideOnlyCaptain ? [$this->deliveryOverrideCaptainId] : $this->wizardCaptainIds;
+                $creationCollectorId = $overrideOnlyCaptain ? $this->deliveryOverrideCaptainId : $this->wizardCollectorId;
                 $order = $this->domainAction(fn () => $orders->create(auth()->user(), [
                     'branch_id' => $data['branchId'], 'customer_id' => $data['customerId'],
                     'customer_phone_id' => $data['customerPhoneId'], 'customer_address_id' => $data['customerAddressId'],
                     'source' => $data['source'], 'entry_mode' => $data['entryMode'],
                     'ordered_at' => $data['orderedAt'] ?: null, 'notes' => $data['notes'] ?: null,
-                ]));
+                ], $creationCaptainIds, filled($creationCollectorId) ? (int) $creationCollectorId : null, $this->submissionKey),
+                    ['captains' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCaptainIds',
+                        'collector' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCollectorId']);
                 foreach ($this->groups as $group) {
                     $shop = app(OrderShopService::class)->add(auth()->user(), $order, Arr::only($group, [
                         'shop_type', 'shop_id', 'shop_name', 'shop_phone', 'shop_address', 'origin_area_id', 'business_classification',

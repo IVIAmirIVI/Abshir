@@ -28,7 +28,12 @@
             <label>{{ __('orders.ui_shop_classification') }}<select aria-invalid="{{ $errors->has('businessClassification') ? 'true' : 'false' }}" wire:model="businessClassification" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach(\App\Enums\ShopBusinessClassification::cases() as $class)<option value="{{ $class->value }}">{{ \App\Support\UiLabels::label('orders.shop_classifications', $class) }}</option>@endforeach</select></label>
         @endif
     </div>
-    <button type="button" wire:click="addDraftShop" wire:loading.attr="disabled" class="rounded-lg border border-brand-primary px-4 py-2 text-sm font-semibold text-brand-primary">{{ __('orders.wizard.add_group') }}</button>
+    @php($pendingShop = ($shopType === 'REGISTERED' && filled($shopId)) || ($shopType === 'ONE_TIME' && filled($shopName)))
+    <div @class(['wizard-shop-addition rounded-xl p-3', 'border border-amber-200 bg-amber-50' => $pendingShop || $errors->has('groups')]) data-wizard-shop-addition>
+        @if($pendingShop)<p id="wizard-shop-add-hint" class="mb-3 text-sm font-medium text-amber-900">{{ __('orders.wizard.shop_selected_not_added') }}</p>@endif
+        <x-orders.action type="button" wire:click="addDraftShop" wire:loading.attr="disabled" aria-describedby="{{ trim(($pendingShop ? 'wizard-shop-add-hint ' : '').($errors->has('groups') ? 'wizard-shop-add-error' : '')) }}">{{ __('orders.wizard.add_group') }}</x-orders.action>
+        @error('groups')<p id="wizard-shop-add-error" role="alert" class="mt-3 text-sm font-medium text-red-700">{{ $message }}</p>@enderror
+    </div>
     <p class="text-xs text-gray-500">{{ __('orders.ui_search_selection_hint') }}</p>
     @foreach($groups as $key => $group)
         <article wire:key="draft-shop-{{ $key }}" class="min-w-0 rounded-xl border p-4 {{ $activeGroup === $key ? 'border-brand-primary' : 'border-gray-200' }}">

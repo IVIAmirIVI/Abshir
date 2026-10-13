@@ -305,6 +305,7 @@ trait CreatesOrderWizard
         ];
         $this->editGroup($key);
         $this->reset('shopId', 'shopSearch', 'shopName', 'shopPhone', 'shopAddress', 'businessClassification');
+        $this->resetValidation('groups');
     }
 
     public function updatedShopType(): void
