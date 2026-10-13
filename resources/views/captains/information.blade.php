@@ -2,6 +2,7 @@
     <x-slot name="header"><h2 class="text-xl font-semibold break-words">{{ __('captain_dashboard.title') }}</h2></x-slot>
     <x-management.page class="financial-ui">
         <div data-captain-information class="min-w-0 space-y-6">
+            @if($snapshot['selfView'])<a class="btn btn-primary" href="{{ route('captain.portal') }}">{{ __('captain_portal.title') }}</a>@endif
             <header class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0"><h1 class="text-2xl font-bold break-words">{{ $captain->user->name }}</h1><p class="mt-2 text-sm text-gray-600">{{ __($snapshot['selfView'] ? 'captain_dashboard.self_read_only' : 'captain_dashboard.read_only') }}</p></div>
                 @unless($snapshot['selfView'])<a class="btn btn-ghost max-w-full whitespace-normal" href="{{ route('captains.show', $captain) }}">{{ __('captain_dashboard.profile') }}</a>@endunless

@@ -16,6 +16,11 @@ use Illuminate\Support\Facades\Gate;
 
 class CaptainOrderHistoryQuery
 {
+    public static function sharedParticipationSql(): string
+    {
+        return "EXISTS (SELECT 1 FROM order_captains a JOIN order_captains b ON b.order_id=a.order_id AND b.id>a.id AND b.captain_id<>a.captain_id WHERE a.order_id=orders.id AND a.assigned_at<COALESCE(b.removed_at,'infinity'::timestamptz) AND b.assigned_at<COALESCE(a.removed_at,'infinity'::timestamptz))";
+    }
+
     /** Historical participation, including removed assignments, without widening Order-detail access. */
     public function listing(User $actor, Captain $captain, array $filters = [], bool $selfView = false): array
     {
@@ -56,7 +61,7 @@ class CaptainOrderHistoryQuery
         }
 
         // Simultaneous participation, not the count of all historical replacements.
-        $shared = "EXISTS (SELECT 1 FROM order_captains a JOIN order_captains b ON b.order_id=a.order_id AND b.id>a.id AND b.captain_id<>a.captain_id WHERE a.order_id=orders.id AND a.assigned_at<COALESCE(b.removed_at,'infinity'::timestamptz) AND b.assigned_at<COALESCE(a.removed_at,'infinity'::timestamptz))";
+        $shared = self::sharedParticipationSql();
         $orders->selectRaw($shared.' AS history_shared');
         if (filled($filters['orders_kind'] ?? null)) {
             $orders->whereRaw(($filters['orders_kind'] === 'single' ? 'NOT ' : '').$shared);

@@ -17,6 +17,7 @@ use App\Http\Controllers\CaptainFinancialController;
 use App\Http\Controllers\CaptainGroupController;
 use App\Http\Controllers\CaptainGroupMembershipController;
 use App\Http\Controllers\CaptainInformationController;
+use App\Http\Controllers\CaptainPortalController;
 use App\Http\Controllers\CaptainReceivableRecoveryController;
 use App\Http\Controllers\CaptainStatusController;
 use App\Http\Controllers\CategoryController;
@@ -64,6 +65,8 @@ Route::get('/dashboard', DashboardController::class)
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/captain-portal', [CaptainPortalController::class, 'index'])->name('captain.portal');
+    Route::get('/captain-portal/orders/{order}', [CaptainPortalController::class, 'show'])->whereNumber('order')->name('captain.portal.orders.show');
     Route::get('/reports', ManagementReportController::class)->name('reports.index');
     Route::get('/reports/{type}/csv', [ManagementReportController::class, 'export'])->name('reports.export');
     Route::get('/reports/{type}', [ManagementReportController::class, 'detail'])->name('reports.detail');
@@ -78,6 +81,13 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+// Existing web session authentication and active-user checks; disabled by default in the controller.
+Route::middleware(['auth:web', 'throttle:60,1'])->prefix('api/v1')->name('api.v1.')->group(function () {
+    Route::get('me', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'me'])->name('me');
+    Route::get('captain/orders', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'index'])->name('captain.orders.index');
+    Route::get('captain/orders/{order}', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'show'])->whereNumber('order')->name('captain.orders.show');
+});
 
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('security-audit', [SecurityAuditController::class, 'index'])->name('security-audit.index');

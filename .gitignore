@@ -5,6 +5,7 @@
 .env.production
 .env.*
 !.env.example
+!.env.production.example
 /.vite/
 /.vite-temp/
 vite.config.*.timestamp-*
