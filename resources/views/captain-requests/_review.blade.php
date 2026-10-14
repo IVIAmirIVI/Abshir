@@ -20,6 +20,7 @@
             @csrf
             <input type="hidden" name="request_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
             <input type="hidden" name="action" value="{{ $action }}">
+            @if($action === 'REVERSE')<p class="max-w-prose text-sm leading-6 text-gray-600">{{ __('captain_requests.reverse_help') }}</p>@endif
             @if(in_array($action, ['REJECT','REVERSE'], true))
                 <label class="block">{{ __('captain_requests.review_reason') }}<textarea name="reason" required maxlength="2000" class="textarea textarea-bordered block w-full"></textarea></label>
             @endif

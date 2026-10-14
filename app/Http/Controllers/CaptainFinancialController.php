@@ -81,7 +81,7 @@ class CaptainFinancialController extends Controller
                     ->with(['branch', 'currency', 'receivedBy'])->latest('id')->limit(30)->get() : collect(),
             'payouts' => $request->user()->can('captain_receivable_payouts.view')
                 ? CaptainReceivablePayout::query()->where('captain_id', $captain->id)->whereIn('branch_id', $branchIds)
-                    ->with(['branch', 'currency', 'paidBy', 'receivedBy', 'allocations'])->latest('id')->limit(30)->get() : collect(),
+                    ->with(['branch', 'currency', 'paidBy', 'receivedBy', 'allocations.financialEntry.transaction'])->latest('id')->limit(30)->get() : collect(),
         ]);
     }
 

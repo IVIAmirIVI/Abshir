@@ -15,7 +15,8 @@ return [
     'received_by' => 'Actual receiver',
     'review_history' => 'Submission, decision and reversal history',
     'review_reason' => 'Documented decision reason',
-    'open_payout' => 'Open source-attributed payout',
+    'open_payout' => 'Pay this entitlement',
+    'reverse_help' => 'Removes this entire entitlement from unpaid receivables without a payout or a change to operating funds or company cash held by the Captain. The request and approval remain in history, with a separate reversal transaction. Only an authorized reviewer may act, before any part is paid and before a previous reversal. A reason is required for the audit history.',
     'states' => [
         'PROPOSED' => 'Proposed — Unapproved draft',
         'PENDING' => 'Pending approval',
@@ -31,7 +32,7 @@ return [
         'APPROVE' => 'Approve and accrue (without payment)',
         'REJECT' => 'Reject request',
         'CANCEL' => 'Cancel unapproved request',
-        'REVERSE' => 'Reverse unpaid entitlement',
+        'REVERSE' => 'Cancel unpaid entitlement',
     ],
     'methods' => [
         'CASH' => 'Cash',

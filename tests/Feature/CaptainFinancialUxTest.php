@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Enums\FinancialAccountKind;
 use App\Models\Branch;
+use App\Models\Captain;
 use App\Models\CaptainReceivablePayout;
 use App\Models\FinancialTransaction;
 use App\Services\CaptainBenefitRequestService;
+use App\Services\CaptainBenefitReviewService;
 use App\Services\CaptainDepositReceiptService;
 use App\Services\FinancialBalanceQueryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,6 +109,59 @@ class CaptainFinancialUxTest extends TestCase
         $this->actingAs($c['employee'])->post($endpoint, $data)->assertForbidden();
         $this->assertDatabaseCount('captain_receivable_payouts', 0);
         $this->assertSame('200.0000', $this->balance($c, FinancialAccountKind::CaptainCompanyReceivable));
+    }
+
+    public function test_empty_payables_show_history_link_without_a_payment_form_for_each_captain(): void
+    {
+        $c = $this->benefitContext();
+        foreach ([$c['reviewer'], $c['employee']] as $actor) {
+            $this->actingAs($actor)->get(route('captains.financials.show', [$c['captain'], 'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id]))
+                ->assertOk()->assertSee(__('financial.ui.no_payable_entitlements'))
+                ->assertSee('href="#captain-payout-history"', false)->assertDontSee('data-captain-payout', false);
+        }
+        $other = Captain::factory()->create(['home_branch_id' => $c['branch']->id]);
+        $this->actingAs($c['reviewer'])->get(route('captains.financials.show', [$other, 'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id]))
+            ->assertOk()->assertSee($other->user->name)->assertSee(__('financial.ui.no_payable_entitlements'))
+            ->assertDontSee('data-captain-payout', false)->assertDontSee($c['captain']->user->name);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_unpaid_approved_request_has_contextual_cancellation_but_partial_and_full_payouts_do_not(): void
+    {
+        $c = $this->approvedBonus('200');
+        $entry = FinancialTransaction::sole()->entries()->sole();
+        $url = route('captains.requests.show', [$c['captain'], $c['proposal']]);
+        $this->actingAs($c['reviewer'])->get($url)->assertOk()
+            ->assertSee(__('captain_requests.actions.REVERSE'))->assertSee(__('captain_requests.reverse_help'))
+            ->assertSee('name="reason" required', false);
+        $this->actingAs($c['employee'])->get($url)->assertOk()->assertDontSee('value="REVERSE"', false);
+        $this->actingAs($c['reviewer'])->post(route('captains.requests.review', [$c['captain'], $c['proposal']]), [
+            'request_key' => (string) Str::uuid(), 'action' => 'REVERSE',
+        ])->assertSessionHasErrors('reason');
+        $endpoint = route('captains.financials.payouts.store', $c['captain']);
+        $this->post($endpoint, $this->payout($c, [$entry->id => '50'], '50'))->assertSessionHasNoErrors();
+        $this->get($url)->assertOk()->assertSee(__('captain_requests.paid_reversal_blocked'))->assertDontSee('value="REVERSE"', false);
+        $this->post($endpoint, $this->payout($c, [$entry->id => '150'], '150'))->assertSessionHasNoErrors();
+        $this->get($url)->assertOk()->assertSee(__('captain_requests.states.FULLY_PAID'))->assertDontSee('value="REVERSE"', false);
+        $this->assertSame('FULLY_PAID', app(CaptainBenefitReviewService::class)->summary($c['proposal'])['state']);
+    }
+
+    public function test_expense_and_bonus_payout_history_use_actual_source_types_and_keep_ids_in_details(): void
+    {
+        $c = $this->benefitContext('EXPENSE', evidence: true);
+        $this->benefitAction($c, 'SUBMIT');
+        $this->benefitAction($c, 'APPROVE');
+        $entry = FinancialTransaction::sole()->entries()->sole();
+        $url = route('captains.financials.show', [$c['captain'], 'branch_id' => $c['branch']->id, 'currency_id' => $c['currency']->id]);
+        $response = $this->actingAs($c['reviewer'])->get($url)->assertOk()->assertSee(__('financial.ui.approved_expense'));
+        $dom = new \DOMDocument;
+        @$dom->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($dom);
+        $this->assertSame(1, $xpath->query('//article[@data-payout-source]//details')->length);
+        $this->assertStringNotContainsString('#'.$entry->id, $xpath->query('//article[@data-payout-source]/h4')->item(0)->textContent);
+        $this->post(route('captains.financials.payouts.store', $c['captain']), $this->payout($c, [$entry->id => '20'], '20'))->assertSessionHasNoErrors();
+        $this->get($url)->assertOk()->assertSee(__('financial.ui.expense_payout'))->assertDontSee(__('financial.ui.bonus_payout'))
+            ->assertSee(__('financial.ui.no_payable_entitlements'))->assertDontSee('data-captain-payout', false);
     }
 
     private function approvedBonus(string $amount): array
