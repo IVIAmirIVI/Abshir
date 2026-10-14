@@ -32,6 +32,42 @@ class CaptainBenefitApprovalTest extends TestCase
 {
     use CaptainBenefitFixtures, RefreshDatabase;
 
+    #[DataProvider('kinds')]
+    public function test_employee_proposes_and_submits_then_other_admin_approves_once_without_payout(string $kind): void
+    {
+        $c = $this->benefitContext($kind, $kind === 'EXPENSE', true);
+        $this->assertSame('abshir_testing', DB::scalar('SELECT current_database()'));
+        $this->assertFalse($c['creator']->can('captains.update'));
+        $this->assertFalse($c['creator']->can('captain_bonuses.approve'));
+        $this->assertFalse($c['creator']->can('captain_expenses.approve'));
+        $url = route('captains.requests.review', [$c['captain'], $c['proposal']]);
+        $submit = ['request_key' => (string) Str::uuid(), 'action' => 'SUBMIT'];
+        $this->actingAs($c['creator'])->get(route('captains.requests.show', [$c['captain'], $c['proposal']]))
+            ->assertOk()->assertSee(__('captain_requests.actions.SUBMIT'));
+        $this->post($url, $submit)->assertSessionHasNoErrors()->assertRedirect();
+        $this->post($url, $submit)->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertDatabaseCount('financial_entries', 0);
+        $this->assertSame(1, $c['proposal']->reviews()->where('action', 'SUBMIT')->count());
+        $approval = ['request_key' => (string) Str::uuid(), 'action' => 'APPROVE'];
+        $this->post($url, $approval)->assertForbidden();
+        $this->post($url, array_replace($approval, ['action' => 'REJECT', 'reason' => 'Unauthorized']))->assertForbidden();
+        $selfReviewer = Role::create(['code' => 'SELF_REVIEW_TEST', 'name' => 'Specific review permission']);
+        $selfReviewer->permissions()->attach(Permission::where('code', app(CaptainBenefitReviewService::class)->permission($c['proposal']))->sole());
+        $c['creator']->roles()->attach($selfReviewer);
+        $this->post($url, $approval)->assertSessionHasErrors('proposal');
+        $this->actingAs($c['reviewer'])->post($url, $approval)->assertSessionHasNoErrors()->assertRedirect();
+        $this->post($url, $approval)->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertDatabaseCount('financial_transactions', 1);
+        $this->assertDatabaseCount('financial_entries', 1);
+        $transaction = FinancialTransaction::sole();
+        $this->assertSame($kind === 'BONUS' ? 'CAPTAIN_BONUS_DUE' : 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE', $transaction->event_type);
+        $this->assertSame('20.0000', $transaction->entries()->sole()->amount);
+        $this->assertSame($c['branch']->id, $transaction->branch_id);
+        $this->assertSame('APPROVED_UNPAID', app(CaptainBenefitReviewService::class)->summary($c['proposal'])['state']);
+        $this->assertDatabaseCount('captain_receivable_payouts', 0);
+    }
+
     public function test_permissions_self_approval_branch_and_nested_tampering_are_blocked(): void
     {
         $c = $this->benefitContext();
@@ -63,6 +99,36 @@ class CaptainBenefitApprovalTest extends TestCase
         $this->actingAs($other['reviewer'])->post(route('captains.requests.review', [$other['captain'], $other['proposal']]),
             array_replace($data, ['request_key' => (string) Str::uuid()]))->assertSessionHasErrors('proposal');
         $this->assertSame(1, FinancialTransaction::count());
+    }
+
+    public function test_sql_submission_requires_specific_permission_instead_of_general_captain_editing(): void
+    {
+        $c = $this->benefitContext();
+        $editor = User::factory()->create();
+        $role = Role::create(['code' => 'CAPTAIN_EDITOR_ONLY', 'name' => 'General Captain editor']);
+        $role->permissions()->attach(Permission::whereIn('code', ['captains.view', 'captains.update'])->pluck('id'));
+        $editor->roles()->attach($role);
+        $editor->branches()->attach($c['branch']);
+        $data = ['action' => 'SUBMIT', 'request_key' => (string) Str::uuid(), 'request_hash' => str_repeat('a', 64), 'recorded_at' => now()];
+        $this->assertThrows(fn () => DB::transaction(fn () => $c['proposal']->reviews()->create($data + ['actor_id' => $editor->id])), QueryException::class);
+        $c['proposal']->reviews()->create($data + ['actor_id' => $c['employee']->id]);
+        $this->assertSame(1, $c['proposal']->reviews()->count());
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_forward_permission_migration_changes_only_submission_and_keeps_trigger_installation(): void
+    {
+        $this->assertSame('abshir_testing', DB::scalar('SELECT current_database()'));
+        $definition = DB::scalar("SELECT pg_get_functiondef('guard_benefit_review()'::regprocedure)");
+        $new = "permission:=CASE WHEN NEW.action='SUBMIT' THEN CASE WHEN p.kind='BONUS' THEN 'captain_bonuses.submit' ELSE 'captain_expenses.submit' END\n        WHEN NEW.action='CANCEL' THEN 'captains.update'";
+        $old = "permission:=CASE WHEN NEW.action IN ('SUBMIT','CANCEL') THEN 'captains.update'";
+        $this->assertSame(1, substr_count($definition, $new));
+        $triggers = DB::select("SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid='captain_benefit_reviews'::regclass ORDER BY tgname");
+        DB::unprepared(str_replace($new, $old, $definition));
+        $migration = require database_path('migrations/2026_10_14_151843_align_captain_benefit_submission_permissions.php');
+        $migration->up();
+        $this->assertSame($definition, DB::scalar("SELECT pg_get_functiondef('guard_benefit_review()'::regprocedure)"));
+        $this->assertEquals($triggers, DB::select("SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid='captain_benefit_reviews'::regclass ORDER BY tgname"));
     }
 
     public function test_creator_cannot_bypass_self_approval_using_direct_sql(): void

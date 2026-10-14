@@ -13,16 +13,17 @@
             @can('shop_partnerships.create')
                 <x-orders.section id="partnership-commission-draft-create">
                     <h3 class="font-bold">{{ __('commissions.new_draft') }}</h3>
-                    <form method="POST" action="{{ route('shops.partnerships.commissions.store', [$shop, $partnership]) }}" class="grid gap-4 sm:grid-cols-2" x-data="{ target: '{{ old('product_group_id') ? 'group' : (old('method') && !old('product_id') ? 'shop' : 'product') }}'">
+                    <form method="POST" action="{{ route('shops.partnerships.commissions.store', [$shop, $partnership]) }}" class="grid gap-4 sm:grid-cols-2" x-data="{ target: @js(old('scope', old('product_group_id') ? 'group' : (old('method') && !old('product_id') ? 'shop' : 'product'))), product: @js((string) old('product_id', '')), group: @js((string) old('product_group_id', '')) }">
                         @csrf
-                        <label class="block text-sm">{{ __('commissions.target') }}<select class="mt-1 w-full" x-model="target"><option value="product">{{ __('commissions.product') }}</option><option value="group">{{ __('commissions.group') }}</option>@if($agreementsInstalled)<option value="shop">{{ __('commissions.shop') }}</option>@endif</select></label>
+                        <label class="block text-sm">{{ __('commissions.target') }}<select name="scope" class="mt-1 w-full" x-model="target" @change="product = ''; group = ''"><option value="product">{{ __('commissions.product') }}</option><option value="group">{{ __('commissions.group') }}</option>@if($agreementsInstalled)<option value="shop">{{ __('commissions.shop') }}</option>@endif</select></label>
                         <label class="block text-sm">{{ __('commissions.currency') }}<select name="currency_id" @required($agreementsInstalled) class="mt-1 w-full"><option value="">{{ __('commissions.unspecified_currency') }}</option>@foreach($currencies as $currency)<option value="{{ $currency->id }}" @selected((string) old('currency_id') === (string) $currency->id)>{{ $currency->code }}</option>@endforeach</select></label>
-                        <label class="block text-sm sm:col-span-2" x-show="target === 'product'">{{ __('commissions.product') }}<select name="product_id" :disabled="target !== 'product'" :required="target === 'product'" class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($products as $product)<option value="{{ $product->id }}" @selected((string) old('product_id') === (string) $product->id)>{{ $product->name }}</option>@endforeach</select></label>
-                        <label class="block text-sm sm:col-span-2" x-show="target === 'group'" x-cloak>{{ __('commissions.group') }}<select name="product_group_id" disabled :disabled="target !== 'group'" :required="target === 'group'" class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($groups as $group)<option value="{{ $group->id }}" @selected((string) old('product_group_id') === (string) $group->id)>{{ $group->name }}</option>@endforeach</select></label>
-                        <p class="text-xs text-gray-600 sm:col-span-2">{{ __('commissions.catalog_help') }}</p>
+                        <label class="block text-sm sm:col-span-2" x-show="target === 'product'">{{ __('commissions.product') }}<select name="product_id" x-model="product" :disabled="target !== 'product'" :required="target === 'product'" class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($products as $product)<option value="{{ $product->id }}" @selected((string) old('product_id') === (string) $product->id)>{{ $product->name }}</option>@endforeach</select></label>
+                        <label class="block text-sm sm:col-span-2" x-show="target === 'group'" x-cloak>{{ __('commissions.group') }}<select name="product_group_id" x-model="group" disabled :disabled="target !== 'group'" :required="target === 'group'" class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($groups as $group)<option value="{{ $group->id }}" @selected((string) old('product_group_id') === (string) $group->id)>{{ $group->name }}</option>@endforeach</select></label>
+                        @if($products->isEmpty())<p x-show="target === 'product'" class="text-sm text-amber-800 sm:col-span-2" role="status">{{ __('commissions.no_shop_products') }}</p>@endif
+<p class="text-xs text-gray-600 sm:col-span-2">{{ __('commissions.scope_help') }} {{ __('commissions.catalog_help') }}</p>
                         @if($agreementsInstalled) @include('shops.commission-agreement-fields', ['agreement' => null]) @endif
                         <label class="block text-sm sm:col-span-2">{{ __('commissions.terms') }}<textarea name="terms" required maxlength="5000" dir="auto" class="mt-1 w-full rounded-lg border-gray-300">{{ old('terms') }}</textarea></label>
-                        <x-orders.action>{{ __('commissions.save_draft') }}</x-orders.action>
+                        <x-primary-button data-commission-action="save-draft">{{ __('commissions.save_draft') }}</x-primary-button>
                     </form>
                 </x-orders.section>
             @endcan
@@ -32,8 +33,8 @@
                     <form method="GET" class="grid gap-3 sm:grid-cols-2">
                         <label>{{ __('commissions.product') }}<select name="preview_product_id" required class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($products as $product)<option value="{{ $product->id }}" @selected(($filters['preview_product_id'] ?? null) == $product->id)>{{ $product->name }}</option>@endforeach</select></label>
                         <label>{{ __('commissions.currency') }}<select name="preview_currency_id" required class="mt-1 w-full"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($currencies as $currency)<option value="{{ $currency->id }}" @selected(($filters['preview_currency_id'] ?? null) == $currency->id)>{{ $currency->code }}</option>@endforeach</select></label>
-                        <label>{{ __('commissions.preview_time') }}<x-text-input type="datetime-local" step="0.000001" name="preview_at" required dir="ltr" value="{{ $filters['preview_at'] ?? now()->setTimezone('Asia/Damascus')->format('Y-m-d\TH:i:s.u') }}" /></label>
-                        <x-orders.action>{{ __('commissions.preview') }}</x-orders.action>
+                        <label>{{ __('commissions.preview_time') }}<x-text-input type="text" data-management-datetime placeholder="YYYY-MM-DDTHH:mm" autocomplete="off" lang="en" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]{1,6})?)?(Z|[+\-][0-9]{2}:[0-9]{2})?" name="preview_at" required dir="ltr" value="{{ $filters['preview_at'] ?? now()->setTimezone('Asia/Damascus')->format('Y-m-d\TH:i:s.u') }}" /></label>
+                        <x-secondary-button type="submit" data-commission-action="preview-rule">{{ __('commissions.preview') }}</x-secondary-button>
                     </form>
                     @if($preview)
                         <p role="status">{{ __('commissions.'.$preview['reason']) }}</p>
@@ -45,7 +46,7 @@
                 <label class="text-sm">{{ __('commissions.search') }}<x-text-input name="search" value="{{ $filters['search'] ?? '' }}" dir="auto" class="mt-1 block" /></label>
                 <label class="text-sm">{{ __('commissions.target') }}<select name="target" class="mt-1 block"><option value="">{{ __('captain_dashboard.orders_all') }}</option>@foreach(['shop', 'product', 'group'] as $type)<option value="{{ $type }}" @selected(($filters['target'] ?? '') === $type)>{{ __('commissions.'.$type) }}</option>@endforeach</select></label>
                 <label class="flex items-center gap-2"><input type="checkbox" name="history" value="1" @checked($filters['history'] ?? false)>{{ __('commissions.show_history') }}</label>
-                <x-orders.action>{{ __('dashboard.refresh') }}</x-orders.action>
+                <x-secondary-button type="submit" data-commission-action="refresh">{{ __('dashboard.refresh') }}</x-secondary-button>
             </form>
             <div class="grid gap-4 md:grid-cols-2">
                 @forelse($drafts as $draft)

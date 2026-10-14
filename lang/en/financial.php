@@ -149,6 +149,8 @@ return [
         'already_paid' => 'Already paid',
         'remaining' => 'Remaining',
         'this_payout' => 'This payout',
+        'pay_remaining' => 'Use full remaining amount',
+        'allocation_total_help' => 'The total sums the amounts allocated to sources. Leave a source blank to exclude it; entering an amount does not record payment until confirmation with evidence.',
         'no_sources' => 'No final attributable Receivable sources available.',
         'total_amount' => 'Total amount',
         'payment_reference' => 'Payment reference',

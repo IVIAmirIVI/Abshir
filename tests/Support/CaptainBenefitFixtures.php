@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 
 trait CaptainBenefitFixtures
 {
-    protected function benefitContext(string $kind = 'BONUS', bool $evidence = false): array
+    protected function benefitContext(string $kind = 'BONUS', bool $evidence = false, bool $employeeCreator = false): array
     {
         Storage::fake('captain_financial_evidence');
         $this->seed(AuthorizationSeeder::class);
@@ -31,6 +31,10 @@ trait CaptainBenefitFixtures
             $user->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
         }
         $employee = User::factory()->create();
+        if ($employeeCreator) {
+            $creator->roles()->sync([Role::where('code', 'ORDER_EMPLOYEE')->sole()->id]);
+            $creator->branches()->attach($branch);
+        }
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $data = ['request_key' => (string) Str::uuid(), 'kind' => $kind, 'branch_id' => $branch->id, 'currency_id' => $currency->id,

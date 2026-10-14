@@ -1,7 +1,9 @@
 @php
     $actions = [];
+    if ($summary['state'] === 'PROPOSED' && auth()->user()->can(app(\App\Services\CaptainBenefitReviewService::class)->submissionPermission($proposal))) {
+        $actions[] = 'SUBMIT';
+    }
     if (auth()->user()->can('captains.update')) {
-        if ($summary['state'] === 'PROPOSED') { $actions[] = 'SUBMIT'; }
         if (in_array($summary['state'], ['PROPOSED','PENDING'], true)) { $actions[] = 'CANCEL'; }
     }
     if (auth()->user()->can(app(\App\Services\CaptainBenefitReviewService::class)->permission($proposal))) {

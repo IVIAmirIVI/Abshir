@@ -41,8 +41,8 @@ return [
         'close_menu' => 'Close navigation menu',
     ],
     'permission_groups' => [
-        'captain_bonuses' => 'Captain bonus approval',
-        'captain_expenses' => 'Captain expense reimbursement approval',
+        'captain_bonuses' => 'Captain bonus requests',
+        'captain_expenses' => 'Captain expense claims',
         'areas' => 'areas',
         'bill_payment_fees' => 'bill payment fees',
         'bill_payments' => 'bill payments',
@@ -91,6 +91,7 @@ return [
         'users' => 'users',
     ],
     'permission_actions' => [
+        'submit' => 'Submit for review',
         'activate' => 'activate',
         'apply' => 'apply',
         'approve' => 'approve',

@@ -36,7 +36,14 @@ class ShopCommissionDraftService
         $this->assertAccess($actor, $shop, $partnership);
         Gate::forUser($actor)->authorize('shop_partnerships.create');
         $this->requireSchema();
-        $this->onlyDraftFields($data, ['product_id', 'product_group_id', 'currency_id', 'terms', ...self::AGREEMENT_FIELDS]);
+        $this->onlyDraftFields($data, ['scope', 'product_id', 'product_group_id', 'currency_id', 'terms', ...self::AGREEMENT_FIELDS]);
+        if (array_key_exists('scope', $data)) {
+            Validator::make($data, [
+                'scope' => ['required', 'in:product,group,shop'],
+                'product_id' => $data['scope'] === 'product' ? ['required'] : ['prohibited'],
+                'product_group_id' => $data['scope'] === 'group' ? ['required'] : ['prohibited'],
+            ], ['product_id.required' => __('commissions.choose_product'), 'product_group_id.required' => __('commissions.choose_group')])->validate();
+        }
         $agreement = $this->agreementData($data);
         $shopTarget = $agreement !== [] && ! filled($data['product_id'] ?? null) && ! filled($data['product_group_id'] ?? null);
         $data['terms'] = is_string($data['terms'] ?? null) ? trim($data['terms']) : ($data['terms'] ?? null);
@@ -58,6 +65,9 @@ class ShopCommissionDraftService
             $product = filled($data['product_id'] ?? null) ? Product::findOrFail($data['product_id']) : null;
             $group = filled($data['product_group_id'] ?? null) ? ProductGroup::findOrFail($data['product_group_id']) : null;
             $currency = filled($data['currency_id'] ?? null) ? Currency::findOrFail($data['currency_id']) : null;
+            if ($product) {
+                $this->assertProductScope($actor, $shop, $product, true);
+            }
             if (($product ?? $group) && ! ($product ?? $group)->is_active || ($currency && ! $currency->is_active)) {
                 throw ValidationException::withMessages(['commission' => __('commissions.inactive_reference')]);
             }
@@ -74,6 +84,18 @@ class ShopCommissionDraftService
                 ...$agreement,
             ]);
         });
+    }
+
+    public function assertProductScope(User $actor, Shop $shop, Product $product, bool $lock = false): void
+    {
+        Gate::forUser($actor)->authorize('products.view');
+        $listing = $shop->products()->where('product_id', $product->id)->where('is_active', true);
+        if ($lock) {
+            $listing->lockForUpdate();
+        }
+        if (! $product->is_active || ! $listing->first()) {
+            throw ValidationException::withMessages(['product_id' => __('commissions.product_not_in_shop')]);
+        }
     }
 
     public function revise(User $actor, Shop $shop, ShopPartnership $partnership, ShopCommissionDraft|int $draft, array $data): ShopCommissionDraft

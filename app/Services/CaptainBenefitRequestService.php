@@ -22,6 +22,16 @@ class CaptainBenefitRequestService
 {
     public function __construct(private readonly CaptainFinancialEvidenceService $evidence) {}
 
+    public function creationPermission(string $kind): string
+    {
+        return $kind === 'BONUS' ? 'captain_bonuses.create' : 'captain_expenses.create';
+    }
+
+    public function creationKinds(User $actor): array
+    {
+        return array_values(array_filter(['BONUS', 'EXPENSE'], fn (string $kind): bool => $actor->can($this->creationPermission($kind))));
+    }
+
     public function accessibleRecords(User $actor): Builder
     {
         return CaptainBenefitRequest::query()
@@ -48,7 +58,12 @@ class CaptainBenefitRequestService
     public function save(User $actor, Captain $captain, array $data, ?UploadedFile $file = null, ?CaptainBenefitRequest $previous = null): CaptainBenefitRequest
     {
         $this->assertView($actor, $captain);
-        Gate::forUser($actor)->authorize('captains.update');
+        if ($previous) {
+            Gate::forUser($actor)->authorize('captains.update');
+        } else {
+            $kind = Validator::make($data, ['kind' => ['required', 'in:BONUS,EXPENSE']])->validate()['kind'];
+            Gate::forUser($actor)->authorize($this->creationPermission($kind));
+        }
         if ($previous) {
             $this->assertRecord($actor, $captain, $previous);
         }

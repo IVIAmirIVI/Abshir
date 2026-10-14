@@ -50,13 +50,14 @@
 .app-button:disabled { opacity: .55; cursor: not-allowed; }
 .app-button > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
 
-/* Order actions stay legible independently of scoped library theme tokens. */
-.order-ux .btn.order-action {
+/* Shared Order/admin actions stay legible independently of library theme tokens. */
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: .5rem;
     min-height: 2.75rem;
+    min-width: 0;
     height: auto;
     max-width: 100%;
     padding: .625rem 1.125rem;
@@ -78,21 +79,42 @@
     box-shadow: 0 1px 2px rgb(23 43 36 / .08);
     transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.order-ux .btn.order-action:not(:disabled):not([aria-disabled='true']):hover { background-color: #103d2e; border-color: #103d2e; }
-.order-ux .btn.order-action:not(:disabled):not([aria-disabled='true']):active { background-color: #0c3024; border-color: #0c3024; box-shadow: none; }
-.order-ux .btn.order-action--secondary { background-color: #f5f6f3; border-color: #c7d1cb; color: #20372c; box-shadow: none; }
-.order-ux .btn.order-action--secondary:not(:disabled):not([aria-disabled='true']):hover { background-color: #e9eee9; border-color: #a8b9ae; }
-.order-ux .btn.order-action--secondary:not(:disabled):not([aria-disabled='true']):active { background-color: #dde6de; border-color: #a8b9ae; }
-.order-ux .btn.order-action--quiet { background-color: transparent; border-color: transparent; color: #164d3b; box-shadow: none; }
-.order-ux .btn.order-action--quiet:not(:disabled):not([aria-disabled='true']):hover,
-.order-ux .btn.order-action--quiet:not(:disabled):not([aria-disabled='true']):active { background-color: #e9eee9; border-color: transparent; }
-.order-ux .btn.order-action--danger { background-color: #fff5f5; border-color: #e5b5b5; color: #991b1b; box-shadow: none; }
-.order-ux .btn.order-action--danger:not(:disabled):not([aria-disabled='true']):hover,
-.order-ux .btn.order-action--danger:not(:disabled):not([aria-disabled='true']):active { background-color: #fee2e2; border-color: #b91c1c; }
-.order-ux .btn.order-action:focus-visible { outline: 3px solid #164d3b; outline-offset: 3px; }
-.order-ux .btn.order-action:is(:disabled, [aria-disabled='true']) { opacity: .55; cursor: not-allowed; box-shadow: none; }
-.order-ux .btn.order-action > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
-@media (prefers-reduced-motion: reduce) { .order-ux .btn.order-action { transition: none; } }
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button):not(:disabled):not([aria-disabled='true']):hover { background-color: #103d2e; border-color: #103d2e; }
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button):not(:disabled):not([aria-disabled='true']):active { background-color: #0c3024; border-color: #0c3024; box-shadow: none; }
+:is(.order-ux .btn.order-action--secondary, .management-ux .btn.btn-outline:where(:not(.btn-error)), .management-ux .app-button.app-button--secondary) { background-color: #f5f6f3; border-color: #c7d1cb; color: #20372c; box-shadow: none; }
+:is(.order-ux .btn.order-action--secondary, .management-ux .btn.btn-outline:where(:not(.btn-error)), .management-ux .app-button.app-button--secondary):not(:disabled):not([aria-disabled='true']):hover { background-color: #e9eee9; border-color: #a8b9ae; }
+:is(.order-ux .btn.order-action--secondary, .management-ux .btn.btn-outline:where(:not(.btn-error)), .management-ux .app-button.app-button--secondary):not(:disabled):not([aria-disabled='true']):active { background-color: #dde6de; border-color: #a8b9ae; }
+:is(.order-ux .btn.order-action--quiet, .management-ux .btn.btn-ghost) { background-color: transparent; border-color: transparent; color: #164d3b; box-shadow: none; }
+:is(.order-ux .btn.order-action--quiet, .management-ux .btn.btn-ghost):not(:disabled):not([aria-disabled='true']):hover,
+:is(.order-ux .btn.order-action--quiet, .management-ux .btn.btn-ghost):not(:disabled):not([aria-disabled='true']):active { background-color: #e9eee9; border-color: transparent; }
+:is(.order-ux .btn.order-action--danger, .management-ux .btn.btn-error, .management-ux .app-button.app-button--danger) { background-color: #fff5f5; border-color: #e5b5b5; color: #991b1b; box-shadow: none; }
+:is(.order-ux .btn.order-action--danger, .management-ux .btn.btn-error, .management-ux .app-button.app-button--danger):not(:disabled):not([aria-disabled='true']):hover,
+:is(.order-ux .btn.order-action--danger, .management-ux .btn.btn-error, .management-ux .app-button.app-button--danger):not(:disabled):not([aria-disabled='true']):active { background-color: #fee2e2; border-color: #b91c1c; }
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button):focus-visible { outline: 3px solid #164d3b; outline-offset: 3px; }
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button):is(:disabled, [aria-disabled='true']) { opacity: .55; cursor: not-allowed; box-shadow: none; }
+:is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button) > svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.order-ux .btn.order-action, .management-ux .btn:where(:not(.btn-circle, .btn-square)), .management-ux .app-button) { transition: none; } }
+
+
+/* Text actions retain link semantics, including existing destructive colors. */
+.management-ux .btn.btn-ghost { border: 0; background-color: transparent; box-shadow: none; text-decoration: underline; text-underline-offset: .2em; }
+.management-ux :is(a, button).underline { border: 0; text-underline-offset: .2em; }
+.management-ux :is(a, button).underline:where(:not(.text-red-600, .text-red-700, .text-red-800)) { color: #164d3b; }
+.management-ux :is(a, button).underline:hover { text-decoration-thickness: 2px; }
+.management-ux :is(a, button).underline:focus-visible { outline: 3px solid #164d3b; outline-offset: 3px; border-radius: .25rem; }
+
+/* Native administration controls use the same restrained, explicit border contract. */
+.management-ux :is(select, textarea, input:where(:not([type='hidden'], [type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='submit'], [type='button']))) {
+    box-sizing: border-box; min-width: 0; max-width: 100%; min-height: 2.75rem;
+    border: 1px solid #c7d1cb; border-radius: .5rem; background-color: #fff; color: #172b24;
+    padding-block: .5rem; padding-inline: .75rem; font-size: .875rem; line-height: 1.5;
+}
+.management-ux select { padding-inline-end: 2.25rem; }
+.management-ux label:has(> input, > select, > textarea) { min-width: 0; max-width: 100%; }
+.management-ux select:dir(rtl) { background-position: left .75rem center; }
+.management-ux :is(select, textarea, input):focus-visible { outline: 2px solid #164d3b; outline-offset: 2px; }
+.management-ux :is(select, textarea, input):is([aria-invalid='true'], .border-red-500) { border-color: #b91c1c; }
+.management-ux :is(select, textarea, input):disabled { background-color: #f5f6f3; opacity: .6; cursor: not-allowed; }
 
 /* Compact Workflow summary/action cards; other Order sections retain their layout. */
 .order-ux .workflow-overview,
@@ -203,3 +225,60 @@
 .financial-table-wrap:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
 .financial-table-wrap th { text-align: start; white-space: normal; min-width: 7rem; }
 .financial-table-wrap td bdi { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Business wall-clock picker: Arabic words, stable Western date/time ordering. */
+[data-management-datetime] { direction: ltr; unicode-bidi: isolate; text-align: left; font-variant-numeric: tabular-nums; min-width: 0; width: 100%; }
+.abshir-management-calendar { direction: ltr; max-width: calc(100vw - 16px); z-index: 1000; --adp-color-current-date: #164d3b; --adp-cell-background-color-selected: #164d3b; --adp-cell-background-color-selected-hover: #103d2e; }
+.abshir-management-calendar .air-datepicker-time { direction: ltr; }
+.abshir-management-calendar .air-datepicker-time--current { font-variant-numeric: tabular-nums; }
+.abshir-management-calendar input[type="range"] { width: 100%; }
+.abshir-management-calendar button:focus-visible, .abshir-management-calendar input:focus-visible { outline: 2px solid #164d3b; outline-offset: 2px; }
+.abshir-management-calendar .air-datepicker-time--row { display: flex; align-items: center; gap: .5rem; }
+.abshir-management-calendar .management-time-label { min-width: 3rem; font-size: .75rem; color: #20372c; }
+
+/* Benefit forms and history remain bounded even with long identifiers/reasons. */
+.captain-request-page { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.captain-request-page :is(section, article, form, label), .captain-request-page .grid > * { min-width: 0; max-width: 100%; }
+.captain-request-form :is(input, select, textarea) { box-sizing: border-box; min-width: 0; max-width: 100%; }
+.captain-balance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 0.75rem;
+}
+
+.captain-balance-card {
+    min-width: 0;
+    padding: 0.875rem;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.75rem;
+    background: #fafaf9;
+    overflow-wrap: anywhere;
+}
+
+.captain-balance-value :is(span, bdi) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.captain-information-page,
+.captain-request-page {
+    width: 100%;
+    min-width: 0;
+}
+
+.captain-request-form {
+    max-width: 56rem;
+}
+
+/* One financial task at a time; source inputs stay visible without a wide table. */
+.captain-financial-page :is(section, article, details, form, label),
+.captain-financial-page .grid > * { min-width: 0; max-width: 100%; }
+.captain-financial-task { border: 1px solid #e7e5e4; border-radius: .75rem; background: #fff; }
+.captain-financial-task > summary { padding: 1rem; font-weight: 600; color: #164d3b; cursor: pointer; overflow-wrap: anywhere; }
+.captain-financial-task > summary:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; border-radius: .75rem; }
+.captain-financial-task-body { padding: 0 1rem 1rem; min-width: 0; }
+.captain-financial-task-body > * + * { margin-block-start: 1rem; }
+.captain-financial-task--admin { border-color: #d8c9a9; background: #fffdf7; }
+.captain-financial-task--admin > summary { color: #765323; }
+.captain-financial-task--admin .captain-financial-task-body > section { box-shadow: none; padding: 0; background: transparent; }
+.captain-financial-page [data-payout-total] { background: #f0f5f0; font-weight: 600; }

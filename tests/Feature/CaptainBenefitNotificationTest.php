@@ -64,7 +64,7 @@ class CaptainBenefitNotificationTest extends TestCase
     public function test_decisions_notify_actual_submitter_and_preserve_existing_accrual_without_payment(string $action): void
     {
         $c = $this->benefitContext();
-        $submitter = $this->delegate($c, ['captains.update']);
+        $submitter = $this->delegate($c, ['captain_bonuses.submit']);
         $this->benefitAction($c, 'SUBMIT', $submitter);
 
         $review = $this->benefitAction($c, $action, reason: $action === 'REJECT' ? 'Not approved' : null);

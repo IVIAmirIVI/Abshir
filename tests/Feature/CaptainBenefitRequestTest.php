@@ -55,6 +55,61 @@ class CaptainBenefitRequestTest extends TestCase
         $this->assertNoFinancialEffect();
     }
 
+    public function test_employee_form_visibility_follows_existing_write_permission_and_keeps_approval_separate(): void
+    {
+        $c = $this->context();
+        $this->assertSame('abshir_testing', DB::scalar('SELECT current_database()'));
+        $index = route('captains.requests.index', $c['captain']);
+        $this->actingAs($c['reader'])->get($index)->assertOk()
+            ->assertSee(__('captain_requests.read_only_access'))
+            ->assertDontSee('id="captain-benefit-create"', false);
+        $this->post(route('captains.requests.store', $c['captain']), $this->data($c))->assertForbidden();
+
+        $response = $this->actingAs($c['employee'])->get($index)->assertOk()->assertSee(__('captain_requests.propose_bonus'))
+            ->assertSee(__('captain_requests.request_type'))
+            ->assertSee('id="captain-benefit-create"', false)->assertDontSee(__('captain_requests.read_only_access'))
+            ->assertDontSee("@js(__('captain_requests.propose_bonus'))", false);
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        $form = $xpath->query('//form[@enctype="multipart/form-data"]')->item(0);
+        $this->assertSame('POST', $form->getAttribute('method'));
+        $this->assertSame(route('captains.requests.store', $c['captain']), $form->getAttribute('action'));
+        $branches = $xpath->query('.//select[@name="branch_id"]/option', $form);
+        $this->assertSame(1, $branches->length);
+        $this->assertSame((string) $c['branch']->id, $branches->item(0)->getAttribute('value'));
+        $this->assertSame(2, $xpath->query('.//select[@name="kind"]/option', $form)->length);
+        $this->assertFalse($c['employee']->can('captain_bonuses.approve'));
+        $this->assertFalse($c['employee']->can('captain_expenses.approve'));
+        $this->assertFalse($c['employee']->can('captains.update'));
+        $this->post(route('captains.requests.store', $c['captain']), $this->data($c))->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertDatabaseHas('captain_benefit_requests', ['captain_id' => $c['captain']->id, 'branch_id' => $c['branch']->id, 'created_by_user_id' => $c['employee']->id, 'kind' => 'BONUS']);
+        $this->assertNoFinancialEffect();
+    }
+
+    public function test_kind_specific_creation_and_submission_reject_forged_kind_and_foreign_branch(): void
+    {
+        $c = $this->context();
+        $role = $c['reader']->roles()->sole();
+        $role->permissions()->attach(Permission::where('code', 'captain_bonuses.create')->sole());
+        $url = route('captains.requests.store', $c['captain']);
+        $this->actingAs($c['reader'])->get(route('captains.requests.index', $c['captain']))
+            ->assertOk()->assertViewHas('creationKinds', ['BONUS']);
+        $expense = array_replace($this->data($c), ['kind' => 'EXPENSE', 'category' => 'TRANSPORT', 'expense_date' => today()->toDateString()]);
+        $this->post($url, $expense)->assertForbidden();
+        $this->post($url, $this->data($c))->assertSessionHasNoErrors()->assertRedirect();
+        $proposal = CaptainBenefitRequest::sole();
+        $reviewUrl = route('captains.requests.review', [$c['captain'], $proposal]);
+        $submit = ['request_key' => (string) Str::uuid(), 'action' => 'SUBMIT'];
+        $this->post($reviewUrl, $submit)->assertForbidden();
+        $this->actingAs($c['foreign'])->post($reviewUrl, $submit)->assertForbidden();
+        $role->permissions()->attach(Permission::where('code', 'captain_bonuses.submit')->sole());
+        $this->actingAs($c['reader'])->post($reviewUrl, $submit)->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame(1, $proposal->reviews()->where('action', 'SUBMIT')->count());
+        $this->assertFalse($c['reader']->can('captains.update'));
+        $this->assertNoFinancialEffect();
+    }
+
     public function test_expense_evidence_is_private_branch_scoped_integrity_checked_and_history_keeps_original_file(): void
     {
         $c = $this->context();
@@ -85,7 +140,7 @@ class CaptainBenefitRequestTest extends TestCase
     {
         $c = $this->context();
         $data = $this->data($c);
-        $this->actingAs($c['employee'])->get(route('captains.requests.index', $c['captain']))->assertOk();
+        $this->actingAs($c['reader'])->get(route('captains.requests.index', $c['captain']))->assertOk();
         $this->post(route('captains.requests.store', $c['captain']), $data)->assertForbidden();
         $this->actingAs($c['foreign'])->get(route('captains.requests.index', $c['captain']))->assertForbidden();
         $this->actingAs($c['captain']->user)->get(route('captains.requests.index', $c['captain']))->assertForbidden();
@@ -94,7 +149,7 @@ class CaptainBenefitRequestTest extends TestCase
         $foreignCaptain = Captain::factory()->create(['home_branch_id' => $foreignBranch->id]);
         $this->actingAs($c['admin'])->post(route('captains.requests.store', $foreignCaptain), $data)->assertForbidden();
         try {
-            app(CaptainBenefitRequestService::class)->save($c['employee'], $c['captain'], $data);
+            app(CaptainBenefitRequestService::class)->save($c['reader'], $c['captain'], $data);
             $this->fail('The service must enforce write authorization');
         } catch (AuthorizationException) {
             $this->assertDatabaseCount('captain_benefit_requests', 0);
@@ -202,11 +257,17 @@ class CaptainBenefitRequestTest extends TestCase
         $foreign->branches()->attach(Branch::factory()->create());
         $manager = User::factory()->create();
         $role = Role::create(['code' => 'TEST_DRAFT_MANAGER', 'name' => 'Draft manager']);
-        $role->permissions()->attach(Permission::whereIn('code', ['captains.view', 'captains.update'])->pluck('id'));
+        $role->permissions()->attach(Permission::whereIn('code', ['captains.view', 'captains.update', 'captain_bonuses.create', 'captain_expenses.create'])->pluck('id'));
         $manager->roles()->attach($role);
         $manager->branches()->attach($branch);
 
-        return compact('currency', 'branch', 'captain', 'admin', 'employee', 'foreign', 'manager');
+        $reader = User::factory()->create();
+        $readRole = Role::create(['code' => 'TEST_BENEFIT_READER', 'name' => 'Read only']);
+        $readRole->permissions()->attach(Permission::where('code', 'captains.view')->sole());
+        $reader->roles()->attach($readRole);
+        $reader->branches()->attach($branch);
+
+        return compact('currency', 'branch', 'captain', 'admin', 'employee', 'foreign', 'manager', 'reader');
     }
 
     private function data(array $c): array

@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'request_type' => 'Request type',
     'review_recorded' => 'Review action recorded. Approval does not mean payment.',
     'invalid_state' => 'The action is unavailable in the current request state.',
     'self_approval' => 'The creator, revision author or submitter cannot approve their own request, including Super Admin.',
@@ -72,4 +73,8 @@ return [
     'stale' => 'This revision is stale; open the latest version before editing.',
     'back' => 'Back to requests',
     'latest' => 'Open newer revision',
+    'new_request' => 'Propose a bonus or record an expense claim',
+    'propose_bonus' => 'Propose a bonus',
+    'propose_expense' => 'Save expense claim',
+    'read_only_access' => 'This page is read-only with your current permissions. Creating proposals requires bonus or expense request creation permission; submission, approval and payout permissions are separate.',
 ];

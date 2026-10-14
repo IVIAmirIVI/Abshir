@@ -34,6 +34,9 @@ class ShopPartnershipController extends Controller
         $installed = Schema::hasTable('shop_commission_drafts');
         $agreementsInstalled = $installed && Schema::hasColumn('shop_commission_drafts', 'method');
         $accountingInstalled = $installed && Schema::hasTable('shop_commission_activation_events');
+        if (filled($filters['preview_product_id'] ?? null)) {
+            $service->assertProductScope($request->user(), $shop, Product::findOrFail($filters['preview_product_id']));
+        }
         $activations = $accountingInstalled ? DB::table('shop_commission_activation_events as e')->join('shop_commission_drafts as d', 'd.id', '=', 'e.draft_id')->join('users as activation_actor', 'activation_actor.id', '=', 'e.recorded_by')
             ->where('d.shop_partnership_id', $partnership->id)->whereNotExists(fn ($q) => $q->selectRaw('1')->from('shop_commission_activation_events as newer')
             ->whereColumn('newer.configuration_key', 'e.configuration_key')->whereColumn('newer.id', '>', 'e.id'))->select('e.*', 'activation_actor.name as actor_name')->get()->keyBy('draft_id') : collect();
@@ -50,7 +53,8 @@ class ShopPartnershipController extends Controller
 
         return view('shops.commission-drafts', [
             'shop' => $shop, 'partnership' => $partnership, 'installed' => $installed, 'agreementsInstalled' => $agreementsInstalled, 'accountingInstalled' => $accountingInstalled, 'activations' => $activations, 'drafts' => $drafts, 'filters' => $filters, 'preview' => $preview,
-            'products' => $installed && $request->user()->can('products.view') ? Product::where('is_active', true)->orderBy('name')->get(['id', 'name']) : collect(),
+            'products' => $installed && $request->user()->can('products.view') ? Product::where('is_active', true)
+                ->whereIn('id', $shop->products()->where('is_active', true)->select('product_id'))->orderBy('name')->get(['id', 'name']) : collect(),
             'groups' => $installed && $request->user()->can('product_groups.view') ? ProductGroup::where('is_active', true)->orderBy('name')->get(['id', 'name']) : collect(),
             'currencies' => $installed && $request->user()->can('currencies.view') ? Currency::where('is_active', true)->orderBy('code')->get(['id', 'code']) : collect(),
         ]);

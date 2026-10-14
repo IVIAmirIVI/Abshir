@@ -13,6 +13,7 @@ use App\Models\ProductGroup;
 use App\Models\Role;
 use App\Models\Shop;
 use App\Models\ShopCommissionDraft;
+use App\Models\ShopProduct;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\InvoiceCollectionService;
@@ -24,6 +25,7 @@ use App\Services\OrderShopReceiptService;
 use App\Services\OrderStatusService;
 use App\Services\ProductGroupMembershipService;
 use App\Services\SharedOrderShopPurchaseService;
+use App\Services\ShopCommissionActivationService;
 use App\Services\ShopCommissionDraftService;
 use App\Services\ShopCommissionEligibilityService;
 use App\Services\ShopCommissionRuleResolver;
@@ -239,9 +241,32 @@ class ShopCommissionAgreementTest extends TestCase
         $draft = app(ShopCommissionDraftService::class)->create($c['admin'], $c['shop'], $c['partnership'], $this->data($c));
         $url = route('shops.partnerships.commissions', [$c['shop'], $c['partnership']]);
         $parameters = ['preview_product_id' => $c['product']->id, 'preview_currency_id' => $c['currency']->id, 'preview_at' => now()->toIso8601String()];
-        $this->actingAs($c['admin'])->get($url.'?'.http_build_query($parameters))->assertOk()
+        $response = $this->actingAs($c['admin'])->get($url.'?'.http_build_query($parameters))->assertOk()
             ->assertViewHas('preview', fn ($result) => $result['rule']->id === $draft->id && $result['status'] === 'MATCHED')
             ->assertSee(__('commissions.preview_only'))->assertSee('3.125');
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        foreach (['effective_from' => true, 'effective_until' => false, 'preview_at' => true] as $field => $required) {
+            $input = $xpath->query('//input[@name="'.$field.'"]')->item(0);
+            $this->assertSame('text', $input->getAttribute('type'));
+            $this->assertTrue($input->hasAttribute('data-management-datetime'));
+            $this->assertSame('ltr', $input->getAttribute('dir'));
+            $this->assertSame('en', $input->getAttribute('lang'));
+            $this->assertSame($required, $input->hasAttribute('required'));
+        }
+        foreach (['save-draft' => ['primary', 'POST'], 'preview-rule' => ['secondary', 'GET'], 'refresh' => ['secondary', 'GET']] as $action => [$variant, $method]) {
+            $buttons = $xpath->query('//button[@data-commission-action="'.$action.'"]');
+            $this->assertSame(1, $buttons->length);
+            $button = $buttons->item(0);
+            $this->assertSame('submit', $button->getAttribute('type'));
+            $classes = preg_split('/\s+/', trim($button->getAttribute('class')));
+            $this->assertContains('app-button', $classes);
+            $this->assertContains('app-button--'.$variant, $classes);
+            $this->assertNotContains('btn', $classes);
+            $this->assertSame($method, strtoupper($xpath->query('ancestor::form[1]', $button)->item(0)->getAttribute('method')));
+            $this->assertSame(1, $xpath->query('ancestor::*[contains(concat(" ",normalize-space(@class)," ")," management-ux ")]', $button)->length);
+        }
         $this->get($url.'?preview_product_id='.$c['product']->id)->assertSessionHasErrors(['preview_currency_id', 'preview_at']);
         $this->assertDatabaseCount('financial_transactions', 0);
     }
@@ -353,8 +378,61 @@ class ShopCommissionAgreementTest extends TestCase
         $product = Product::create(['name' => 'Product', 'default_unit_id' => $unit->id]);
         $group = ProductGroup::create(['name' => 'Group']);
         $currency = Currency::firstOrCreate(['code' => 'USD'], ['name' => 'Dollar', 'decimal_places' => 2]);
+        ShopProduct::create(['shop_id' => $shop->id, 'product_id' => $product->id, 'unit_id' => $unit->id]);
 
         return compact('branch', 'shop', 'admin', 'partnership', 'product', 'group', 'currency');
+    }
+
+    public function test_explicit_scope_and_shop_product_ownership_are_enforced_without_activation(): void
+    {
+        $c = $this->context();
+        $foreign = $this->context();
+        $url = route('shops.partnerships.commissions.store', [$c['shop'], $c['partnership']]);
+        $data = $this->data($c) + ['scope' => 'product'];
+        $this->actingAs($c['admin'])->post($url, array_replace($data, ['product_id' => null]))->assertSessionHasErrors('product_id');
+        $this->post($url, array_replace($data, ['product_id' => $foreign['product']->id]))->assertSessionHasErrors('product_id');
+        $this->post($url, array_replace($data, ['scope' => 'shop']))->assertSessionHasErrors('product_id');
+        $this->post($url, $data)->assertSessionHasNoErrors();
+        $this->assertSame($c['product']->id, ShopCommissionDraft::sole()->product_id);
+        $this->post($url, array_replace($data, ['scope' => 'shop', 'product_id' => null]))->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('shop_commission_drafts', ['shop_partnership_id' => $c['partnership']->id, 'product_id' => null, 'product_group_id' => null]);
+        $this->assertDatabaseCount('shop_commission_activation_events', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->get(route('shops.partnerships.commissions', [$c['shop'], $c['partnership']]))
+            ->assertOk()->assertViewHas('products', fn ($products) => $products->pluck('id')->all() === [$c['product']->id])
+            ->assertSee('name="scope"', false)->assertSee('data-end-duration="week"', false);
+    }
+
+    public function test_unlisted_product_cannot_be_previewed_or_activated_and_empty_catalog_is_explained(): void
+    {
+        $c = $this->context();
+        $draft = app(ShopCommissionDraftService::class)->create($c['admin'], $c['shop'], $c['partnership'], $this->data($c));
+        $listing = $c['shop']->products()->sole();
+        $listing->is_active = false;
+        $listing->save();
+        $this->assertThrows(fn () => app(ShopCommissionActivationService::class)->change($c['admin'], $c['shop'], $c['partnership'], $draft->id, true, 'Activate'), ValidationException::class);
+        $url = route('shops.partnerships.commissions', [$c['shop'], $c['partnership']]);
+        $this->actingAs($c['admin'])->get($url)->assertOk()->assertSee(__('commissions.no_shop_products'));
+        $this->get($url.'?'.http_build_query(['preview_product_id' => $c['product']->id, 'preview_currency_id' => $c['currency']->id, 'preview_at' => '2026-10-14T13:15']))->assertSessionHasErrors('product_id');
+        $this->assertDatabaseCount('shop_commission_activation_events', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_local_preset_values_survive_save_reload_and_optional_end_clear_without_time_shift(): void
+    {
+        $c = $this->context();
+        $data = array_replace($this->data($c), ['scope' => 'product', 'effective_from' => '2026-10-14T14:30:27.123456', 'effective_until' => '2026-10-21T14:30:27.123456']);
+        $this->actingAs($c['admin'])->post(route('shops.partnerships.commissions.store', [$c['shop'], $c['partnership']]), $data)->assertSessionHasNoErrors();
+        $draft = ShopCommissionDraft::sole();
+        $this->assertSame('2026-10-14 11:30:27.123456', $draft->effective_from->utc()->format('Y-m-d H:i:s.u'));
+        $this->assertSame('2026-10-21 11:30:27.123456', $draft->effective_until->utc()->format('Y-m-d H:i:s.u'));
+        $this->get(route('shops.partnerships.commissions', [$c['shop'], $c['partnership']]))
+            ->assertOk()->assertSee('2026-10-14T14:30:27.123456', false)->assertSee('2026-10-21T14:30:27.123456', false);
+        $revision = app(ShopCommissionDraftService::class)->revise($c['admin'], $c['shop'], $c['partnership'], $draft, ['expected_version' => 1, 'terms' => 'No end', 'effective_until' => null]);
+        $this->assertNull($revision->effective_until);
+        $this->assertSame('2026-10-14 11:30:27.123456', $revision->effective_from->utc()->format('Y-m-d H:i:s.u'));
+        $this->assertDatabaseCount('shop_commission_activation_events', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
     }
 
     private function data(array $c): array

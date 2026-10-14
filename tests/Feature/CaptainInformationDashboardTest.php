@@ -133,6 +133,10 @@ class CaptainInformationDashboardTest extends TestCase
         $this->assertSame([], $this->snapshot()['balanceRows']);
         $this->actingAs($this->employee)->get(route('captains.information', $this->captain))
             ->assertOk()->assertSee(__('captain_dashboard.branch_activity'))->assertSee(__('captain_dashboard.global_unavailable'))
+            ->assertSee('data-captain-balance="CAPTAIN_DEPOSIT"', false)
+            ->assertSee('data-captain-balance="CAPTAIN_COMPANY_RECEIVABLE"', false)
+            ->assertSee('data-captain-balance="CAPTAIN_CASH_CUSTODY"', false)
+            ->assertSee('-1.8766 USD')
             ->assertDontSee(__('captain_dashboard.balances'))->assertDontSee('997.1234')->assertDontSee('Hidden branch');
     }
 

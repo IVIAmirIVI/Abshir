@@ -32,6 +32,7 @@ class CaptainBenefitRequestController extends Controller
             'captain' => $captain->load('user'), 'available' => $available,
             'branches' => $branches, 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(),
             'proposals' => $proposals, 'proposal' => null,
+            'creationKinds' => $service->creationKinds($request->user()),
         ]);
     }
 

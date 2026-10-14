@@ -1,6 +1,6 @@
 <x-app-layout>
-    <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('captain_requests.kinds.'.$proposal->kind) }} — {{ $captain->user->name }}</h2></x-slot>
-    <x-management.page>
+    <x-slot name="header"><h2 class="min-w-0 max-w-full break-words text-xl font-semibold">{{ __('captain_requests.kinds.'.$proposal->kind) }} — {{ $captain->user->name }}</h2></x-slot>
+    <x-management.page class="captain-request-page w-full">
         <a class="link" href="{{ route('captains.requests.index', $captain) }}">{{ __('captain_requests.back') }}</a>
         <p class="alert">{{ __('captain_requests.disclaimer') }}</p>
         @if(session('status'))<p role="status" class="alert alert-success">{{ session('status') }}</p>@endif
@@ -16,7 +16,7 @@
         @if($proposal->nextVersion)
             <a class="btn btn-outline" href="{{ route('captains.requests.show', [$captain, $proposal->nextVersion]) }}">{{ __('captain_requests.latest') }}</a>
         @elseif($summary['state'] === 'PROPOSED')
-            @can('captains.update')<section class="rounded-xl bg-base-100 p-5 shadow">@include('captain-requests._form')</section>@endcan
+            @can('captains.update')<section class="min-w-0 rounded-xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">@include('captain-requests._form')</section>@endcan
         @endif
         @if($reviewAvailable && !$proposal->nextVersion)
             @include('captain-requests._review')
@@ -24,7 +24,7 @@
         @if(in_array($summary['state'], ['APPROVED_UNPAID','PARTIALLY_PAID','FULLY_PAID'], true))
             <p>{{ __('financial.ui.already_paid') }}: <x-money :amount="$summary['paid']" :currency="$proposal->currency->code" /> · {{ __('financial.ui.remaining') }}: <x-money :amount="$summary['remaining']" :currency="$proposal->currency->code" /></p>
             @can('captain_financials.view')@can('captain_receivable_payouts.create')
-                @if($summary['remaining'] !== '0.0000')<a class="btn btn-outline" href="{{ route('captains.financials.show', [$captain, 'branch_id' => $proposal->branch_id, 'currency_id' => $proposal->currency_id]) }}">{{ __('captain_requests.open_payout') }}</a>@endif
+                @if($summary['remaining'] !== '0.0000')<a class="btn btn-outline" href="{{ route('captains.financials.show', [$captain, 'branch_id' => $proposal->branch_id, 'currency_id' => $proposal->currency_id]) }}#captain-payout">{{ __('captain_requests.open_payout') }}</a>@endif
             @endcan @endcan
         @endif
         @if($reviews->isNotEmpty())

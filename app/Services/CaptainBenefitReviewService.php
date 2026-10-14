@@ -34,6 +34,11 @@ class CaptainBenefitReviewService
         return $proposal->kind === 'BONUS' ? 'captain_bonuses.approve' : 'captain_expenses.approve';
     }
 
+    public function submissionPermission(CaptainBenefitRequest $proposal): string
+    {
+        return $proposal->kind === 'BONUS' ? 'captain_bonuses.submit' : 'captain_expenses.submit';
+    }
+
     public function approvalRequests(User $actor): Builder
     {
         return $this->requests->accessibleRecords($actor)
@@ -57,7 +62,11 @@ class CaptainBenefitReviewService
             'request_key' => ['required', 'uuid'], 'action' => ['required', 'in:SUBMIT,APPROVE,REJECT,CANCEL,REVERSE'],
             'reason' => ['nullable', 'string', 'max:2000', 'required_if:action,REJECT,REVERSE'],
         ])->validate();
-        Gate::forUser($actor)->authorize(in_array($data['action'], ['SUBMIT', 'CANCEL'], true) ? 'captains.update' : $this->permission($proposal));
+        Gate::forUser($actor)->authorize(match ($data['action']) {
+            'SUBMIT' => $this->submissionPermission($proposal),
+            'CANCEL' => 'captains.update',
+            default => $this->permission($proposal),
+        });
         if (! Schema::hasTable('captain_benefit_reviews')) {
             throw ValidationException::withMessages(['proposal' => __('captain_requests.activation_required')]);
         }

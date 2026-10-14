@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopPartnership;
 use App\Models\User;
@@ -31,6 +32,9 @@ class ShopCommissionActivationService
                 $partnership = ShopPartnership::query()->lockForUpdate()->findOrFail($partnership->id);
                 app(ShopCommissionDraftService::class)->assertAccess($actor, $shop, $partnership);
                 $draft = $partnership->commissionDrafts()->findOrFail($draftId);
+                if ($active && $draft->product_id) {
+                    app(ShopCommissionDraftService::class)->assertProductScope($actor, $shop, Product::findOrFail($draft->product_id), true);
+                }
                 $prior = DB::table('shop_commission_activation_events')->where('configuration_key', $draft->configuration_key)->orderByDesc('id')->first();
                 $state = $active ? 'ACTIVE' : 'INACTIVE';
                 if ($prior && $prior->draft_id === $draft->id && $prior->state === $state) {

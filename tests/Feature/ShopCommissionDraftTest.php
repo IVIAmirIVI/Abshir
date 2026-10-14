@@ -12,6 +12,7 @@ use App\Models\ProductGroup;
 use App\Models\Role;
 use App\Models\Shop;
 use App\Models\ShopCommissionDraft;
+use App\Models\ShopProduct;
 use App\Models\Unit;
 use App\Models\User;
 use App\Services\InvoiceCollectionService;
@@ -252,6 +253,7 @@ class ShopCommissionDraftTest extends TestCase
         $product = Product::create(['name' => 'Target '.str()->uuid(), 'default_unit_id' => $unit->id]);
         $group = ProductGroup::create(['name' => 'Group '.str()->uuid()]);
         $currency = Currency::firstOrCreate(['code' => 'USD'], ['name' => 'Dollar', 'decimal_places' => 2]);
+        ShopProduct::create(['shop_id' => $shop->id, 'product_id' => $product->id, 'unit_id' => $unit->id]);
 
         return compact('branch', 'shop', 'admin', 'partnership', 'product', 'group', 'currency');
     }

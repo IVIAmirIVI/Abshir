@@ -5,6 +5,7 @@ namespace Tests\Support;
 use App\Enums\OrderOperationalStatus;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Models\ShopProduct;
 use App\Models\Unit;
 use App\Services\InvoiceService;
 use App\Services\OrderCaptainSelectionService;
@@ -35,6 +36,7 @@ trait ShopCommissionFixtures
         $master = Shop::create(['name' => 'Commission Shop', 'area_id' => $c['shop']->origin_area_id, 'business_classification' => 'SHOP']);
         $unit = Unit::create(['name' => 'Kilogram', 'code' => str()->uuid(), 'allows_decimal' => true]);
         $product = Product::create(['name' => 'Commission Product', 'default_unit_id' => $unit->id]);
+        ShopProduct::create(['shop_id' => $master->id, 'product_id' => $product->id, 'unit_id' => $unit->id]);
         $c['shop']->update(['shop_type' => 'REGISTERED', 'shop_id' => $master->id]);
         $c['shop']->items()->sole()->update(['item_type' => 'CATALOG_ITEM', 'product_id' => $product->id, 'unit_id' => $unit->id, 'requested_quantity' => $quantity, 'current_quantity' => $quantity, 'actual_unit_price' => $price]);
         app(OrderPricingService::class)->recalculate($c['order']);

@@ -236,7 +236,7 @@ class AuthorizationTest extends TestCase
         $role->permissions()->detach();
         $this->seed(AuthorizationSeeder::class);
         $this->assertDatabaseCount('roles', 3);
-        $this->assertDatabaseCount('permissions', 149);
+        $this->assertDatabaseCount('permissions', 153);
         $phase11Permissions = ['captain_bonuses.approve', 'captain_expenses.approve'];
         $this->assertEqualsCanonicalizing($phase11Permissions, Permission::whereIn('code', $phase11Permissions)->pluck('code')->all());
         $admin = User::factory()->create();
@@ -287,6 +287,10 @@ class AuthorizationTest extends TestCase
             'captain_receivable_payouts.create',
             'captain_receivable_payouts.view',
             'captains.view',
+            'captain_bonuses.create',
+            'captain_bonuses.submit',
+            'captain_expenses.create',
+            'captain_expenses.submit',
             'categories.view',
             'product_groups.view',
             'products.view',
