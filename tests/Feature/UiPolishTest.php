@@ -17,7 +17,7 @@ class UiPolishTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_active_route_does_not_expand_any_desktop_or_mobile_group(): void
+    public function test_only_the_active_route_group_expands_on_desktop_and_mobile(): void
     {
         $this->seed(AuthorizationSeeder::class);
         $user = User::factory()->create();
@@ -30,17 +30,20 @@ class UiPolishTest extends TestCase
             $groups = $xpath->query('//details[contains(@class,"app-nav-group")]');
             $this->assertGreaterThan(0, $groups->length);
             foreach ($groups as $group) {
-                $this->assertFalse($group->hasAttribute('open'));
-                $this->assertSame('{ expanded: false }', $group->getAttribute('x-data'));
+                $active = $xpath->query('.//a[@aria-current="page"]', $group)->length > 0;
+                $this->assertSame($active, $group->hasAttribute('open'));
+                $this->assertSame('{ expanded: '.($active ? 'true' : 'false').' }', $group->getAttribute('x-data'));
                 $this->assertTrue($group->hasAttribute('wire:ignore.self'));
                 $summary = $group->getElementsByTagName('summary')->item(0);
-                $this->assertSame('false', $summary->getAttribute('aria-expanded'));
+                $this->assertSame($active ? 'true' : 'false', $summary->getAttribute('aria-expanded'));
+                $this->assertSame('summary', $summary->tagName);
                 // Native details/summary supplies Enter/Space and click toggling; Alpine observes, not overrides it.
                 $this->assertStringContainsString('@toggle="expanded = $el.open"', $response->getContent());
                 $this->assertStringContainsString(':aria-expanded="expanded.toString()"', $response->getContent());
             }
             foreach (['desktop', 'mobile'] as $surface) {
                 $this->assertSame(1, $xpath->query('//*[@data-navigation="'.$surface.'"]//a[@aria-current="page"]')->length);
+                $this->assertSame($route === 'dashboard' ? 0 : 1, $xpath->query('//*[@data-navigation="'.$surface.'"]//details[@open]')->length);
             }
         }
         $this->assertStringContainsString('mobileNavigation.showModal()', $response->getContent());

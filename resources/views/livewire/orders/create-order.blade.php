@@ -5,7 +5,7 @@
             <button type="button" wire:click="goToStep({{ $index + 1 }})" aria-current="{{ $step === $index + 1 ? 'step' : 'false' }}" @class(['min-w-0 rounded-lg border p-3 text-start text-sm font-semibold', 'border-brand-primary bg-brand-primary text-white' => $step === $index + 1, 'border-gray-200 bg-white text-gray-600' => $step !== $index + 1])><x-orders.step-label :number="$index + 1" :title="__('orders.wizard.steps.'.$label)" :current="$step === $index + 1" /></button>
         @endforeach
     </nav>
-    <p wire:loading role="status" class="text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
+    <p wire:loading.class.remove="invisible" role="status" class="invisible min-h-5 text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
     @if($this->selectedCustomer)<aside class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-stone-200 bg-white p-4 text-sm" data-wizard-selection-summary><span class="text-xs text-gray-500">{{ __('order_design.selected') }}</span><strong>{{ $this->selectedCustomer->name }}</strong><x-ltr>{{ $this->phones->firstWhere('id', $customerPhoneId)?->phone }}</x-ltr><span class="min-w-0 break-words">{{ $this->addresses->firstWhere('id', $customerAddressId)?->address_line_1 }}</span>@foreach($groups as $selectedGroup)<x-orders.indicator>{{ $selectedGroup['label'] }}</x-orders.indicator>@endforeach</aside>@endif
     <x-input-error :messages="$step === 2 ? collect($errors->messages())->except('groups')->flatten()->all() : $errors->all()" role="alert" />
     @if(session('order-create-status'))<p class="rounded-lg bg-green-50 p-3 text-sm text-green-900">{{ session('order-create-status') }}</p>@endif
@@ -148,9 +148,9 @@
             @endcan
         @endif
     @include('livewire.orders.wizard-modals')
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white p-4" data-wizard-navigation>
-        @if($step > 1)<x-orders.action type="button" variant="secondary" wire:click="goToStep({{ $step - 1 }})" wire:loading.attr="disabled">{{ __('orders.wizard.back') }}</x-orders.action>@else<a href="{{ route('orders.index') }}" class="text-sm text-gray-600">{{ __('common.actions.cancel') }}</a>@endif
-        @if($step < 4)<x-orders.action type="button" wire:click="nextStep" wire:loading.attr="disabled"><span wire:loading.remove wire:target="nextStep">{{ __('orders.wizard.next') }}</span><span wire:loading wire:target="nextStep">{{ __('orders.ui_saving') }}</span></x-orders.action>
-        @else<x-orders.action type="button" wire:click="submit" wire:loading.attr="disabled"><span wire:loading.remove wire:target="submit">{{ __('orders.wizard.create') }}</span><span wire:loading wire:target="submit">{{ __('orders.ui_saving') }}</span></x-orders.action>@endif
+    <div class="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm" data-wizard-navigation>
+        @if($step > 1)<x-orders.action id="wizard-back" type="button" variant="secondary" wire:click="goToStep({{ $step - 1 }})" wire:loading.attr="disabled" wire:target="goToStep,nextStep,submit">{{ __('orders.wizard.back') }}</x-orders.action>@else<a href="{{ route('orders.index') }}" class="text-sm text-gray-600">{{ __('common.actions.cancel') }}</a>@endif
+        @if($step < 4)<x-orders.action :id="'wizard-next-'.$step" type="button" wire:click="nextStep({{ $step }})" wire:loading.attr="disabled" wire:target="nextStep,goToStep,submit"><span wire:loading.remove wire:target="nextStep">{{ __('orders.wizard.next') }}</span><span wire:loading wire:target="nextStep">{{ __('orders.ui_saving') }}</span></x-orders.action>
+        @else<x-orders.action id="wizard-create" type="button" wire:click="submit" wire:loading.attr="disabled" wire:target="submit"><span wire:loading.remove wire:target="submit">{{ __('orders.wizard.create') }}</span><span wire:loading wire:target="submit">{{ __('orders.ui_saving') }}</span></x-orders.action>@endif
     </div>
 </form>

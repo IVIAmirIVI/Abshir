@@ -194,12 +194,14 @@
 .app-page-heading { width: 100%; max-width: 88rem; margin-inline: auto; padding: 1.5rem 1rem 0; overflow-wrap: anywhere; }
 .app-main { min-width: 0; width: 100%; max-width: 88rem; margin-inline: auto; }
 .app-main:focus { outline: none; }
-.app-skip-link { position: fixed; inset-inline-start: 1rem; top: 1rem; z-index: 100; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; background: #164d3b; color: #fff; }
-.app-skip-link:focus-visible { width: auto; height: auto; max-width: calc(100vw - 2rem); padding: .75rem 1rem; margin: 0; overflow: visible; clip-path: none; white-space: normal; border-radius: .5rem; outline: 2px solid #164d3b; outline-offset: 3px; }
+/* First in tab order; keyboard focus reserves its own row outside navigation. */
+.app-skip-link { position: absolute; inset-inline-start: 0; top: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; background: #164d3b; color: #fff; }
+.app-skip-link:focus-visible { position: relative; inset: auto; display: block; width: fit-content; height: auto; max-width: calc(100% - 2rem); padding: .75rem 1rem; margin: .75rem 1rem; overflow: visible; clip-path: none; white-space: normal; border-radius: .5rem; outline: 2px solid #164d3b; outline-offset: 3px; }
 .app-mobile-drawer { position: fixed; inset-block: 0; inset-inline-start: 0; inset-inline-end: auto; width: min(20rem, calc(100vw - 2rem)); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; background: #fff; color: #172b24; }
 .app-mobile-drawer[open] { display: flex; flex-direction: column; }
 .app-mobile-drawer::backdrop { background: rgb(15 35 26 / .45); }
 @media (min-width: 1024px) {
+    .app-shell:not(.app-shell-collapsed) > .app-skip-link:focus-visible { margin-inline-start: calc(var(--sidebar-width) + 1rem); max-width: calc(100% - var(--sidebar-width) - 2rem); }
     .app-topbar-brand { display: none; }
     .app-shell-collapsed .app-topbar-brand { display: block; }
     .app-workspace { margin-inline-start: var(--sidebar-width); }
@@ -225,6 +227,14 @@
 .financial-table-wrap:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }
 .financial-table-wrap th { text-align: start; white-space: normal; min-width: 7rem; }
 .financial-table-wrap td bdi { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Report details retain all columns inside a keyboard-scrollable region. */
+.reports-ui .report-detail-table { width: 100%; min-width: 52rem; border-collapse: collapse; text-align: start; font-size: .875rem; line-height: 1.6; }
+.reports-ui .report-detail-table th { padding: .875rem 1rem; background: #f5f6f3; color: #375244; font-weight: 600; vertical-align: bottom; }
+.reports-ui .report-detail-table td { padding: 1rem; border-top: 1px solid #e7ece7; vertical-align: top; }
+.reports-ui .report-detail-table tbody tr:nth-child(even) { background: #fafbf9; }
+.reports-ui .report-detail-table td:has(> bdi) { text-align: end; font-variant-numeric: tabular-nums; }
+.reports-ui .report-detail-table td:last-child { text-align: start; }
 
 /* Business wall-clock picker: Arabic words, stable Western date/time ordering. */
 [data-management-datetime] { direction: ltr; unicode-bidi: isolate; text-align: left; font-variant-numeric: tabular-nums; min-width: 0; width: 100%; }
@@ -282,3 +292,10 @@
 .captain-financial-task--admin > summary { color: #765323; }
 .captain-financial-task--admin .captain-financial-task-body > section { box-shadow: none; padding: 0; background: transparent; }
 .captain-financial-page [data-payout-total] { background: #f0f5f0; font-weight: 600; }
+
+.captain-feature-navigation { display: flex; flex-wrap: wrap; gap: .5rem; min-width: 0; }
+.captain-feature-navigation--compact { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.captain-feature-link { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 2.75rem; padding: .5rem .75rem; border: 1px solid #c7d1cb; border-radius: .5rem; background: #fff; color: #164d3b; text-align: center; font-size: .875rem; overflow-wrap: anywhere; }
+.captain-feature-link:hover { background: #edf4ef; }
+.captain-feature-link.is-active { background: #164d3b; border-color: #164d3b; color: #fff; font-weight: 600; }
+.captain-feature-link:focus-visible { outline: 2px solid #164d3b; outline-offset: 3px; }

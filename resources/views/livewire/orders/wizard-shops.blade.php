@@ -30,8 +30,8 @@
     </div>
     @php($pendingShop = ($shopType === 'REGISTERED' && filled($shopId)) || ($shopType === 'ONE_TIME' && filled($shopName)))
     <div @class(['wizard-shop-addition rounded-xl p-3', 'border border-amber-200 bg-amber-50' => $pendingShop || $errors->has('groups')]) data-wizard-shop-addition>
-        @if($pendingShop)<p id="wizard-shop-add-hint" class="mb-3 text-sm font-medium text-amber-900">{{ __('orders.wizard.shop_selected_not_added') }}</p>@endif
-        <x-orders.action type="button" wire:click="addDraftShop" wire:loading.attr="disabled" aria-describedby="{{ trim(($pendingShop ? 'wizard-shop-add-hint ' : '').($errors->has('groups') ? 'wizard-shop-add-error' : '')) }}">{{ __('orders.wizard.add_group') }}</x-orders.action>
+        <p id="wizard-shop-add-hint" @class(['mb-3 min-h-12 text-sm font-medium text-amber-900', 'invisible' => !$pendingShop])>{{ __('orders.wizard.shop_selected_not_added') }}</p>
+        <x-orders.action id="wizard-add-shop" type="button" wire:click="addDraftShop" wire:loading.attr="disabled" wire:target="addDraftShop" aria-describedby="{{ trim(($pendingShop ? 'wizard-shop-add-hint ' : '').($errors->has('groups') ? 'wizard-shop-add-error' : '')) }}">{{ __('orders.wizard.add_group') }}</x-orders.action>
         @error('groups')<p id="wizard-shop-add-error" role="alert" class="mt-3 text-sm font-medium text-red-700">{{ $message }}</p>@enderror
     </div>
     <p class="text-xs text-gray-500">{{ __('orders.ui_search_selection_hint') }}</p>

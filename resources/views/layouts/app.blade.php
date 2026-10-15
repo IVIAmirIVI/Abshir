@@ -9,8 +9,8 @@
         @livewireStyles
     </head>
     <body class="font-sans antialiased bg-brand-canvas text-gray-900">
-        <a href="#app-main" class="app-skip-link">{{ __('shell.skip_content') }}</a>
         <div class="app-shell" x-data="{ collapsed: false }" :class="{ 'app-shell-collapsed': collapsed }" data-app-shell>
+            <a href="#app-main" class="app-skip-link">{{ __('shell.skip_content') }}</a>
             @include('layouts.navigation')
             <div class="app-workspace">
                 <header class="app-topbar">

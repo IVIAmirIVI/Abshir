@@ -1,6 +1,7 @@
 <x-app-layout>
     <x-slot name="header"><div class="min-w-0 max-w-full space-y-1"><h2 class="break-words text-xl font-semibold">{{ __('captain_requests.title') }}</h2><p class="break-words text-sm text-gray-600">{{ $captain->user->name }}</p></div></x-slot>
     <x-management.page class="captain-request-page w-full">
+        <x-captains.navigation :captain="$captain" />
         <p class="alert">{{ __('captain_requests.disclaimer') }}</p>
         @if(session('status'))<p role="status" class="alert alert-success">{{ session('status') }}</p>@endif
         @if($errors->any())<ul role="alert" class="alert alert-error">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>@endif

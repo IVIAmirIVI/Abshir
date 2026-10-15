@@ -80,6 +80,7 @@ class Workflow extends Component
         $next = $order->operational_status->next();
         abort_unless($next, 422);
         $this->domainAction(fn () => $statuses->transition(auth()->user(), $order, $next, null));
+        $this->actionStatus = __('orders.flash.status_updated');
         $this->changed();
     }
 

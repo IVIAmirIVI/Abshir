@@ -1,14 +1,9 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="font-semibold text-xl text-gray-800 break-words">{{ $captain->user->name }}</h2></x-slot>
     <x-management.page>
-        @can('captains.view')
-            <a class="btn btn-outline max-w-full whitespace-normal" href="{{ route('captains.requests.index', $captain) }}">{{ __('captain_requests.title') }}</a>
-        @endcan
-        @if(app(\App\Services\CaptainInformationQuery::class)->canView(auth()->user()))
-            <a class="btn btn-primary max-w-full whitespace-normal" href="{{ route('captains.information', $captain) }}">{{ __('captain_dashboard.title') }}</a>
-        @endif
+        <x-captains.navigation :captain="$captain" />
         @if(session('status'))<p role="status" class="rounded-lg bg-green-50 p-4 text-green-800">{{ session('status') }}</p>@endif
-        @can('captain_financials.view')<section class="rounded-lg bg-white p-5 shadow space-y-3"><h3 class="text-lg font-semibold">{{ __('captain_dashboard.branch_activity') }}</h3><p class="text-sm text-gray-600">{{ __('captain_dashboard.branch_activity_help') }}</p><x-financial.captain-balances :rows="$financialRows" empty-label="financial.ui.no_financial_history" /><a class="underline text-sm" href="{{ route('captains.financials.show', $captain) }}">{{ __('captains.ui_receipts_payouts_and_outstanding_receivables') }}</a></section>@endcan
+        @can('captain_financials.view')<section class="rounded-lg bg-white p-5 shadow space-y-3"><h3 class="text-lg font-semibold">{{ __('captain_dashboard.branch_activity') }}</h3><p class="text-sm text-gray-600">{{ __('captain_dashboard.branch_activity_help') }}</p><x-financial.captain-balances :rows="$financialRows" empty-label="financial.ui.no_financial_history" /></section>@endcan
         @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-4 text-red-800"><ul class="list-disc ps-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
         <x-orders.section id="management-captain-detail-1">
             <div class="flex flex-wrap justify-between gap-4"><div class="min-w-0"><p class="font-semibold break-all"><x-ltr>{{ $captain->user->email }}</x-ltr></p><p class="text-sm text-gray-600">{{ __('captains.ui_employee_code') }} <x-ltr>{{ $captain->employee_code ?: '—' }}</x-ltr></p><p class="text-sm text-gray-600">{{ __('captains.ui_account') }} {{ $captain->user->is_active ? __('common.account_states.active') : __('common.account_states.inactive') }}</p></div><div class="flex flex-wrap gap-3">@can('captains.update')<a class="underline text-sm" href="{{ route('captains.edit', $captain) }}">{{ __('captains.ui_edit_profile') }}</a>@endcan @can('captain_branches.transfer')<a class="underline text-sm" href="{{ route('captains.transfer.create', $captain) }}">{{ __('captains.ui_permanent_transfer') }}</a>@endcan</div></div>

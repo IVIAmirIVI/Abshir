@@ -18,7 +18,7 @@
             <x-input-error :messages="$errors->get('wizardCaptainIds.0')" />
             <x-input-error :messages="$errors->get('wizardCaptainIds')" />
             @if(!$wizardSecondCaptainEnabled)
-                <x-orders.action type="button" variant="quiet" wire:click="addSecondWizardCaptain" wire:loading.attr="disabled">{{ __('shared_orders.add_second') }}</x-orders.action>
+                <x-orders.action id="wizard-add-second-captain" type="button" variant="quiet" wire:click="addSecondWizardCaptain" wire:loading.attr="disabled" wire:target="addSecondWizardCaptain">{{ __('shared_orders.add_second') }}</x-orders.action>
             @else
                 <label class="block text-sm" for="wizard-second-captain">{{ __('shared_orders.second') }}</label>
                 <select id="wizard-second-captain" wire:model.live="wizardCaptainIds.1" class="w-full rounded-lg border-gray-300">
@@ -26,7 +26,7 @@
                     @foreach($this->wizardCaptainCandidates as $candidate)<option value="{{ $candidate->id }}" @disabled((string) $candidate->id === (string) ($wizardCaptainIds[0] ?? ''))>{{ $candidate->user->name }}</option>@endforeach
                 </select>
                 <x-input-error :messages="$errors->get('wizardCaptainIds.1')" />
-                <x-orders.action type="button" variant="quiet" wire:click="removeSecondWizardCaptain" wire:loading.attr="disabled">{{ __('shared_orders.remove_second') }}</x-orders.action>
+                <x-orders.action id="wizard-remove-second-captain" type="button" variant="quiet" wire:click="removeSecondWizardCaptain" wire:loading.attr="disabled" wire:target="removeSecondWizardCaptain">{{ __('shared_orders.remove_second') }}</x-orders.action>
                 @if(count($wizardCaptainIds) === 2)
                     <label class="block text-sm" for="wizard-collector">{{ __('shared_orders.collector') }}</label>
                     <select id="wizard-collector" wire:model.live="wizardCollectorId" class="w-full rounded-lg border-gray-300"><option value="">{{ __('orders.ui_choose_captain') }}</option>@foreach($this->wizardCaptainCandidates->whereIn('id', $wizardCaptainIds) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->user->name }}</option>@endforeach</select>

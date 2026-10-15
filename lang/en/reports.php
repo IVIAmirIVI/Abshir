@@ -3,6 +3,7 @@
 return [
     'details' => 'Details', 'details_export' => 'Details and CSV export', 'back_summary' => 'Back to filtered summary', 'export_csv' => 'Download CSV',
     'row_count' => 'Matching rows: :count',
+    'balance_columns' => ['id' => 'Captain ID', 'branch_id' => 'Branch ID', 'currency' => 'Currency', 'account_kind' => 'Account', 'amount' => 'Balance'],
     'csv_help' => 'UTF-8 CSV with exact decimal strings and Damascus dates. Import monetary and ID columns as Text in Excel to prevent its automatic precision loss. Export includes all matching rows, not only this page; text formulas are neutralized.',
     'definitions' => ['flow' => 'Period activity, inclusive Damascus calendar dates', 'as_of' => 'All authorized history before the day after the selected end date; the start date does not limit balances'],
     'sources' => ['orders' => 'Source: Orders created_at and current status/assignments', 'history' => 'Source: first persisted final Order status transition', 'participation' => 'Source: distinct period Orders per current Captain assignment or registered Shop',

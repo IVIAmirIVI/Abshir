@@ -1,11 +1,11 @@
-<div class="mary-surface min-w-0 space-y-6 px-4 py-6 sm:px-6 lg:px-8" data-management-reports>
+<x-management.page class="reports-ui" data-management-reports>
     <div class="flex flex-wrap justify-between gap-3"><h1 class="text-2xl font-bold text-brand-primary">{{ __('reports.title') }}</h1><a class="btn btn-outline" href="{{ route('dashboard') }}">{{ __('dashboard.title') }}</a></div>
     <form wire:submit="applyFilters" class="grid gap-4 rounded-xl border border-stone-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
         <label>{{ __('reports.from') }}<input type="text" dir="ltr" placeholder="YYYY-MM-DD" wire:model="from" class="input input-bordered w-full" maxlength="10" aria-describedby="report-date-help"></label>
         <label>{{ __('reports.to') }}<input type="text" dir="ltr" placeholder="YYYY-MM-DD" wire:model="to" class="input input-bordered w-full" maxlength="10" aria-describedby="report-date-help"></label>
         <label>{{ __('common.terms.branch') }}<select wire:model="branchId" class="select select-bordered w-full"><option value="">{{ __('dashboard.all_branches') }}</option>@foreach($branches as $branch)<option value="{{ $branch->id }}">{{ $branch->name }}</option>@endforeach</select></label>
         <label>{{ __('common.terms.currency') }}<select wire:model="currencyId" class="select select-bordered w-full"><option value="">{{ __('reports.all_currencies') }}</option>@foreach($currencies as $currency)<option value="{{ $currency->id }}">{{ $currency->code }}</option>@endforeach</select></label>
-        <button class="btn btn-primary self-end" wire:loading.attr="disabled">{{ __('reports.apply') }}</button>
+        <x-primary-button class="self-end" wire:loading.attr="disabled">{{ __('reports.apply') }}</x-primary-button>
         <p id="report-date-help" class="text-xs text-gray-600 sm:col-span-2 lg:col-span-5">{{ __('reports.date_help') }}</p>
     </form>
     @if($errors->any())<ul class="alert alert-error" role="alert">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>@endif
@@ -80,4 +80,4 @@
             </x-mary-card>
         @empty<p>{{ __('reports.no_financial_access') }}</p>@endforelse
     @endif
-</div>
+</x-management.page>

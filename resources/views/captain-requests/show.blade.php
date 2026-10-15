@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="min-w-0 max-w-full break-words text-xl font-semibold">{{ __('captain_requests.kinds.'.$proposal->kind) }} — {{ $captain->user->name }}</h2></x-slot>
     <x-management.page class="captain-request-page w-full">
-        <a class="link" href="{{ route('captains.requests.index', $captain) }}">{{ __('captain_requests.back') }}</a>
+        <x-captains.navigation :captain="$captain" />
         <p class="alert">{{ __('captain_requests.disclaimer') }}</p>
         @if(session('status'))<p role="status" class="alert alert-success">{{ session('status') }}</p>@endif
         @if(session('warning'))<p role="alert" class="alert alert-warning">{{ session('warning') }}</p>@endif

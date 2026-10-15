@@ -1232,6 +1232,46 @@ class CreateOrderWizardTest extends TestCase
         $this->assertDatabaseCount('financial_transactions', 0);
     }
 
+    public function test_queued_next_from_the_same_step_advances_once_and_preserves_the_draft(): void
+    {
+        $c = $this->context();
+        $component = $this->group($this->start($c)->call('nextStep', 1), $c);
+        $groups = $component->get('groups');
+
+        $component->update(calls: [
+            ['method' => 'nextStep', 'params' => [2], 'path' => ''],
+            ['method' => 'nextStep', 'params' => [2], 'path' => ''],
+        ])->assertHasNoErrors()->assertSet('step', 3)->assertSet('groups', $groups)
+            ->assertSet('customerId', (string) $c['customer']->id)
+            ->call('goToStep', 2)->call('nextStep', 2)->assertSet('step', 3)
+            ->call('nextStep', 3)->assertSet('step', 4)->assertSet('groups', $groups);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
+    }
+
+    public function test_shop_selection_preserves_add_button_identity_and_unrelated_requests_do_not_lock_navigation(): void
+    {
+        $c = $this->context();
+        $component = $this->start($c)->call('nextStep', 1);
+        $button = function (string $html, string $action): \DOMElement {
+            $dom = new \DOMDocument;
+            @$dom->loadHTML('<?xml encoding="UTF-8">'.$html);
+
+            return (new \DOMXPath($dom))->query('//button[@*[name()="wire:click"]="'.$action.'"]')->item(0);
+        };
+        $key = $button($component->html(), 'addDraftShop')->getAttribute('wire:key');
+
+        $component->call('selectShop', $c['shop']->id)->assertHasNoErrors();
+
+        $add = $button($component->html(), 'addDraftShop');
+        $next = $button($component->html(), 'nextStep(2)');
+        $this->assertSame($key, $add->getAttribute('wire:key'));
+        $this->assertSame('addDraftShop', $add->getAttribute('wire:target'));
+        $this->assertSame('nextStep,goToStep,submit', $next->getAttribute('wire:target'));
+        $component->call('addDraftShop')->assertHasNoErrors();
+        $this->assertCount(1, $component->get('groups'));
+    }
+
     public function test_open_inline_modal_keeps_its_text_and_reselects_the_new_branch_sole_area(): void
     {
         $c = $this->context();

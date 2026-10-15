@@ -106,9 +106,9 @@ class LocalizationFoundationTest extends TestCase
         $this->assertSame('UNKNOWN_FUTURE', UiLabels::label('orders.statuses', 'UNKNOWN_FUTURE'));
         $this->assertArrayNotHasKey('COLLECTED', __('financial.invoice_statuses'));
         $this->assertSame('مُحصّلة', __('financial.collection_states.collected'));
-        $this->assertSame('رصيد تشغيل الكابتن لدى أبشر', __('financial.accounts.CAPTAIN_DEPOSIT'));
-        $this->assertSame('مستحقات الكابتن لدى أبشر', __('financial.accounts.CAPTAIN_COMPANY_RECEIVABLE'));
-        $this->assertSame('نقد أبشر بعهدة الكابتن', __('financial.accounts.CAPTAIN_CASH_CUSTODY'));
+        $this->assertSame('رصيد التشغيل', __('financial.accounts.CAPTAIN_DEPOSIT'));
+        $this->assertSame('مستحقات غير مدفوعة', __('financial.accounts.CAPTAIN_COMPANY_RECEIVABLE'));
+        $this->assertSame('أموال الشركة مع الكابتن', __('financial.accounts.CAPTAIN_CASH_CUSTODY'));
         $this->assertNotSame(__('financial.terms.deposit_receipt'), __('financial.terms.manual_deposit_adjustment'));
     }
 

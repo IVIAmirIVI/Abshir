@@ -38,8 +38,9 @@ class OrderWorkflowState
             ! $shopComplete => 'shops',
             default => 'delivery',
         };
-        $transitionProblem = app(OrderStatusService::class)->nextTransitionProblem($order);
         $next = $order->operational_status->next();
+        // A terminal status has no next transition to offer, rather than a failed action.
+        $transitionProblem = $next === null ? null : app(OrderStatusService::class)->nextTransitionProblem($order);
         $invoiceProblem = app(InvoiceService::class)->mutationProblem($order);
         if (! $exceptional && (! $invoice || in_array($invoice->status, [InvoiceStatus::Draft, InvoiceStatus::Ready], true)) && $actor->can('invoices.view')) {
             $invoiceProblem ??= app(InvoiceSnapshotService::class)->readinessProblem($order);

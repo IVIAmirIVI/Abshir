@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'navigation' => [
+        'label' => 'إدارة الكابتن',
+        'index' => 'قائمة الكباتن',
+        'profile' => 'ملف الكابتن',
+        'information' => 'لوحة المعلومات',
+        'financial' => 'الحساب المالي',
+        'requests' => 'المكافآت والمصاريف',
+    ],
     'ui_edit_captain' => 'تعديل الكابتن',
     'ui_create_captain' => 'إضافة كابتن',
     'ui_user_account' => 'حساب المستخدم',

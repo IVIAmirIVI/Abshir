@@ -2,8 +2,9 @@
     <x-mary-icon name="o-squares-2x2" class="h-5 w-5 shrink-0" />{{ __('admin.navigation.dashboard') }}
 </a>
 @foreach($groups as $group)
-    <details @class(['app-nav-group', 'has-active-route' => collect($group['items'])->contains('active', true)]) x-data="{ expanded: false }" @toggle="expanded = $el.open" wire:ignore.self>
-        <summary aria-expanded="false" :aria-expanded="expanded.toString()">{{ $group['label'] }}<x-mary-icon name="o-chevron-down" class="h-4 w-4 shrink-0" /></summary>
+    @php($activeGroup = collect($group['items'])->contains('active', true))
+    <details @class(['app-nav-group', 'has-active-route' => $activeGroup]) @if($activeGroup) open @endif x-data="{ expanded: @js($activeGroup) }" @toggle="expanded = $el.open" wire:ignore.self>
+        <summary aria-expanded="{{ $activeGroup ? 'true' : 'false' }}" :aria-expanded="expanded.toString()">{{ $group['label'] }}<x-mary-icon name="o-chevron-down" class="h-4 w-4 shrink-0" /></summary>
         <div class="space-y-1 pb-3">
             @foreach($group['items'] as $link)
                 <a href="{{ route($link['route']) }}" @class(['app-nav-link', 'is-active' => $link['active']]) @if($link['active']) aria-current="page" @endif>{{ $link['label'] }}@if($link['route'] === 'notifications.index')<span class="badge badge-neutral badge-sm"><x-ltr>{{ app(\App\Services\InternalNoticeService::class)->unreadCount(auth()->user()) }}</x-ltr></span>@endif</a>

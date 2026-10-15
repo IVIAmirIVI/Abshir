@@ -38,7 +38,7 @@ class CaptainFinancialUxTest extends TestCase
         $this->assertSame(1, $xpath->query('//form[@data-captain-payout]//button[@data-remaining="200.0000"]')->length);
         $this->assertSame(0, $xpath->query('//form[@data-captain-payout]//table')->length);
         $this->assertSame(1, $xpath->query('//details[@name="captain-financial-tasks" and @open]')->length);
-        $this->assertSame('captain-payout', $xpath->query('//details[@open]')->item(0)->getAttribute('id'));
+        $this->assertSame('captain-payout', $xpath->query('//details[@name="captain-financial-tasks" and @open]')->item(0)->getAttribute('id'));
         $this->get(route('captains.requests.show', [$c['captain'], $c['proposal']]))->assertSee($url.'#captain-payout');
         $data = $this->payout($c, [$source->id => '200'], '200');
         $endpoint = route('captains.financials.payouts.store', $c['captain']);

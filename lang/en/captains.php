@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'navigation' => [
+        'label' => 'Captain management',
+        'index' => 'Captain list',
+        'profile' => 'Captain profile',
+        'information' => 'Information dashboard',
+        'financial' => 'Financial account',
+        'requests' => 'Bonuses and expenses',
+    ],
     'ui_edit_captain' => 'Edit captain',
     'ui_create_captain' => 'Create captain',
     'ui_user_account' => 'User account',

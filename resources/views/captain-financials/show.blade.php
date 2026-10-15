@@ -1,6 +1,7 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="min-w-0 break-words text-xl font-semibold">{{ __('financial.ui.branch_financials') }}</h2></x-slot>
     <x-management.page class="financial-ui captain-financial-page">
+        <x-captains.navigation :captain="$captain" />
         <header class="min-w-0 space-y-1"><h1 class="break-words text-xl font-bold">{{ $captain->user->name }}</h1>@if($selectedBranch && $selectedCurrency)<p class="text-sm text-gray-600">{{ $selectedBranch->name }} · <x-ltr>{{ $selectedCurrency->code }}</x-ltr></p>@endif</header>
         @if(session('status'))<p role="status" class="rounded-lg bg-green-50 p-4 text-green-800">{{ session('status') }}</p>@endif
         @if($errors->any())<div role="alert" class="rounded-lg bg-red-50 p-4 text-red-800"><ul class="list-disc ps-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif

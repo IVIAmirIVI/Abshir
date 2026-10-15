@@ -131,8 +131,12 @@ trait CreatesOrderWizard
         $this->resetValidation();
     }
 
-    public function nextStep(): void
+    public function nextStep(?int $fromStep = null): void
     {
+        // A queued second click from the old step must not advance the new one.
+        if ($fromStep !== null && $fromStep !== $this->step) {
+            return;
+        }
         $this->goToStep(min(4, $this->step + 1));
     }
 

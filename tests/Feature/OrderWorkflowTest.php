@@ -304,6 +304,27 @@ class OrderWorkflowTest extends TestCase
         $this->assertDatabaseCount('financial_transactions', 0);
     }
 
+    public function test_delivered_workflow_has_success_without_a_fictitious_next_transition_error(): void
+    {
+        $c = $this->context();
+        $this->purchase($c);
+        $this->evidence($c);
+        $component = $this->workflowComponent($c);
+        foreach (range(1, 6) as $transition) {
+            $component->call('advance')->assertHasNoErrors();
+        }
+
+        $component->assertSee(__('orders.statuses.DELIVERED'))
+            ->assertSee(__('orders.flash.status_updated'))
+            ->assertDontSee(__('domain.this_operational_status_transition_is_not_allowed'))
+            ->call('$refresh')->assertDontSee(__('domain.this_operational_status_transition_is_not_allowed'));
+        $this->assertSame(OrderOperationalStatus::Delivered, $c['order']->fresh()->operational_status);
+        $this->assertNull($this->state($c)['transitionProblem']);
+        $this->assertSame('invoice', $this->state($c)['nextAction']['kind']);
+        $component->call('advance')->assertStatus(422);
+        $this->assertSame(7, $c['order']->statusHistory()->count());
+    }
+
     public function test_shopping_next_action_follows_missing_authoritative_facts_and_summary_has_no_mutation_forms(): void
     {
         $c = $this->context();
