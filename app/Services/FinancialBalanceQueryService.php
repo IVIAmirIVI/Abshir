@@ -150,6 +150,7 @@ class FinancialBalanceQueryService
     public function payableReceivableEntries(Captain $captain, Branch $branch, Currency $currency): Collection
     {
         $eventTypes = [
+            'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE',
             'CAPTAIN_BONUS_DUE', 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE',
             'ORDER_V3_CASH_SHORTFALL_DUE', 'ORDER_V3_SHAM_PRODUCT_REIMBURSEMENT_DUE', 'ORDER_V3_SHAM_DELIVERY_ENTITLEMENT_DUE',
             'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE', 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE',

@@ -40,6 +40,7 @@ return [
         'CANCEL_AND_REFUND' => 'إلغاء ورد المبلغ',
     ],
     'events' => [
+        'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE' => 'مبلغ دفعه الكابتن للزبون من ماله الشخصي — مستحق على الشركة ولم يُصرف',
         'CAPTAIN_BONUS_DUE' => 'مكافأة الكابتن المعتمدة المستحقة — لم تُصرف',
         'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE' => 'تعويض مصروف تشغيلي معتمد للكابتن — لم يُصرف',
         'CAPTAIN_BENEFIT_REVERSED' => 'إلغاء مستحق مكافأة أو مصروف غير مدفوع',

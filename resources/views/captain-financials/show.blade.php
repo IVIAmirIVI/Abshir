@@ -12,6 +12,7 @@
             <x-financial.account-guide />
         </section>
 
+        @include('captains._return-liabilities')
         @can('captain_receivable_payouts.create')
         <details id="captain-payout" name="captain-financial-tasks" class="captain-financial-task" @if(!old('direction') && (old('allocations') !== null || !old('request_key'))) open @endif><summary>{{ __('financial.ui.pay_attributed') }}</summary><div class="captain-financial-task-body">
             <form method="GET" action="{{ route('captains.financials.show', $captain) }}" class="grid min-w-0 gap-3 sm:grid-cols-2"><label>{{ __('common.terms.branch') }}<select name="branch_id" class="min-w-0 max-w-full block w-full rounded-md border-gray-300">@foreach($branches as $branch)<option value="{{ $branch->id }}" @selected($selectedBranch?->id === $branch->id)>{{ $branch->name }}</option>@endforeach</select></label><label>{{ __('common.terms.currency') }}<select name="currency_id" class="min-w-0 max-w-full block w-full rounded-md border-gray-300">@foreach($currencies as $currency)<option value="{{ $currency->id }}" @selected($selectedCurrency?->id === $currency->id)>{{ "\u{2066}".($currency->code)."\u{2069}" }}</option>@endforeach</select></label><x-secondary-button type="submit">{{ __('financial.ui.show_sources') }}</x-secondary-button></form>

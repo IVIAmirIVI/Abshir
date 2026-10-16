@@ -29,21 +29,33 @@ use Illuminate\Http\UploadedFile;
 
 trait SharedPurchaseFixtures
 {
-    protected function sharedContext(int $places = 2, int $count = 2, bool $selectAtCreation = false): array
+    protected function sharedContext(int $places = 2, int $count = 2, bool $selectAtCreation = false, string $deliveryFee = '10', array $master = []): array
     {
         $this->seed(AuthorizationSeeder::class);
-        $currency = Currency::create(['code' => strtoupper(str()->random(3)), 'name' => 'Test Currency', 'decimal_places' => $places]);
-        $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
-        $from = Area::factory()->for($branch)->create();
-        $to = Area::factory()->for($branch)->create();
-        $customer = Customer::create(['name' => 'Shared purchase fixture']);
-        $phone = $customer->phones()->create(['phone' => '0912345678', 'normalized_phone' => '0912345678']);
-        $address = $customer->addresses()->create(['area_id' => $to->id, 'address_line_1' => 'Test']);
-        $actor = User::factory()->create();
-        $actor->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
-        $actor->branches()->attach($branch);
-        $admin = User::factory()->create();
-        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        if ($master) {
+            $currency = $master['currency'];
+            $branch = $master['branch'];
+            $actor = $master['actor'];
+            $admin = $master['admin'];
+            $customer = $master['order']->customer;
+            $phone = $master['order']->customerPhone;
+            $address = $master['order']->customerAddress;
+            $to = $address->area;
+            $from = Area::findOrFail($master['shop']->origin_area_id);
+        } else {
+            $currency = Currency::create(['code' => strtoupper(str()->random(3)), 'name' => 'Test Currency', 'decimal_places' => $places]);
+            $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
+            $from = Area::factory()->for($branch)->create();
+            $to = Area::factory()->for($branch)->create();
+            $customer = Customer::create(['name' => 'Shared purchase fixture']);
+            $phone = $customer->phones()->create(['phone' => '0912345678', 'normalized_phone' => '0912345678']);
+            $address = $customer->addresses()->create(['area_id' => $to->id, 'address_line_1' => 'Test']);
+            $actor = User::factory()->create();
+            $actor->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
+            $actor->branches()->attach($branch);
+            $admin = User::factory()->create();
+            $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        }
         $captains = [];
         if ($selectAtCreation) {
             for ($index = 0; $index < $count; $index++) {
@@ -80,9 +92,11 @@ trait SharedPurchaseFixtures
                 $captains[] = $captain;
             }
         }
-        app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
-            'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value,
-            'delivery_unit_fee' => '10', 'effective_from' => now()->subDay()]);
+        if (! $master) {
+            app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
+                'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value,
+                'delivery_unit_fee' => $deliveryFee, 'effective_from' => now()->subDay()]);
+        }
         app(DeliveryPricingSettings::class)->update($admin, '50', '0');
         app(OrderDeliveryPricingService::class)->price($actor, $order, $from);
 

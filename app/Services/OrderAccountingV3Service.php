@@ -69,6 +69,12 @@ class OrderAccountingV3Service
                 foreach ($concepts as $event => $field) {
                     $movements = [];
                     foreach ($snapshot['captain_allocations'] as $row) {
+                        if ($collection->collection_method === InvoiceCollectionMethod::Cash) {
+                            $deliveryCash = BigDecimal::of($row['customer_delivery_amount_allocated'])->minus(app(MixedCustomerCreditService::class)->creditAmount($collection));
+                            $difference = $deliveryCash->minus($row['captain_entitlement']);
+                            $row['company_collectible'] = (string) ($difference->isGreaterThan(0) ? $difference : BigDecimal::zero());
+                            $row['captain_shortfall'] = (string) ($difference->isLessThan(0) ? $difference->negated() : BigDecimal::zero());
+                        }
                         if (BigDecimal::of($row[$field])->isGreaterThan(0)) {
                             $movements[] = $this->movement($currency, $row['captain_id'],
                                 $field === 'company_collectible' ? FinancialAccountKind::CaptainDeposit : FinancialAccountKind::CaptainCompanyReceivable,

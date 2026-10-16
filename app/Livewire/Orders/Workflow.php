@@ -7,13 +7,16 @@ use App\Http\Requests\InvoiceCollectionRequest;
 use App\Models\Order;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\MixedCustomerCreditService;
 use App\Services\OrderService;
 use App\Services\OrderShopProgressService;
 use App\Services\OrderStatusService;
 use App\Services\OrderWorkflowData;
 use App\Services\OrderWorkflowState;
+use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -37,6 +40,15 @@ class Workflow extends Component
 
     public string $collectionNotes = '';
 
+    public array $creditAllocations = [];
+
+    public array $creditAttributions = [];
+
+    public string $collectionActualAmount = '';
+
+    #[Locked]
+    public string $creditSettlementKey = '';
+
     #[Locked]
     public ?string $actionStatus = null;
 
@@ -48,6 +60,7 @@ class Workflow extends Component
             $this->openStep((string) request()->query('step'));
         }
         $this->collectedAt = now()->format('Y-m-d\TH:i:s');
+        $this->creditSettlementKey = (string) str()->uuid();
     }
 
     private function freshOrder(): Order
@@ -126,16 +139,27 @@ class Workflow extends Component
             'collectedAt' => (new InvoiceCollectionRequest)->rules()['collected_at'],
             'paymentReference' => (new InvoiceCollectionRequest)->rules()['payment_reference'],
             'collectionNotes' => (new InvoiceCollectionRequest)->rules()['notes'],
-        ]);
+            'collectionActualAmount' => ['nullable', 'string', 'regex:/^[0-9]{1,18}(?:\.[0-9]{1,4})?$/D'],
+        ], ['collectionActualAmount.regex' => __('credit.settlement_invalid')]);
         $this->domainAction(fn () => DB::transaction(function () use ($collections, $order): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if ($problem = app(InvoiceService::class)->mutationProblem($order)) {
                 throw ValidationException::withMessages(['order' => $problem]);
             }
             $invoice = $order->currentInvoice()->firstOrFail();
+            if (collect($this->creditAllocations)->contains(fn ($amount) => $amount !== '' && $amount !== null && (! is_string($amount) || ! preg_match('/^0(?:\.0+)?$/D', $amount)))) {
+                app(MixedCustomerCreditService::class)->record(auth()->user(), $invoice, InvoiceCollectionMethod::from($this->collectionMethod), [
+                    'request_key' => $this->creditSettlementKey, 'allocations' => $this->creditAllocations,
+                    'attributions' => $this->creditAttributions,
+                    'actual_amount' => $this->collectionActualAmount, 'collected_at' => $this->collectedAt,
+                    'notes' => $this->collectionNotes, 'payment_reference' => $this->paymentReference,
+                ]);
+
+                return;
+            }
             $collections->record(auth()->user(), $invoice, InvoiceCollectionMethod::from($this->collectionMethod),
-                $invoice->grand_total, $invoice->currency_id, $this->collectedAt, $this->collectionNotes ?: null, $this->paymentReference ?: null);
-        }));
+                filled($this->collectionActualAmount) ? $this->collectionActualAmount : $invoice->grand_total, $invoice->currency_id, $this->collectedAt, $this->collectionNotes ?: null, $this->paymentReference ?: null);
+        }), ['actual_amount' => 'collectionActualAmount', 'allocations' => 'creditAllocations']);
         $this->actionStatus = __('financial.flash.collection_recorded');
         $this->changed();
     }
@@ -156,7 +180,29 @@ class Workflow extends Component
         $workflow = app(OrderWorkflowState::class)->describe(auth()->user(), $this->order);
         // Active cancellation takes precedence even over a previously selected normal panel.
         $activePanel = $workflow['exceptional'] ? 'exception' : ($this->panel ?? $workflow['step']);
+        $creditGrants = collect();
+        $creditTotal = BigDecimal::zero();
+        $creditExpectedActual = null;
+        if ($workflow['canCollect'] && auth()->user()->can('customer_credits.view') && auth()->user()->can('customer_credits.redeem')
+            && auth()->user()->can('customers.view') && in_array($this->order->accounting_contract_version, [2, 3], true)
+            && auth()->user()->canAccessCustomer($this->order->customer)
+            && Schema::hasTable('customer_credit_settlements')) {
+            $creditGrants = app(MixedCustomerCreditService::class)->grants(auth()->user(), $this->order, $this->order->currentInvoice->currency_id);
+            try {
+                foreach ($this->creditAllocations as $amount) {
+                    if ($amount !== '' && $amount !== null) {
+                        if (! is_string($amount) || ! preg_match('/^\d+(?:\.\d+)?$/D', $amount)) {
+                            throw new \InvalidArgumentException;
+                        }
+                        $creditTotal = $creditTotal->plus($amount);
+                    }
+                }
+                $creditExpectedActual = (string) BigDecimal::of($this->order->currentInvoice->grand_total)->minus($creditTotal)->toScale(4);
+            } catch (\Throwable) {
+                $creditExpectedActual = null;
+            }
+        }
 
-        return view('livewire.orders.workflow', $data + compact('workflow', 'activePanel'));
+        return view('livewire.orders.workflow', $data + compact('workflow', 'activePanel', 'creditGrants', 'creditTotal', 'creditExpectedActual'));
     }
 }

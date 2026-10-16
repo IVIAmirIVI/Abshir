@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Services\CaptainReceivableRecoveryService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\MixedCustomerCreditService;
 use App\Services\OrderFinancialSourceSnapshotService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -45,8 +46,9 @@ class InvoiceController extends Controller
 
         $recoverySummaries = $corrections->mapWithKeys(fn ($c) => [$c->id => app(CaptainReceivableRecoveryService::class)->summary($c)]);
         $collectionAvailability = app(InvoiceCollectionService::class)->availability($request->user(), $invoice);
+        $creditAmount = $invoice->collection ? app(MixedCustomerCreditService::class)->creditAmount($invoice->collection) : '0';
 
-        return view('invoices.show', compact('invoice', 'primaryCollector', 'corrections', 'settledCorrection', 'correctionSource', 'recoverySummaries', 'collectionAvailability'));
+        return view('invoices.show', compact('invoice', 'primaryCollector', 'corrections', 'settledCorrection', 'correctionSource', 'recoverySummaries', 'collectionAvailability', 'creditAmount'));
     }
 
     public function print(Request $request, Order $order, Invoice $invoice): View

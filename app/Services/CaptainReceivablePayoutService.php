@@ -128,7 +128,7 @@ class CaptainReceivablePayoutService
                     if (! $source || BigDecimal::of($value)->isGreaterThan(BigDecimal::of((string) $source->remaining_amount))) {
                         throw ValidationException::withMessages(['allocations' => __('domain.a_selected_receivable_entry_is_unavailable_or_already_paid')]);
                     }
-                    if (in_array($source->event_type, ['CAPTAIN_BONUS_DUE', 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE'], true)
+                    if (in_array($source->event_type, ['CAPTAIN_BONUS_DUE', 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE', 'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE'], true)
                         && empty($facts['payment_method'])) {
                         throw ValidationException::withMessages(['payment_method' => __('captain_requests.method_required')]);
                     }

@@ -78,6 +78,8 @@
         @if(!$workflow['exceptional'] && !$workflow['complete'] && $workflow['transitionProblem'])<p class="rounded-lg bg-amber-50 p-3 text-sm">{{ $workflow['transitionProblem'] }}</p>@endif
     </x-orders.section>
     <div class="space-y-3" data-workflow-services><h2 class="text-sm font-semibold text-gray-600">{{ __('order_design.operations') }}</h2>
+    @include('orders._customer-returns')
+    @include('customers._credit', ['creditCustomer' => $order->customer, 'creditBranchId' => $order->branch_id])
     @can('bill_payments.view')<details class="rounded-xl border border-stone-200 bg-white p-4" data-workflow-bill-payments id="workflow-bill-payments"><summary class="cursor-pointer font-semibold">{{ __('orders.ui_external_bill_payments') }}</summary><div class="mt-3">@include('orders._bill-payments')</div></details>@endcan
     @include('livewire.orders.workflow-cancellation')
     </div>

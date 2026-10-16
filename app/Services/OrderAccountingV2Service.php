@@ -50,7 +50,7 @@ class OrderAccountingV2Service
             $branch = Branch::findOrFail($snapshot['branch_id']);
             $collectedAt = CarbonImmutable::parse(DB::table('invoice_collections')->where('id', $collection->id)->value('collected_at'));
             $events = [];
-            $delivery = BigDecimal::of($invoice->delivery_total);
+            $delivery = BigDecimal::of($invoice->delivery_total)->minus(app(MixedCustomerCreditService::class)->creditAmount($collection));
             if ($collection->collection_method === InvoiceCollectionMethod::Cash && $delivery->isGreaterThan(0)) {
                 $primary = collect($snapshot['captain_allocations'])->sole('is_primary', true);
                 $events[] = $this->post($currency, $branch, $collection, FinancialEventType::OrderV2CashDeliveryCustodyReceived,

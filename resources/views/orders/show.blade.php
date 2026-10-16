@@ -14,5 +14,7 @@
 @can('invoices.view')@include('orders._invoices')@endcan
 <details class="rounded-xl border bg-white p-4"><summary class="cursor-pointer font-semibold">{{ __('orders.ui_history') }}</summary><div class="mt-3 space-y-2"><p class="text-sm text-gray-600">{{ __('orders.ui_history_scope') }}</p>@foreach($order->statusHistory as $history)<p class="text-sm"><x-ltr>{{ \App\Support\UiDate::datetime($history->changed_at) }}</x-ltr> · {{ $history->previous_status ? \App\Support\UiLabels::label('orders.statuses', $history->previous_status) : __('orders.ui_created') }} → {{ \App\Support\UiLabels::label('orders.statuses', $history->new_status) }} · {{ $history->reason }}</p>@endforeach</div></details>
 @include('orders._operational-history')
+@include('orders._customer-returns', ['returnReadOnly' => true])
+@include('customers._credit', ['creditCustomer' => $order->customer, 'creditBranchId' => $order->branch_id])
 <details class="rounded-xl border bg-white p-4" @if($workflow['exceptional']) open @endif><summary class="cursor-pointer font-semibold">{{ __('orders.workflow.advanced') }}</summary><div class="mt-4 space-y-4">@include('orders._phase9c2', ['exceptionsOnly' => true])@include('orders._phase85')<details class="rounded-lg border p-3"><summary class="cursor-pointer">{{ __('orders.ui_external_bill_payments') }}</summary><div class="mt-3">@include('orders._bill-payments')</div></details></div></details>
 </div></x-app-layout>

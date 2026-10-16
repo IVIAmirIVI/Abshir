@@ -67,7 +67,9 @@ class InvoiceCollectionService
             if ($problem = $this->eligibilityProblem($order, $invoice, true)) {
                 throw ValidationException::withMessages([$problem[0] => $problem[1]]);
             }
-            if ($currencyId !== $invoice->currency_id || ! BigDecimal::of($amount)->isEqualTo(BigDecimal::of($invoice->grand_total))) {
+            $credit = Schema::hasTable('customer_credit_settlements')
+                ? DB::table('customer_credit_settlements')->where('invoice_id', $invoice->id)->value('credit_amount') : null;
+            if ($currencyId !== $invoice->currency_id || ! BigDecimal::of($amount)->plus($credit ?? '0')->isEqualTo(BigDecimal::of($invoice->grand_total))) {
                 throw ValidationException::withMessages(['amount' => __('domain.collection_must_equal_the_full_invoice_total_in_its_currency')]);
             }
             $collectedAt = Carbon::parse($collectedAt);
@@ -85,18 +87,23 @@ class InvoiceCollectionService
                 $orderCaptainId = $primary->id;
             }
 
-            $collection = $invoice->collection()->create([
+            $collection = $invoice->collection()->make();
+            if ($credit !== null) {
+                $collection->setDateFormat('Y-m-d H:i:s.uP');
+            }
+            $collection->fill([
                 'order_id' => $order->id,
                 'captain_id' => $captainId,
                 'order_captain_id' => $orderCaptainId,
                 'collection_method' => $method,
                 'payment_reference' => filled($paymentReference) ? trim($paymentReference) : null,
                 'currency_id' => $invoice->currency_id,
-                'amount' => $invoice->grand_total,
+                'amount' => $credit === null ? $invoice->grand_total : $amount,
                 'collected_at' => $collectedAt,
                 'recorded_by' => $actor->id,
                 'notes' => $notes,
             ]);
+            $collection->save();
             $this->financials->postIfReady($order);
             app(ShopCommissionAccountingService::class)->postIfReady($order);
 

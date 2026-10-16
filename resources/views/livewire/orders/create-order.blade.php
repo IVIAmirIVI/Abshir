@@ -125,6 +125,9 @@
         @include('livewire.orders.wizard-shops')
     @elseif($step === 3)
         @include('livewire.orders.wizard-delivery')
+        @if($this->selectedCustomer && $branchId !== '')
+            @include('customers._credit', ['creditCustomer' => $this->selectedCustomer, 'creditBranchId' => (int) $branchId])
+        @endif
     @else
         @include('livewire.orders.wizard-review')
     @endif

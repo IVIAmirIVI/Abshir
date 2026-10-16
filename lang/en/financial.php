@@ -40,6 +40,7 @@ return [
         'CANCEL_AND_REFUND' => 'Cancel and refund',
     ],
     'events' => [
+        'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE' => 'Customer credit paid from Captain personal funds — company reimbursement due, unpaid',
         'CAPTAIN_BONUS_DUE' => 'Approved Captain bonus due — unpaid',
         'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE' => 'Approved Captain operational expense reimbursement due — unpaid',
         'CAPTAIN_BENEFIT_REVERSED' => 'Unpaid Captain bonus or expense entitlement reversed',

@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Branch;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\SecurityAudit;
 use App\Models\User;
 use App\Notifications\CaptainBenefitWorkflowNotice;
+use App\Notifications\CustomerCreditNotice;
+use App\Notifications\CustomerReturnNotice;
 use App\Notifications\InternalStaffNotice;
 use App\Support\StaffInbox;
 use Illuminate\Database\Eloquent\Builder;
@@ -39,7 +42,15 @@ class InternalNoticeService
     {
         $this->assertStaff($actor);
         $branches = $actor->availableBranches()->pluck('branches.id')->all();
-        $query = $actor->notifications()->getQuery()->where('type', InternalStaffNotice::class)
+        $query = $actor->notifications()->getQuery()->where(function ($query) use ($actor): void {
+            $query->where('type', InternalStaffNotice::class);
+            if ($actor->isSuperAdmin() && $actor->can('order_shop_returns.view')) {
+                $query->orWhere('type', CustomerReturnNotice::class);
+            }
+            if ($actor->isSuperAdmin() && $actor->can('customer_credits.view')) {
+                $query->orWhere('type', CustomerCreditNotice::class);
+            }
+        })
             ->when(! StaffInbox::manualAllowed($actor), fn ($q) => $q->whereRaw('1 = 0'))
             ->where(fn ($q) => $q->whereNull('data->branch_id')->orWhereIn('data->branch_id', $branches));
         if (! $actor->can('orders.view')) {
@@ -141,6 +152,14 @@ class InternalNoticeService
         $notice = $this->own($actor, $notice->id);
         if ($notice->type === CaptainBenefitWorkflowNotice::class) {
             return app(CaptainBenefitNotificationService::class)->destination($actor, $notice->data);
+        }
+        if ($notice->type === CustomerCreditNotice::class) {
+            Gate::forUser($actor)->authorize('customer_credits.view');
+            Gate::forUser($actor)->authorize('customers.view');
+            $customer = Customer::findOrFail($notice->data['customer_id']);
+            abort_unless($actor->canAccessCustomer($customer), 403);
+
+            return route('customers.show', $customer);
         }
         abort_unless(filled($notice->data['order_id'] ?? null), 404);
         $order = Order::findOrFail($notice->data['order_id']);

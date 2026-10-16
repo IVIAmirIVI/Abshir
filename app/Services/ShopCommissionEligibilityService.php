@@ -29,7 +29,7 @@ class ShopCommissionEligibilityService
             ! $invoice || $invoice->status !== InvoiceStatus::Issued => 'not_issued',
             ! $collection => 'not_collected',
             $collection->order_id !== $order->id || $collection->currency_id !== $invoice->currency_id
-                || ! $collection->collected_at || (! $correction && ! BigDecimal::of($collection->amount)->isEqualTo($invoice->grand_total))
+                || ! $collection->collected_at || (! $correction && ! BigDecimal::of($collection->amount)->plus(app(MixedCustomerCreditService::class)->creditAmount($collection))->isEqualTo($invoice->grand_total))
                 || ($correction && ! BigDecimal::of($correction->corrected_amount)->isEqualTo($invoice->grand_total)) => 'invalid_collection',
             default => 'eligible',
         };

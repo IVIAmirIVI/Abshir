@@ -11,6 +11,10 @@
         <article class="rounded border p-3"><p class="text-sm">{{ $invoice->superseded_at ? __('financial.ui.historical_invoice') : __('financial.ui.current_invoice') }}</p>
             <div class="flex flex-wrap justify-between gap-2"><a class="font-semibold underline" href="{{ route('orders.invoices.show', [$order, $invoice]) }}"><x-ltr>{{ $invoice->invoice_number }}</x-ltr> · {{ __('financial.ui.version') }} <x-ltr>{{ $invoice->version }}</x-ltr></a><span>{{ \App\Support\UiLabels::label('financial.invoice_statuses', $invoice->status) }}</span></div>
             <p>@if($invoice->grand_total !== null)<x-money :amount="$invoice->grand_total" />@else{{ __('financial.ui.not_ready') }}@endif <x-ltr>{{ $invoice->currency?->code }}</x-ltr> · @if($invoice->collection){{ __('financial.collection_states.collected') }} <x-ltr>{{ \App\Support\UiDate::datetime($invoice->collection->collected_at) }}</x-ltr>@elseif($invoice->settledCorrection()->exists()){{ __('orders.ui_payment_settled_correction') }}@else{{ __('financial.collection_states.uncollected') }}@endif</p>
+            @if($invoice->collection && \Illuminate\Support\Facades\Schema::hasTable('customer_credit_settlements'))
+                @php($creditSettled = app(\App\Services\MixedCustomerCreditService::class)->creditAmount($invoice->collection))
+                @if(\Brick\Math\BigDecimal::of($creditSettled)->isGreaterThan(0))<p class="text-sm">{{ __('credit.actual_payment') }}: <x-money :amount="$invoice->collection->amount" /> · {{ __('credit.redeemed') }}: <x-money :amount="$creditSettled" /> <x-ltr>{{ $invoice->currency?->code }}</x-ltr></p>@endif
+            @endif
             @if($invoice->issued_at)<p class="text-sm">{{ __('financial.ui.issued') }} <x-ltr>{{ \App\Support\UiDate::datetime($invoice->issued_at) }}</x-ltr></p>@endif
             @if($invoice->void_reason)<p class="text-sm">{{ __('financial.ui.voided') }} {{ $invoice->void_reason }}</p>@endif
             @if($invoice->replacement_reason)<p class="text-sm">{{ __('financial.ui.replaced') }} {{ $invoice->replacement_reason }}</p>@endif

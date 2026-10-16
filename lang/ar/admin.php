@@ -61,6 +61,7 @@ return [
         'company_financials' => 'مالية الشركة',
         'currencies' => 'العملات',
         'customer_refunds' => 'رد المبالغ للزبائن',
+        'customer_credits' => 'رصيد الزبائن',
         'customers' => 'الزبائن',
         'delivery_discount_limits' => 'حدود خصومات التوصيل',
         'delivery_discounts' => 'خصومات التوصيل',
@@ -91,6 +92,9 @@ return [
         'users' => 'المستخدمين',
     ],
     'permission_actions' => [
+        'grant' => 'إضافة رصيد',
+        'redeem' => 'استخدام الرصيد',
+        'payout' => 'صرف الرصيد نقدًا',
         'submit' => 'تقديم للمراجعة',
         'activate' => 'تفعيل',
         'apply' => 'تطبيق',

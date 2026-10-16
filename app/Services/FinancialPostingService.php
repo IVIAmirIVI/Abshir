@@ -285,6 +285,7 @@ class FinancialPostingService
         $occurredAt = CarbonImmutable::instance($occurredAt)->utc();
         $payloadHash = $this->payloadHash($kind, $currency, $sourceType, $sourceId, $eventType, $sourceVersion, $occurredAt, $normalized, $branch, $recordedBy, $reversalOf, $reason, $notes);
         $preciseOrderEvent = in_array($eventType, [
+            FinancialEventType::CustomerCreditPersonalFundsDue->value,
             FinancialEventType::CaptainBonusDue->value,
             FinancialEventType::CaptainExpenseReimbursementDue->value,
             FinancialEventType::CaptainBenefitReversed->value,

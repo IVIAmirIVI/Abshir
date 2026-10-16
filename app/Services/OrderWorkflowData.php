@@ -7,7 +7,6 @@ use App\Models\Area;
 use App\Models\Currency;
 use App\Models\Order;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
@@ -48,23 +47,20 @@ class OrderWorkflowData
         if ($actor->can($permission) && ! $order->cancellation && ! $order->cancellationIntent) {
             $cancellationUi['visible'] = true;
             try {
-                // Presentation eligibility uses the existing safety checks. The
-                // POST action still rechecks every rule under its own Order lock.
-                DB::transaction(function () use ($order, $cancellationUi, $recoveredCancellationAvailable): void {
-                    $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
-                    if ($locked->operational_status === OrderOperationalStatus::Cancelled || ($locked->operational_status === OrderOperationalStatus::Delivered
-                        && ! ($cancellationUi['afterPurchase'] && $recoveredCancellationAvailable))) {
-                        throw ValidationException::withMessages(['order' => __('domain.delivered_or_already_cancelled_orders_cannot_be_cancelled')]);
-                    }
-                    $safety = app(OrderCancellationSafetyService::class);
-                    $safety->assertNoIntentLocked($locked);
-                    $safety->assertNoFinancialCorrectionRequiredLocked($locked, $cancellationUi['afterPurchase']);
-                    if ($cancellationUi['afterPurchase']) {
-                        $safety->assertNoLegacyPurchaseCandidateLocked($locked);
-                    } elseif ($locked->shops()->where(fn ($q) => $q->whereNotNull('picked_up_at')->orWhereHas('receipts'))->exists()) {
-                        throw ValidationException::withMessages(['order' => __('domain.before_purchase_conflicts_with_existing_pickup_or_receipt_evidence')]);
-                    }
-                });
+                // Rendering must not wait on mutation locks. POST actions still
+                // acquire their Order lock and recheck the same safety rules.
+                if ($order->operational_status === OrderOperationalStatus::Cancelled || ($order->operational_status === OrderOperationalStatus::Delivered
+                    && ! ($cancellationUi['afterPurchase'] && $recoveredCancellationAvailable))) {
+                    throw ValidationException::withMessages(['order' => __('domain.delivered_or_already_cancelled_orders_cannot_be_cancelled')]);
+                }
+                $safety = app(OrderCancellationSafetyService::class);
+                $safety->assertNoIntentLocked($order);
+                $safety->assertNoFinancialCorrectionRequiredLocked($order, $cancellationUi['afterPurchase'], lockInvoice: false);
+                if ($cancellationUi['afterPurchase']) {
+                    $safety->assertNoLegacyPurchaseCandidateLocked($order);
+                } elseif ($order->shops()->where(fn ($q) => $q->whereNotNull('picked_up_at')->orWhereHas('receipts'))->exists()) {
+                    throw ValidationException::withMessages(['order' => __('domain.before_purchase_conflicts_with_existing_pickup_or_receipt_evidence')]);
+                }
                 $cancellationUi['allowed'] = true;
             } catch (ValidationException $exception) {
                 $cancellationUi['problem'] = collect($exception->errors())->flatten()->first();

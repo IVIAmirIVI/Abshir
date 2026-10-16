@@ -78,8 +78,20 @@
         @if(!$collectionAvailability['available'] && !$collectionAvailability['payment_satisfied'] && $invoice->status === \App\Enums\InvoiceStatus::Issued && !$invoice->superseded_at)<p class="rounded bg-amber-50 p-3 text-sm">{{ $collectionAvailability['reason'] }}</p>@endif
         @if($invoice->collection)
             <section class="rounded bg-green-50 p-5">
+                @if(\Brick\Math\BigDecimal::of($creditAmount)->isGreaterThan(0))
+                    <h3 class="font-semibold">{{ __('credit.fully_settled') }}</h3>
+                    <dl class="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
+                        <div><dt>{{ __('financial.ui.total') }}</dt><dd class="font-semibold"><x-money :amount="$invoice->grand_total" :currency="$invoice->currency->code" /></dd></div>
+                        <div><dt>{{ __('credit.actual_payment') }} · {{ \App\Support\UiLabels::label('financial.collection_methods', $invoice->collection->collection_method) }}</dt><dd class="font-semibold"><x-money :amount="$invoice->collection->amount" :currency="$invoice->currency->code" /></dd></div>
+                        <div><dt>{{ __('credit.redeemed') }}</dt><dd class="font-semibold"><x-money :amount="$creditAmount" :currency="$invoice->currency->code" /></dd></div>
+                        <div><dt>{{ __('credit.settled_total') }}</dt><dd class="font-semibold"><x-money :amount="(string) \Brick\Math\BigDecimal::of($invoice->collection->amount)->plus($creditAmount)" :currency="$invoice->currency->code" /></dd></div>
+                    </dl>
+                    <p class="mt-3 text-sm">{{ __('credit.mixed_settlement_help') }}</p>
+                    <p><x-ltr>{{ \App\Support\UiDate::datetime($invoice->collection->collected_at) }}</x-ltr></p>
+                @else
                 <h3 class="font-semibold">{{ __('financial.ui.collected_full') }} · {{ $invoice->collection->collection_method ? \App\Support\UiLabels::label('financial.collection_methods', $invoice->collection->collection_method) : __('financial.ui.legacy_method') }}</h3>
                 <p><x-money :amount="$invoice->collection->amount" /> <x-ltr>{{ $invoice->currency->code }}</x-ltr> · <x-ltr>{{ \App\Support\UiDate::datetime($invoice->collection->collected_at) }}</x-ltr></p>
+                @endif
                 @if($invoice->collection->collection_method === \App\Enums\InvoiceCollectionMethod::Cash)
                     <p>{{ __('financial.ui.collector') }} {{ $invoice->collection->captain?->user?->name }}</p>
                 @elseif($invoice->collection->collection_method === \App\Enums\InvoiceCollectionMethod::ShamCash)

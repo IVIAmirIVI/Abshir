@@ -3,6 +3,7 @@
     <x-management.page class="financial-ui captain-information-page">
         <div data-captain-information class="min-w-0 space-y-4">
             @unless($snapshot['selfView'])<x-captains.navigation :captain="$captain" />@endunless
+            @unless($snapshot['selfView'])@include('captains._return-liabilities')@endunless
             @if($snapshot['selfView'])<a class="btn btn-primary" href="{{ route('captain.portal') }}">{{ __('captain_portal.title') }}</a>@endif
             <header class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0"><h1 class="text-2xl font-bold break-words">{{ $captain->user->name }}</h1><p class="mt-2 text-sm text-gray-600">{{ __($snapshot['selfView'] ? 'captain_dashboard.self_read_only' : 'captain_dashboard.read_only') }}</p></div>

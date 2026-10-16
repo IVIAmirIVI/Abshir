@@ -61,6 +61,7 @@ return [
         'company_financials' => 'company financials',
         'currencies' => 'currencies',
         'customer_refunds' => 'customer refunds',
+        'customer_credits' => 'customer credits',
         'customers' => 'customers',
         'delivery_discount_limits' => 'delivery discount limits',
         'delivery_discounts' => 'delivery discounts',
@@ -91,6 +92,9 @@ return [
         'users' => 'users',
     ],
     'permission_actions' => [
+        'grant' => 'grant credit',
+        'redeem' => 'redeem credit',
+        'payout' => 'pay out credit',
         'submit' => 'Submit for review',
         'activate' => 'activate',
         'apply' => 'apply',
