@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ProductRequest;
 use App\Models\Category;
+use App\Models\Currency;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\Unit;
@@ -89,6 +90,7 @@ class ProductController extends Controller
             'product' => $product,
             'categories' => Category::query()->where('is_active', true)->orWhereKey($product->category_id)->orderBy('name')->get(),
             'units' => Unit::query()->where('is_active', true)->orWhereKey($product->default_unit_id)->orderBy('name')->get(),
+            'currencies' => Currency::query()->where('is_active', true)->orderBy('code')->get(),
         ]);
     }
 }

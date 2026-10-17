@@ -16,7 +16,7 @@
     </form>
     <h4 class="font-semibold">{{ __('financial.ui.adjustment_history') }}</h4>
     @forelse($manualAdjustments as $adjustment)
-        <p class="border-b py-2 text-sm">{{ \App\Support\UiLabels::label('financial.directions', $adjustment->direction) }} · <x-money :amount="$adjustment->amount" /> <x-ltr>{{ $adjustment->currency->code }}</x-ltr> · {{ $adjustment->branch->name }} · {{ __('admin.roles.SUPER_ADMIN') }}: {{ $adjustment->adjustedBy->name }} · <x-ltr>{{ $adjustment->occurred_at->format('Y-m-d H:i') }}</x-ltr> · {{ $adjustment->reason }} <a class="underline" href="{{ route('captains.manual-deposit-adjustments.evidence', [$captain, $adjustment]) }}">{{ __('financial.ui.private_evidence') }}</a></p>
+        <p class="border-b py-2 text-sm">{{ \App\Support\UiLabels::label('financial.directions', $adjustment->direction) }} · <x-money :amount="$adjustment->amount" /> <x-ltr>{{ $adjustment->currency->code }}</x-ltr> · {{ $adjustment->branch->name }} · {{ __('admin.roles.SUPER_ADMIN') }}: {{ $adjustment->adjustedBy->name }} · <x-ltr>{{ \App\Support\UiDate::datetime($adjustment->occurred_at) }}</x-ltr> · {{ $adjustment->reason }} <a class="underline" href="{{ route('captains.manual-deposit-adjustments.evidence', [$captain, $adjustment]) }}">{{ __('financial.ui.private_evidence') }}</a></p>
     @empty
         <p class="text-sm">{{ __('financial.ui.no_adjustments') }}</p>
     @endforelse

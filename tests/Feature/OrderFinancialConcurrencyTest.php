@@ -53,14 +53,17 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PDOException;
 use Symfony\Component\Process\Process;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\TestCase;
 
 class OrderFinancialConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
+
     public function test_payout_and_official_source_reversal_contend_on_one_account_and_never_both_commit(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             OrderItem::query()->where('order_shop_id', $c['order']->shops()->sole()->id)
@@ -202,7 +205,7 @@ class OrderFinancialConcurrencyTest extends TestCase
             $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'financial_transactions'::regclass AND tgname = 'captain_paid_source_reversal_guard' AND tgenabled = 'O'")->count);
         });
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'financial_transactions'::regclass AND tgname = 'captain_paid_source_reversal_guard' AND tgenabled = 'O'")->count);
             $this->assertSame(1, (int) DB::selectOne("SELECT count(*) AS count FROM pg_trigger WHERE tgrelid = 'captain_receivable_payout_allocations'::regclass AND tgname = 'captain_payout_allocation_precision' AND tgenabled = 'O'")->count);
         });
@@ -211,7 +214,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_captain_payout_workers_contend_on_one_receivable_account_and_cannot_overallocate_source(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $captain = $c['order']->captainAssignments()->sole()->captain;
@@ -243,7 +246,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_duplicate_deposit_workers_post_one_receipt_and_one_increase(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $captain = $c['order']->captainAssignments()->sole()->captain;
@@ -264,7 +267,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_duplicate_payout_workers_reuse_one_document_and_one_decrease(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             [$captain, $entry, $accountId] = $this->prepareShamReceivable($c);
@@ -284,7 +287,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_two_branch_payouts_share_global_account_lock_but_keep_branch_balances_separate(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $a = $this->context();
             [$captain, $entryA, $accountId] = $this->prepareShamReceivable($a);
@@ -310,7 +313,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_canonical_direct_sql_payout_commits_and_paid_source_direct_reversal_fails(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             [$captain, $entry, $accountId] = $this->prepareShamReceivable($c);
@@ -359,7 +362,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_direct_sql_payout_contract_rejects_wrong_owner_branch_currency_kind_direction_amount_and_source(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             [$captain, $source, $receivableId] = $this->prepareShamReceivable($c);
@@ -515,7 +518,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_real_services_serialize_corrected_posting_and_collection(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -558,7 +561,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_simultaneous_orders_for_same_captain_keep_distinct_branch_debits(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $first = $this->context();
             $captain = $first['order']->captainAssignments()->sole()->captain;
@@ -599,7 +602,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_collection_and_delivery_race_crystallizes_exactly_once(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $invoice = app(InvoiceService::class)->issue(
@@ -623,7 +626,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_issue_and_collection_race_respects_issue_prerequisite_and_retries_safely(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -646,7 +649,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_backfill_and_live_retry_share_one_corrected_event_identity(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
@@ -663,7 +666,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_correction_and_normal_posting_race_never_duplicates_reversal_or_new_event(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $invoice = app(InvoiceService::class)->issue($c['employee'], $c['order'], app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order'])));
@@ -671,6 +674,8 @@ class OrderFinancialConcurrencyTest extends TestCase
             $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
             $assignment = $c['order']->captainAssignments()->sole();
             $collection = $invoice->collection()->create(['order_id' => $c['order']->id, 'captain_id' => $assignment->captain_id, 'order_captain_id' => $assignment->id, 'collection_method' => 'CASH', 'currency_id' => $c['currency']->id, 'amount' => $invoice->grand_total, 'collected_at' => now(), 'recorded_by' => $c['employee']->id]);
+            // The production reconciliation hashes persisted source precision, not the pre-save Carbon instance.
+            $collection = $collection->fresh();
             $accounts = app(FinancialAccountService::class);
             $account = $accounts->getOrCreate($accounts->ownerForCaptain($assignment->captain), $c['currency'], FinancialAccountKind::CaptainCashCustody);
             app(FinancialPostingService::class)->postEvent($c['currency'], 'INVOICE_COLLECTION', $collection->id, FinancialEventType::InvoiceCashCustodyReceived->value, 1, $collection->collected_at, [['account' => $account, 'direction' => FinancialEntryDirection::Increase, 'amount' => $collection->amount]], $c['order']->branch, $collection->recordedBy);
@@ -684,7 +689,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_invoice_issue_and_production_repricing_contend_on_one_order_before_snapshot(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -713,7 +718,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_direct_sql_snapshot_insert_is_validated_at_commit(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $other = $this->context();
@@ -810,7 +815,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_direct_snapshot_money_obeys_zero_and_four_decimal_currency_precision(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             foreach ([0 => '10.1', 4 => '10.00004'] as $precision => $invalidShare) {
                 $c = $this->context();
@@ -843,7 +848,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_valid_looking_wrong_hash_is_rejected_without_poisoning_the_invoice_snapshot_slot(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -871,7 +876,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_valid_direct_sql_fingerprint_commits_and_corrected_posting_consumes_it(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -901,7 +906,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_database_fingerprint_covers_every_frozen_financial_identity(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -934,7 +939,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_direct_sql_under_and_over_allocation_fail_at_commit_while_exact_total_succeeds(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $pricing = $c['order']->currentDeliveryPricing()->sole();
@@ -1041,7 +1046,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_direct_sql_allocation_writer_waits_for_issued_snapshot_and_cannot_change_its_history(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $ready = app(InvoiceService::class)->refresh($c['employee'], $c['order'], app(InvoiceService::class)->createDraft($c['employee'], $c['order']));
@@ -1102,7 +1107,7 @@ class OrderFinancialConcurrencyTest extends TestCase
     public function test_two_captain_snapshot_commits_with_exact_product_and_delivery_totals(): void
     {
         $this->withIsolatedSchema(function (): void {
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->context();
             $captainUser = User::factory()->create();
@@ -1210,6 +1215,14 @@ class OrderFinancialConcurrencyTest extends TestCase
 
     private function context(?Currency $existingCurrency = null, ?Captain $existingCaptain = null): array
     {
+        // Current pricing requires the non-financial Shop origin snapshot even when this fixture
+        // deliberately leaves Captain financial guards at a weaker historical upgrade stage.
+        if (! Schema::hasColumn('order_shops', 'origin_area_id')) {
+            (require database_path('migrations/2026_10_06_000000_add_origin_area_to_order_shops.php'))->up();
+        }
+        if (! Schema::hasTable('order_delivery_pricing_routes')) {
+            (require database_path('migrations/2026_10_06_010000_create_order_delivery_pricing_routes.php'))->up();
+        }
         $currency = $existingCurrency ?? Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $from = Area::factory()->for($branch)->create();
@@ -1223,7 +1236,7 @@ class OrderFinancialConcurrencyTest extends TestCase
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE']);
-        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Race Shop', 'sort_order' => 1]);
+        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Race Shop', 'origin_area_id' => $from->id, 'sort_order' => 1]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1', 'current_quantity' => '1', 'actual_unit_price' => '10', 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
         app(OrderPricingService::class)->recalculate($order);

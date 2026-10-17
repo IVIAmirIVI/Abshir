@@ -4,6 +4,21 @@ namespace App\Enums;
 
 enum FinancialEventType: string
 {
+    case CustomerCreditPersonalFundsDue = 'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE';
+    case CaptainBonusDue = 'CAPTAIN_BONUS_DUE';
+    case CaptainExpenseReimbursementDue = 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE';
+    case CaptainBenefitReversed = 'CAPTAIN_BENEFIT_REVERSED';
+    case OrderV3CashCompanyShareDebit = 'ORDER_V3_CASH_COMPANY_SHARE_DEBIT';
+    case OrderV3CashShortfallDue = 'ORDER_V3_CASH_SHORTFALL_DUE';
+    case OrderV3ShamProductReimbursementDue = 'ORDER_V3_SHAM_PRODUCT_REIMBURSEMENT_DUE';
+    case OrderV3ShamDeliveryEntitlementDue = 'ORDER_V3_SHAM_DELIVERY_ENTITLEMENT_DUE';
+    case OrderV2CashDeliveryCustodyReceived = 'ORDER_V2_CASH_DELIVERY_CUSTODY_RECEIVED';
+    case OrderV2ProductReimbursementDue = 'ORDER_V2_PRODUCT_REIMBURSEMENT_DUE';
+    case OrderV2DeliveryEntitlementDue = 'ORDER_V2_DELIVERY_ENTITLEMENT_DUE';
+    case SharedOrderProductReimbursementDue = 'SHARED_ORDER_PRODUCT_REIMBURSEMENT_DUE';
+    case SharedOrderDeliveryEntitlementDue = 'SHARED_ORDER_DELIVERY_ENTITLEMENT_DUE';
+    case SharedInvoiceCashCustodyReceived = 'SHARED_INVOICE_CASH_CUSTODY_RECEIVED';
+
     case OrderProductReimbursement = 'ORDER_PRODUCT_REIMBURSEMENT';
     case OrderDeliveryEntitlement = 'ORDER_DELIVERY_ENTITLEMENT';
     case OrderCompanyDeliveryShare = 'ORDER_COMPANY_DELIVERY_SHARE';
@@ -35,6 +50,17 @@ enum FinancialEventType: string
             self::OrderDeliveryEntitlement,
             self::OrderCompanyDeliveryShare,
         ];
+    }
+
+    public static function accountingV3(): array
+    {
+        return [self::OrderV3CashCompanyShareDebit, self::OrderV3CashShortfallDue,
+            self::OrderV3ShamProductReimbursementDue, self::OrderV3ShamDeliveryEntitlementDue];
+    }
+
+    public static function accountingV2(): array
+    {
+        return [self::OrderV2CashDeliveryCustodyReceived, self::OrderV2ProductReimbursementDue, self::OrderV2DeliveryEntitlementDue];
     }
 
     public static function correctedOrderDerived(): array

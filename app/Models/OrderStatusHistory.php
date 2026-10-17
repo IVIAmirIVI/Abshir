@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OrderOperationalStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
@@ -12,6 +13,13 @@ use LogicException;
 class OrderStatusHistory extends Model
 {
     protected $table = 'order_status_history';
+
+    protected function changedAt(): Attribute
+    {
+        return Attribute::make(
+            set: fn (mixed $value): ?string => $value === null ? null : $this->asDateTime($value)->format('Y-m-d H:i:sP'),
+        );
+    }
 
     protected function casts(): array
     {

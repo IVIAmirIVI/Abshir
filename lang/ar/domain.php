@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'a_registered_shop_requires_an_active_area_before_it_can_be_added_to_an_order' => 'يجب ربط المحل المسجل بمنطقة فعّالة قبل إضافته إلى طلب جديد.',
+    'remove_the_shop_items_before_removing_the_shop' => 'أزل منتجات المحل أولًا، ثم احذف المحل الفارغ صراحةً.',
+    'a_shop_with_operational_or_purchase_history_cannot_be_removed' => 'لا يمكن حذف محل بعد تسجيل متابعة تشغيلية أو شراء أو إثبات أو إرجاع له.',
+    'an_order_shop_cannot_be_removed_after_invoice_history_exists' => 'لا يمكن حذف محل بعد وجود سجل فاتورة للطلب.',
+    'an_item_with_price_or_change_history_cannot_be_removed' => 'لا يمكن حذف منتج له سعر فعلي مثبت أو سجل تغييرات.',
+    'an_item_referenced_by_invoice_history_cannot_be_removed' => 'لا يمكن حذف منتج مشار إليه في سجل فاتورة.',
+    'select_the_one_time_shop_area' => 'اختر منطقة المحل المستخدم لمرة واحدة.',
+    'the_registered_shop_is_already_on_this_order_add_products_to_its_existing_section' => 'هذا المحل موجود في الطلب. أضف المنتجات ضمن قسمه الحالي.',
     'core_system_roles_are_protected_create_a_custom_role_to_change_access' => 'أدوار النظام الأساسية محمية. أنشئ دورًا مخصصًا لتغيير صلاحيات الوصول.',
     'an_area_with_children_or_customer_addresses_cannot_be_moved_to_another_branch' => 'لا يمكن نقل منطقة لها مناطق فرعية أو عناوين زبائن إلى فرع آخر.',
     'the_parent_area_must_belong_to_the_selected_branch' => 'يجب أن تنتمي المنطقة الأم إلى الفرع المحدد.',
@@ -263,6 +271,10 @@ return [
     'choose_restaurant_or_shop_because_this_registered_shop_type_is_not_configured' => 'اختر مطعمًا أو محلًا لأن نوع هذا المحل المسجل غير مضبوط.',
     'the_selected_classification_conflicts_with_the_registered_shop_type' => 'يتعارض التصنيف المحدد مع نوع المحل المسجل.',
     'a_one_time_shop_cannot_reference_a_registered_shop' => 'لا يمكن ربط محل لمرة واحدة بمحل مسجل.',
+    'a_registered_shop_cannot_include_one_time_shop_identity_data' => 'لا يمكن إرسال بيانات تعريف محل لمرة واحدة عند اختيار محل مسجل.',
+    'the_delivery_origin_must_match_the_order_shop_snapshot' => 'يجب أن تطابق منطقة انطلاق التوصيل لقطة منطقة محل الطلب.',
+    'reprice_the_multi_shop_order_to_capture_each_shop_route' => 'أعد تسعير الطلب متعدد المحلات لحفظ مسار كل محل.',
+    'the_order_shop_routes_changed_reprice_before_continuing' => 'تغيرت مسارات محلات الطلب. أعد التسعير قبل المتابعة.',
     'choose_restaurant_or_shop_for_a_one_time_shop' => 'اختر مطعمًا أو محلًا للمحل المستخدم مرة واحدة.',
     'the_order_shop_classification_snapshot_is_immutable' => 'لا يمكن تغيير لقطة تصنيف محل الطلب المثبّتة.',
     'this_operational_status_transition_is_not_allowed' => 'هذا الانتقال بين الحالات التشغيلية غير مسموح.',
@@ -296,4 +308,9 @@ return [
     'evidence_integrity' => 'فشل فحص سلامة الإثبات.',
     'adjustment_integrity' => 'فشل فحص سلامة إثبات التعديل.',
     'inactive_account' => 'حسابك معطّل. تواصل مع مدير النظام.',
+    'shared_purchase_settlement_not_enabled' => 'تسوية وإرجاع الشراء المشترك غير مفعّلين. لا تستخدم المسار المالي القديم لهذا الطلب.',
+    'shared_purchase_requires_two_captains' => 'الشراء المشترك يتطلب كابتنين نشطين ومسؤول تحصيل واحد محدد.',
+    'shared_purchase_before_assignment' => 'لا يجوز أن يسبق الشراء تعيين أي من الكابتنين.',
+    'shared_purchase_exact_halves_required' => 'يجب أن يكون مبلغ الشراء موجبًا وقابلًا للقسمة بالتساوي بدقة العملة. توزيع باقي أصغر وحدة نقدية ينتظر الاعتماد.',
+    'shared_purchase_requires_unsettled_order' => 'الشراء المشترك يتطلب طلبًا مفتوحًا دون فواتير أو خدمات دفع فواتير أو مشتريات بدافع واحد.',
 ];

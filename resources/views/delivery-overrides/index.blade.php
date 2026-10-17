@@ -1,25 +1,27 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('admin.approvals_title', ['count' => $pendingCount]) }}</h2></x-slot>
-    <div class="mx-auto max-w-6xl space-y-4 px-4 py-8">
+    <x-management.page>
+        @if(session('status'))<p role="status" class="rounded bg-green-50 p-4">{{ session('status') }}</p>@endif
+        @if($errors->any())<div role="alert" class="rounded bg-red-50 p-4 text-red-800"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
         @forelse($requests as $request)
             <article class="min-w-0 break-words rounded bg-white p-5 shadow space-y-2">
                 <div class="flex flex-wrap justify-between gap-2">
                     <strong><x-ltr>{{ $request->order->order_number }}</x-ltr> · {{ $request->fromArea->path() }}</strong>
                     <span>{{ \App\Support\UiLabels::label('admin.override_statuses', $request->status) }}</span>
                 </div>
-                <p>{{ __('admin.suggested_fee') }} <x-money :amount="$request->suggested_unit_fee" /> → {{ __('admin.requested_fee') }} <x-money :amount="$request->requested_unit_fee" /> (<x-ltr>{{ $request->difference_percent }}%</x-ltr>)</p>
+                <p>{{ __('admin.suggested_fee') }} <x-money :amount="$request->suggested_unit_fee" /> <span aria-hidden="true">{{ \App\Support\UiLabels::direction() === 'rtl' ? '←' : '→' }}</span> {{ __('admin.requested_fee') }} <x-money :amount="$request->requested_unit_fee" /> (<x-ltr>{{ $request->difference_percent }}%</x-ltr>)</p>
                 <p>{{ $request->reason }} · {{ __('admin.requested_by') }} {{ $request->requester?->name }}</p>
-                <p>{{ __('admin.requested_at') }} <x-ltr>{{ $request->requested_at?->format('Y-m-d H:i') }}</x-ltr></p>
+                <p>{{ __('admin.requested_at') }} <x-ltr>{{ ($request->requested_at === null ? null : \App\Support\UiDate::datetime($request->requested_at)) }}</x-ltr></p>
                 @if($request->resolved_at)
-                    <p>{{ __('admin.resolved_by') }} {{ $request->resolver?->name }} · {{ __('admin.resolved_at') }} <x-ltr>{{ $request->resolved_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p>{{ __('admin.resolved_by') }} {{ $request->resolver?->name }} · {{ __('admin.resolved_at') }} <x-ltr>{{ \App\Support\UiDate::datetime($request->resolved_at) }}</x-ltr></p>
                     <p>{{ $request->resolution_reason }}</p>
                 @endif
                 @if($request->status === \App\Enums\DeliveryOverrideStatus::Pending)
                     <form method="POST" action="{{ route('delivery-overrides.resolve',$request) }}" class="mt-3 flex flex-wrap gap-2">
                         @csrf @method('PATCH')
                         <x-text-input class="min-w-0 max-w-full" aria-label="{{ __('admin.ui.resolution_note') }}" name="resolution_reason" :placeholder="__('admin.ui.resolution_note')"/>
-                        <button name="decision" value="approve" class="rounded bg-green-700 px-3 py-2 text-white">{{ __('admin.ui.approve') }}</button>
-                        <button name="decision" value="reject" class="rounded bg-red-700 px-3 py-2 text-white">{{ __('admin.ui.reject') }}</button>
+                        <x-primary-button name="decision" value="approve">{{ __('admin.ui.approve') }}</x-primary-button>
+                        <x-danger-button name="decision" value="reject">{{ __('admin.ui.reject') }}</x-danger-button>
                     </form>
                 @endif
             </article>
@@ -27,5 +29,5 @@
             <p>{{ __('admin.no_approvals') }}</p>
         @endforelse
         {{ $requests->links() }}
-    </div>
+    </x-management.page>
 </x-app-layout>

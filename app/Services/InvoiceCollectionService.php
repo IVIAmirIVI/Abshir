@@ -20,6 +20,41 @@ class InvoiceCollectionService
 {
     public function __construct(private readonly CorrectedOrderFinancialService $financials) {}
 
+    /** Read-only UI assessment; record() rechecks the same eligibility under locks. */
+    public function availability(User $actor, Invoice $invoice): array
+    {
+        abort_unless(Invoice::query()->accessibleTo($actor)->whereKey($invoice)->exists(), 403);
+        $invoice = $invoice->fresh();
+        $settled = Schema::hasTable('invoice_financial_corrections') && $invoice->settledCorrection()->exists();
+        $satisfied = $settled || $invoice->collection()->exists();
+        $problem = $this->eligibilityProblem($invoice->order, $invoice, false);
+
+        return [
+            'available' => ! $problem && Gate::forUser($actor)->allows('invoice_collections.create'),
+            'payment_satisfied' => $satisfied,
+            'settled_correction' => $settled,
+            'reason' => $problem ? $problem[1] : (Gate::forUser($actor)->denies('invoice_collections.create') ? __('orders.next_steps.waiting') : null),
+        ];
+    }
+
+    private function eligibilityProblem(Order $order, Invoice $invoice, bool $lock): ?array
+    {
+        if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
+            return ['order', __('domain.collection_is_blocked_by_an_after_purchase_cancellation_intent')];
+        }
+        if (Schema::hasTable('invoice_financial_corrections') && $invoice->settledCorrection()->exists()) {
+            return ['invoice', __('domain.corrected_invoice_payment_is_satisfied_by_the_original_collection_and_customerrefund')];
+        }
+        if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
+            return ['invoice', __('domain.collection_requires_the_current_issued_invoice')];
+        }
+        if ($invoice->collection()->when($lock, fn ($query) => $query->lockForUpdate())->first()) {
+            return ['invoice', __('domain.this_invoice_is_already_collected')];
+        }
+
+        return null;
+    }
+
     public function record(User $actor, Invoice $invoice, InvoiceCollectionMethod $method, string $amount, int $currencyId, mixed $collectedAt, ?string $notes = null, ?string $paymentReference = null): InvoiceCollection
     {
         Gate::forUser($actor)->authorize('invoice_collections.create');
@@ -27,22 +62,14 @@ class InvoiceCollectionService
 
         return DB::transaction(function () use ($actor, $invoice, $method, $amount, $currencyId, $collectedAt, $notes, $paymentReference): InvoiceCollection {
             $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
-            if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
-                throw ValidationException::withMessages(['order' => __('domain.collection_is_blocked_by_an_after_purchase_cancellation_intent')]);
-            }
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
-            if (Schema::hasTable('invoice_financial_corrections')
-                && DB::table('invoice_financial_corrections')->where('replacement_invoice_id', $invoice->id)
-                    ->where('state', 'COMPLETED')->exists()) {
-                throw ValidationException::withMessages(['invoice' => __('domain.corrected_invoice_payment_is_satisfied_by_the_original_collection_and_customerrefund')]);
+            if ($problem = $this->eligibilityProblem($order, $invoice, true)) {
+                throw ValidationException::withMessages([$problem[0] => $problem[1]]);
             }
-            if ($invoice->status !== InvoiceStatus::Issued || $invoice->superseded_at) {
-                throw ValidationException::withMessages(['invoice' => __('domain.collection_requires_the_current_issued_invoice')]);
-            }
-            if ($invoice->collection()->lockForUpdate()->first()) {
-                throw ValidationException::withMessages(['invoice' => __('domain.this_invoice_is_already_collected')]);
-            }
-            if ($currencyId !== $invoice->currency_id || ! BigDecimal::of($amount)->isEqualTo(BigDecimal::of($invoice->grand_total))) {
+            $credit = Schema::hasTable('customer_credit_settlements')
+                ? DB::table('customer_credit_settlements')->where('invoice_id', $invoice->id)->value('credit_amount') : null;
+            if ($currencyId !== $invoice->currency_id || ! BigDecimal::of($amount)->plus($credit ?? '0')->isEqualTo(BigDecimal::of($invoice->grand_total))) {
                 throw ValidationException::withMessages(['amount' => __('domain.collection_must_equal_the_full_invoice_total_in_its_currency')]);
             }
             $collectedAt = Carbon::parse($collectedAt);
@@ -60,19 +87,25 @@ class InvoiceCollectionService
                 $orderCaptainId = $primary->id;
             }
 
-            $collection = $invoice->collection()->create([
+            $collection = $invoice->collection()->make();
+            if ($credit !== null) {
+                $collection->setDateFormat('Y-m-d H:i:s.uP');
+            }
+            $collection->fill([
                 'order_id' => $order->id,
                 'captain_id' => $captainId,
                 'order_captain_id' => $orderCaptainId,
                 'collection_method' => $method,
                 'payment_reference' => filled($paymentReference) ? trim($paymentReference) : null,
                 'currency_id' => $invoice->currency_id,
-                'amount' => $invoice->grand_total,
+                'amount' => $credit === null ? $invoice->grand_total : $amount,
                 'collected_at' => $collectedAt,
                 'recorded_by' => $actor->id,
                 'notes' => $notes,
             ]);
+            $collection->save();
             $this->financials->postIfReady($order);
+            app(ShopCommissionAccountingService::class)->postIfReady($order);
 
             return $collection;
         });

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\PriceObservationSource;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
@@ -13,6 +14,14 @@ use LogicException;
 class ProductPriceHistory extends Model
 {
     protected $table = 'product_price_history';
+
+    /** Preserve the absolute instant independently of PostgreSQL's session timezone. */
+    protected function observedAt(): Attribute
+    {
+        return Attribute::make(
+            set: fn (mixed $value): ?string => $value === null ? null : $this->asDateTime($value)->format('Y-m-d H:i:sP'),
+        );
+    }
 
     protected function casts(): array
     {

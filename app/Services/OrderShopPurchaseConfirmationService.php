@@ -36,6 +36,7 @@ class OrderShopPurchaseConfirmationService
             'request_key' => ['required', 'uuid'], 'reference' => ['nullable', 'string', 'max:255'],
             'note' => ['nullable', 'string'],
         ])->validate();
+        $data['request_key'] = strtolower($data['request_key']);
         $metadata = $this->evidence->inspect($file);
         $purchasedAt = CarbonImmutable::parse($data['purchased_at'])->utc();
         if ($purchasedAt->isFuture()) {
@@ -45,6 +46,11 @@ class OrderShopPurchaseConfirmationService
         try {
             $confirmation = DB::transaction(function () use ($actor, $order, $shop, $data, $file, $metadata, $purchasedAt, &$path): OrderShopPurchaseConfirmation {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['order-shop-purchase:'.$data['request_key']]);
+                if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                    throw ValidationException::withMessages(['purchase' => __('shared_orders.pending_finance')]);
+                }
                 $shop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($shop->id);
                 $assignment = OrderCaptain::query()->where('order_id', $order->id)->findOrFail($data['order_captain_id']);
                 $currency = Currency::query()->lockForUpdate()->findOrFail($data['currency_id']);

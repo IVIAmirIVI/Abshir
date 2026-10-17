@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'required_field' => 'Required field',
+    'breadcrumbs' => 'Breadcrumbs',
     'brand' => [
         'name' => 'Abshir',
         'tagline' => 'Your order is on us',

@@ -10,7 +10,7 @@
         </form>
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             @forelse($prices as $price)
-                <article class="min-w-0 rounded-lg bg-white p-5 shadow space-y-2"><div class="flex flex-wrap justify-between gap-2"><h3 class="font-semibold break-words">{{ $price->shop_name }}</h3><span class="font-mono font-semibold"><x-money :amount="$price->price" :currency="$price->currency_code" /></span></div><p>{{ $price->unit_name }} (<x-ltr>{{ $price->unit_code }}</x-ltr>)</p><p class="text-sm"><span class="text-gray-500">{{ __('pricing.observed') }}</span> <x-ltr>{{ \Illuminate\Support\Carbon::parse($price->observed_at)->format('Y-m-d H:i:s') }}</x-ltr></p><p class="text-sm"><span class="text-gray-500">{{ __('pricing.source') }}</span> {{ \App\Support\UiLabels::label('pricing.sources', $price->source) }}</p></article>
+                <article class="min-w-0 rounded-lg bg-white p-5 shadow space-y-2"><div class="flex flex-wrap justify-between gap-2"><h3 class="font-semibold break-words">{{ $price->shop_name }}</h3><span class="font-mono font-semibold"><x-money :amount="$price->price" :currency="$price->currency_code" /></span></div><p>{{ $price->unit_name }} (<x-ltr>{{ $price->unit_code }}</x-ltr>)</p><p class="text-sm"><span class="text-gray-500">{{ __('pricing.observed') }}</span> <x-ltr>{{ \App\Support\UiDate::datetime($price->observed_at, true) }}</x-ltr></p><p class="text-sm"><span class="text-gray-500">{{ __('pricing.source') }}</span> {{ \App\Support\UiLabels::label('pricing.sources', $price->source) }}</p></article>
             @empty<p>{{ __('pricing.no_observations_match_this_comparison') }}</p>@endforelse
         </div>
         {{ $prices->links() }}

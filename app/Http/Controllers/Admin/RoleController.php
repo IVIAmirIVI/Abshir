@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\RoleRequest;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Services\SecurityAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -48,6 +49,8 @@ class RoleController extends Controller
         DB::transaction(function () use ($request) {
             $role = Role::create($request->safe()->only(['name', 'code']));
             $role->permissions()->sync($request->validated('permission_ids', []));
+            app(SecurityAuditService::class)->record($request->user(), 'ROLE', $role->id, 'ROLE_CREATED', [],
+                ['code' => $role->code, 'permission_ids' => $role->permissions()->orderBy('permissions.id')->pluck('permissions.id')->all()]);
         });
 
         return redirect()->route('admin.roles.index')->with('status', __('admin.ui.role_created'));
@@ -59,8 +62,15 @@ class RoleController extends Controller
             throw ValidationException::withMessages(['role' => __('domain.core_system_roles_are_protected_create_a_custom_role_to_change_access')]);
         }
         DB::transaction(function () use ($request, $role) {
+            $role = Role::query()->lockForUpdate()->findOrFail($role->id);
+            if ($role->is_system) {
+                throw ValidationException::withMessages(['role' => __('domain.core_system_roles_are_protected_create_a_custom_role_to_change_access')]);
+            }
+            $before = ['code' => $role->code, 'permission_ids' => $role->permissions()->orderBy('permissions.id')->pluck('permissions.id')->all()];
             $role->update($request->safe()->only(['name', 'code']));
             $role->permissions()->sync($request->validated('permission_ids', []));
+            app(SecurityAuditService::class)->record($request->user(), 'ROLE', $role->id, 'ROLE_ACCESS_CHANGED', $before,
+                ['code' => $role->code, 'permission_ids' => $role->permissions()->orderBy('permissions.id')->pluck('permissions.id')->all()]);
         });
 
         return redirect()->route('admin.roles.index')->with('status', __('admin.ui.role_updated'));

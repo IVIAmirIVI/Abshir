@@ -8,7 +8,10 @@
     "require": {
         "php": "^8.3",
         "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "livewire/livewire": "^4.4",
+        "power-components/livewire-powergrid": "6.11.1",
+        "robsontenorio/mary": "2.9.10"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -71,7 +74,7 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": ["robsontenorio/mary"]
         }
     },
     "config": {

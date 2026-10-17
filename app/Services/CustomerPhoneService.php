@@ -5,8 +5,10 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\CustomerPhone;
 use App\Models\User;
+use App\Rules\MobilePhone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class CustomerPhoneService
@@ -18,12 +20,16 @@ class CustomerPhoneService
         Gate::forUser($actor)->authorize('customers.update');
         abort_unless($actor->canAccessCustomer($customer), 403);
         abort_if($phone->exists && $phone->customer_id !== $customer->id, 404);
+        Validator::make($data, ['phone' => ['required', 'string', new MobilePhone((bool) ($data['mobile_only'] ?? false))]])->validate();
         if ($this->duplicates->visibleMatches($actor, $data['phone'], $customer->id)->isNotEmpty() && ! ($data['duplicate_acknowledged'] ?? false)) {
             throw ValidationException::withMessages(['phone' => __('domain.this_phone_number_already_exists_for_another_customer_confirm_that_you_want_to_continue')]);
         }
 
         return DB::transaction(function () use ($customer, $phone, $data): CustomerPhone {
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($customer->phones()->where('normalized_phone', $this->normalizer->normalize($data['phone']))->when($phone->exists, fn ($query) => $query->whereKeyNot($phone->id))->exists()) {
+                throw ValidationException::withMessages(['phone' => __('validation.unique', ['attribute' => __('common.fields.phone')])]);
+            }
             if ($phone->exists) {
                 $phone = CustomerPhone::query()->lockForUpdate()->findOrFail($phone->id);
             }

@@ -39,14 +39,18 @@ use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReceiptService;
 use App\Services\OrderStatusService;
 use Brick\Math\BigDecimal;
+use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 trait ReceivableDispositionFixtures
 {
+    use HistoricalOrderFixtures;
+
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
     protected function fixture(string $code, ?array $shared = null, string $captainPercent = '0', int $captainCount = 1, InvoiceCollectionMethod $method = InvoiceCollectionMethod::ShamCash, bool $deliver = true, bool $purchase = false): array
@@ -73,7 +77,8 @@ trait ReceivableDispositionFixtures
             'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL',
             'entry_mode' => 'HISTORICAL_MANUAL', 'ordered_at' => now()->subDay()]);
         $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime,
-            'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Fixture Shop', 'sort_order' => 1]);
+            'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Fixture Shop', 'sort_order' => 1,
+            ...(Schema::hasColumn('order_shops', 'origin_area_id') ? ['origin_area_id' => $from->id] : [])]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime,
             'product_name_snapshot' => 'Fixture Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1',
@@ -93,17 +98,21 @@ trait ReceivableDispositionFixtures
             app(OrderCaptainService::class)->assign($employee, $order, $support, OrderCaptainRole::Support);
             $captains[] = $support;
         }
-        app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
+        $rule = app(DeliveryPricingRuleService::class)->create($admin, ['from_area_id' => $from->id, 'to_area_id' => $to->id,
             'currency_id' => $currency->id, 'order_pricing_class' => OrderPricingClass::SingleShop->value,
             'delivery_unit_fee' => '100.00', 'effective_from' => now()->subDays(2), 'effective_until' => null]);
         app(DeliveryPricingSettings::class)->update($admin, $captainPercent, '0');
-        app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
+        if (Schema::hasColumn('order_delivery_pricings', 'route_count_snapshot')) {
+            app(OrderDeliveryPricingService::class)->price($employee, $order, $from);
+        } else {
+            $this->historicalDeliveryPricing($employee, $order, $rule, $captainPercent);
+        }
         $invoices = app(InvoiceService::class);
         if ($purchase) {
             Storage::fake('order_returns');
             app(OrderShopPurchaseConfirmationService::class)->record($employee, $order->fresh(), $shop, [
                 'order_captain_id' => $order->captainAssignments()->orderBy('id')->first()->id, 'currency_id' => $currency->id,
-                'amount' => '100', 'purchased_at' => now()->subMinute()->toIso8601String(), 'request_key' => (string) Str::uuid()], $this->proof());
+                'amount' => '100', 'purchased_at' => CarbonImmutable::parse(DB::scalar('SELECT CURRENT_TIMESTAMP'))->subMinute()->toIso8601String(), 'request_key' => (string) Str::uuid()], $this->proof());
         }
         $invoice = $invoices->issue($employee, $order, $invoices->refresh($employee, $order, $invoices->createDraft($employee, $order)));
         $collection = app(InvoiceCollectionService::class)->record($employee, $invoice, $method, (string) (200 * $captainCount), $currency->id, now());

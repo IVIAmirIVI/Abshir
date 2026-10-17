@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['order_id', 'shop_type', 'business_classification_snapshot', 'shop_id', 'shop_name_snapshot', 'shop_phone_snapshot', 'shop_address_snapshot', 'area_name_snapshot', 'notes', 'sort_order', 'contacted_at', 'confirmed_at', 'ready_at', 'picked_up_at'])]
+#[Fillable(['order_id', 'shop_type', 'business_classification_snapshot', 'shop_id', 'origin_area_id', 'shop_name_snapshot', 'shop_phone_snapshot', 'shop_address_snapshot', 'area_name_snapshot', 'notes', 'sort_order', 'contacted_at', 'confirmed_at', 'ready_at', 'picked_up_at'])]
 class OrderShop extends Model
 {
     protected function casts(): array
@@ -26,6 +26,11 @@ class OrderShop extends Model
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function originArea(): BelongsTo
+    {
+        return $this->belongsTo(Area::class, 'origin_area_id');
     }
 
     public function items(): HasMany

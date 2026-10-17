@@ -10,9 +10,11 @@ use App\Services\OrderService;
 use App\Support\UiLabels;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\Support\ManualDepositFixtures;
 use Tests\TestCase;
 
@@ -119,5 +121,38 @@ class AdminErrorLocalizationTest extends TestCase
         app()->setLocale('en');
         $this->assertSame('Financial amount exceeds the Currency decimal precision.', UiLabels::error('Financial amount exceeds the Currency decimal precision.'));
         $this->get('/login')->assertOk()->assertSee('lang="en"', false)->assertSee('dir="ltr"', false);
+    }
+
+    public function test_invalid_settings_show_arabic_field_errors_and_preserve_input_without_writes(): void
+    {
+        $f = $this->manualFixture();
+        $before = DB::table('system_settings')->orderBy('id')->get()->toJson();
+        $this->actingAs($f['admin'])->from(route('admin.delivery-pricing-settings.edit'))
+            ->put(route('admin.delivery-pricing-settings.update'), [
+                'captain_share_percent' => 'not-a-number', 'override_threshold_percent' => '12.3456',
+            ])->assertRedirect(route('admin.delivery-pricing-settings.edit'));
+        $response = $this->get(route('admin.delivery-pricing-settings.edit'))->assertOk();
+        $response
+            ->assertSee('نسبة الكابتن من التوصيل')->assertSee('not-a-number')->assertSee('12.3456')
+            ->assertSee('role="alert"', false)->assertSee('id="captain_share_percent-error"', false)
+            ->assertDontSee('The captain share percent');
+        $this->assertStringContainsString('aria-invalid="true"', $response->getContent());
+        $this->assertSame($before, DB::table('system_settings')->orderBy('id')->get()->toJson());
+        $this->assertDatabaseCount('delivery_pricing_user_limits', 0);
+    }
+
+    public function test_conflict_page_hides_unknown_internal_errors_but_keeps_known_integrity_explanation(): void
+    {
+        $internal = 'SQLSTATE[23505] secret_connection internal_table';
+        $page = view('errors.page', ['status' => 409,
+            'exception' => new ConflictHttpException($internal),
+        ])->render();
+        $this->assertStringNotContainsString($internal, $page);
+        $this->assertStringContainsString(__('errors.conflict_help'), $page);
+        $known = __('domain.evidence_integrity');
+        $page = view('errors.page', ['status' => 409,
+            'exception' => new ConflictHttpException($known),
+        ])->render();
+        $this->assertStringContainsString($known, $page);
     }
 }

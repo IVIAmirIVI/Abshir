@@ -40,6 +40,11 @@ class CaptainReceivablePayout extends Model
         return $this->belongsTo(User::class, 'paid_by');
     }
 
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by_user_id');
+    }
+
     public function allocations(): HasMany
     {
         return $this->hasMany(CaptainReceivablePayoutAllocation::class);

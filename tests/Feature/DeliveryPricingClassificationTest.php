@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\DeliveryPricingRuleService;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
+use App\Services\ShopService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -53,8 +54,8 @@ class DeliveryPricingClassificationTest extends TestCase
         $c = $this->context();
         $restaurantType = ShopType::create(['name' => 'Food place', 'business_classification' => ShopBusinessClassification::Restaurant]);
         $normalType = ShopType::create(['name' => 'Restaurant Supplies', 'business_classification' => ShopBusinessClassification::Shop]);
-        $restaurant = Shop::create(['name' => 'Alpha', 'shop_type_id' => $restaurantType->id, 'area_id' => $c['from']->id]);
-        $normal = Shop::create(['name' => 'Contains Restaurant in name', 'shop_type_id' => $normalType->id, 'area_id' => $c['from']->id]);
+        $restaurant = Shop::create(['business_classification' => 'RESTAURANT', 'name' => 'Alpha', 'shop_type_id' => $restaurantType->id, 'area_id' => $c['from']->id]);
+        $normal = Shop::create(['business_classification' => 'SHOP', 'name' => 'Contains Restaurant in name', 'shop_type_id' => $normalType->id, 'area_id' => $c['from']->id]);
         $service = app(OrderShopService::class);
 
         $snapshot = $service->add($c['employee'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $restaurant->id]);
@@ -77,11 +78,11 @@ class DeliveryPricingClassificationTest extends TestCase
     {
         $c = $this->context();
         $service = app(OrderShopService::class);
-        $first = $service->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'One-time Restaurant']);
+        $first = $service->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'RESTAURANT', 'shop_name' => 'One-time Restaurant', 'origin_area_id' => $c['from']->id]);
         $this->assertSame(ShopBusinessClassification::Restaurant, $first->business_classification_snapshot);
         $this->assertSame(OrderPricingClass::SingleRestaurant, $c['order']->fresh()->pricing_class);
 
-        $second = $service->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'One-time Shop']);
+        $second = $service->add($c['employee'], $c['order'], ['shop_type' => 'ONE_TIME', 'business_classification' => 'SHOP', 'shop_name' => 'One-time Shop', 'origin_area_id' => $c['from']->id]);
         $this->assertSame(ShopBusinessClassification::Shop, $second->business_classification_snapshot);
         $this->assertSame(OrderPricingClass::MultiShop, $c['order']->fresh()->pricing_class);
     }
@@ -105,7 +106,14 @@ class DeliveryPricingClassificationTest extends TestCase
             }
         }
 
-        $snapshot = $service->add($c['employee'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $shop->id, 'business_classification' => 'SHOP']);
+        try {
+            $service->add($c['employee'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $shop->id, 'business_classification' => 'SHOP']);
+            $this->fail('Order-specific classification bypassed missing Shop master data.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('business_classification', $exception->errors());
+        }
+        app(ShopService::class)->save($c['admin'], $shop, ['business_classification' => 'SHOP']);
+        $snapshot = $service->add($c['employee'], $c['order'], ['shop_type' => 'REGISTERED', 'shop_id' => $shop->id]);
         $this->assertSame(ShopBusinessClassification::Shop, $snapshot->business_classification_snapshot);
     }
 

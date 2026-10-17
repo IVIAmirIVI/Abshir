@@ -20,6 +20,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -40,7 +41,16 @@ class CaptainReceivablePayoutService
             'request_key' => ['required', 'uuid'], 'amount' => ['required', 'string', 'regex:/^\d+(?:\.\d+)?$/'],
             'occurred_at' => ['required', 'date'], 'reference' => ['nullable', 'string', 'max:191'],
             'note' => ['nullable', 'string'],
+            'payment_method' => ['nullable', 'in:CASH,TRANSFER'],
+            'received_by_user_id' => ['nullable', 'integer', 'required_with:payment_method'],
         ])->validate();
+        $method = filled($data['payment_method'] ?? null) ? $data['payment_method'] : null;
+        if ($method && (int) ($data['received_by_user_id'] ?? 0) !== $captain->user_id) {
+            throw ValidationException::withMessages(['received_by_user_id' => __('captain_requests.receiver_required')]);
+        }
+        if ($method === 'TRANSFER' && blank($data['reference'] ?? null)) {
+            throw ValidationException::withMessages(['reference' => __('captain_requests.transfer_reference_required')]);
+        }
         if ($allocations === []) {
             throw ValidationException::withMessages(['allocations' => __('domain.select_the_exact_receivable_entries_paid')]);
         }
@@ -77,6 +87,12 @@ class CaptainReceivablePayoutService
                     'note' => filled($data['note'] ?? null) ? trim($data['note']) : null,
                     'evidence_sha256' => $metadata['sha256'],
                 ];
+                if (Schema::hasColumn('captain_receivable_payouts', 'payment_method')) {
+                    $facts['payment_method'] = filled($data['payment_method'] ?? null) ? $data['payment_method'] : null;
+                    $facts['received_by_user_id'] = $facts['payment_method'] ? (int) $data['received_by_user_id'] : null;
+                } elseif (filled($data['payment_method'] ?? null)) {
+                    throw ValidationException::withMessages(['payment_method' => __('captain_requests.activation_required')]);
+                }
                 $existing = CaptainReceivablePayout::query()->where('request_key', $data['request_key'])->lockForUpdate()->first();
                 if ($existing) {
                     $this->assertSame($existing, $facts, $allocationMap);
@@ -111,6 +127,10 @@ class CaptainReceivablePayoutService
                     $source = $payable->get($entryId);
                     if (! $source || BigDecimal::of($value)->isGreaterThan(BigDecimal::of((string) $source->remaining_amount))) {
                         throw ValidationException::withMessages(['allocations' => __('domain.a_selected_receivable_entry_is_unavailable_or_already_paid')]);
+                    }
+                    if (in_array($source->event_type, ['CAPTAIN_BONUS_DUE', 'CAPTAIN_EXPENSE_REIMBURSEMENT_DUE', 'CUSTOMER_CREDIT_PERSONAL_FUNDS_DUE'], true)
+                        && empty($facts['payment_method'])) {
+                        throw ValidationException::withMessages(['payment_method' => __('captain_requests.method_required')]);
                     }
                 }
                 $path = $this->evidence->store($file, $metadata);

@@ -22,6 +22,7 @@ class CustomerAddressService
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
             if ($address->exists) {
                 $address = CustomerAddress::query()->lockForUpdate()->findOrFail($address->id);
+                abort_unless($actor->canAccessArea($address->area), 403);
             }
             $area = Area::query()->findOrFail($data['area_id']);
             abort_unless($actor->canAccessArea($area), 403);

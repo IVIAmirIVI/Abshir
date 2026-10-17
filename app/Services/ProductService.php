@@ -16,7 +16,11 @@ class ProductService
     {
         Gate::forUser($actor)->authorize($product->exists ? 'products.update' : 'products.create');
 
-        return DB::transaction(function () use ($product, $data): Product {
+        if (array_key_exists('is_special', $data) || array_key_exists('special_policy', $data)) {
+            abort_unless($actor->isSuperAdmin(), 403);
+        }
+
+        return DB::transaction(function () use ($actor, $product, $data): Product {
             if ($product->exists) {
                 $product = Product::query()->lockForUpdate()->findOrFail($product->id);
             }
@@ -31,7 +35,16 @@ class ProductService
                 }
             }
 
+            $policy = $data['special_policy'] ?? null;
+            unset($data['special_policy']);
             $product->fill($data)->save();
+            if ($product->is_special) {
+                if ($policy !== null) {
+                    app(ProductDeliveryPolicyService::class)->saveLocked($actor, $product, $policy);
+                } elseif (! $product->deliveryPolicies()->exists() || (int) $product->deliveryPolicy->unit_id !== (int) $product->default_unit_id) {
+                    throw ValidationException::withMessages(['special_policy' => __('special.invalid_policy')]);
+                }
+            }
 
             return $product;
         });

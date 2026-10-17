@@ -8,9 +8,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
-#[Fillable(['category_id', 'default_unit_id', 'name', 'sku', 'barcode', 'description'])]
+#[Fillable(['category_id', 'default_unit_id', 'name', 'sku', 'barcode', 'description', 'is_special'])]
 class Product extends Model
 {
     use HasFactory;
@@ -19,7 +20,17 @@ class Product extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'is_special' => 'boolean'];
+    }
+
+    public function deliveryPolicies(): HasMany
+    {
+        return $this->hasMany(ProductDeliveryPolicy::class);
+    }
+
+    public function deliveryPolicy(): HasOne
+    {
+        return $this->hasOne(ProductDeliveryPolicy::class)->ofMany('version', 'max');
     }
 
     public function category(): BelongsTo

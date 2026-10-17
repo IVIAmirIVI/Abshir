@@ -106,9 +106,9 @@ class LocalizationFoundationTest extends TestCase
         $this->assertSame('UNKNOWN_FUTURE', UiLabels::label('orders.statuses', 'UNKNOWN_FUTURE'));
         $this->assertArrayNotHasKey('COLLECTED', __('financial.invoice_statuses'));
         $this->assertSame('مُحصّلة', __('financial.collection_states.collected'));
-        $this->assertSame('رصيد تشغيل الكابتن لدى أبشر', __('financial.accounts.CAPTAIN_DEPOSIT'));
-        $this->assertSame('مستحقات الكابتن لدى أبشر', __('financial.accounts.CAPTAIN_COMPANY_RECEIVABLE'));
-        $this->assertSame('نقد أبشر بعهدة الكابتن', __('financial.accounts.CAPTAIN_CASH_CUSTODY'));
+        $this->assertSame('رصيد التشغيل', __('financial.accounts.CAPTAIN_DEPOSIT'));
+        $this->assertSame('مستحقات غير مدفوعة', __('financial.accounts.CAPTAIN_COMPANY_RECEIVABLE'));
+        $this->assertSame('أموال الشركة مع الكابتن', __('financial.accounts.CAPTAIN_CASH_CUSTODY'));
         $this->assertNotSame(__('financial.terms.deposit_receipt'), __('financial.terms.manual_deposit_adjustment'));
     }
 
@@ -133,9 +133,9 @@ class LocalizationFoundationTest extends TestCase
         $this->assertStringContainsString('users.view / 2026-10-01 / 012345', $html);
         $this->assertStringContainsString('&lt;script&gt;', $html);
         $this->assertStringNotContainsString('<script>', $html);
-        foreach (['1.2345', '-0.0001', '0', '12345678901234567890.0000'] as $amount) {
+        foreach (['1.2345' => '1.2345', '-0.0001' => '-0.0001', '0.0000' => '0', '12345678901234567890.0000' => '12345678901234567890'] as $amount => $display) {
             $html = Blade::render('<x-money :amount="$amount" currency="USD" />', compact('amount'));
-            $this->assertStringContainsString($amount.' USD', $html);
+            $this->assertStringContainsString($display.' USD', $html);
             $this->assertStringContainsString('dir="ltr"', $html);
         }
     }
@@ -200,6 +200,12 @@ class LocalizationFoundationTest extends TestCase
                     $expected[] = route($route);
                 }
             }
+        }
+        if (in_array($code, ['SUPER_ADMIN', 'ORDER_EMPLOYEE'], true)) {
+            $expected[] = route('notifications.index');
+        }
+        if ($code === 'SUPER_ADMIN') {
+            $expected[] = route('admin.security-audit.index');
         }
         foreach (['desktop', 'mobile'] as $surface) {
             $actual = [];

@@ -236,7 +236,14 @@ class AuthorizationTest extends TestCase
         $role->permissions()->detach();
         $this->seed(AuthorizationSeeder::class);
         $this->assertDatabaseCount('roles', 3);
-        $this->assertDatabaseCount('permissions', 147);
+        $this->assertDatabaseCount('permissions', 157);
+        $phase11Permissions = ['captain_bonuses.approve', 'captain_expenses.approve'];
+        $this->assertEqualsCanonicalizing($phase11Permissions, Permission::whereIn('code', $phase11Permissions)->pluck('code')->all());
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SUPER_ADMIN')->sole());
+        foreach ($phase11Permissions as $ability) {
+            $this->assertTrue(Gate::forUser($admin)->allows($ability));
+        }
         $this->assertEqualsCanonicalizing([
             'areas.view',
             'branches.view',
@@ -247,6 +254,10 @@ class AuthorizationTest extends TestCase
             'customers.deactivate',
             'customers.update',
             'customers.view',
+            'customer_credits.view',
+            'customer_credits.grant',
+            'customer_credits.redeem',
+            'customer_credits.payout',
             'delivery_discounts.apply',
             'delivery_pricing.apply',
             'delivery_pricing.override',
@@ -280,6 +291,10 @@ class AuthorizationTest extends TestCase
             'captain_receivable_payouts.create',
             'captain_receivable_payouts.view',
             'captains.view',
+            'captain_bonuses.create',
+            'captain_bonuses.submit',
+            'captain_expenses.create',
+            'captain_expenses.submit',
             'categories.view',
             'product_groups.view',
             'products.view',

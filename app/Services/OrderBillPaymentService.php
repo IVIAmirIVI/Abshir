@@ -45,6 +45,10 @@ class OrderBillPaymentService
 
         return DB::transaction(function () use ($actor, $order, $currencyId): OrderBillPaymentRequest {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorizeRecord($actor, $order);
+            if ($problem = $this->contractProblem($order)) {
+                throw ValidationException::withMessages(['order' => $problem]);
+            }
             if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                 throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
             }
@@ -77,13 +81,34 @@ class OrderBillPaymentService
         }
 
         DB::transaction(function () use ($actor, $order, $request, $reason): void {
-            Order::query()->lockForUpdate()->findOrFail($order->id);
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorizeRecord($actor, $order);
             $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
             if ($request->status !== OrderBillPaymentRequestStatus::Requested) {
                 throw ValidationException::withMessages(['request' => __('domain.only_a_requested_additional_service_can_be_cancelled')]);
             }
             $request->update(['status' => OrderBillPaymentRequestStatus::Cancelled, 'cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancellation_reason' => trim($reason)]);
         });
+    }
+
+    public function preview(User $actor, Order $order, OrderBillPaymentRequest $request, string $principal): array
+    {
+        $this->authorizeRecord($actor, $order);
+        Validator::make(['principal_amount' => $principal], ['principal_amount' => ['required', 'regex:/^\d+(?:\.\d{1,4})?$/']])->validate();
+        $request = $order->billPaymentRequests()->findOrFail($request->id);
+        if ($request->status !== OrderBillPaymentRequestStatus::Requested || $order->cancellationIntent()->exists()
+            || $order->operational_status === OrderOperationalStatus::Cancelled) {
+            throw ValidationException::withMessages(['principal_amount' => __('domain.this_bill_payment_request_has_already_been_resolved')]);
+        }
+        try {
+            $currency = $request->currency;
+            $principal = $this->posting->validatePlannedAmount($currency, $principal);
+            $fee = $this->fees->calculate($request->feeRule, $currency, $principal);
+        } catch (FinancialLedgerException $exception) {
+            throw ValidationException::withMessages(['principal_amount' => UiLabels::error($exception->getMessage())]);
+        }
+
+        return ['principal' => $principal, 'fee' => $fee, 'total' => (string) BigDecimal::of($principal)->plus($fee)->toScale(4)];
     }
 
     /** @param array<int, UploadedFile> $images */
@@ -126,6 +151,10 @@ class OrderBillPaymentService
         try {
             return DB::transaction(function () use ($actor, $order, $request, $data, $images, $extensions, $mimes, $digests, &$storedPaths): OrderBillPayment {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                $this->authorizeRecord($actor, $order);
+                if ($problem = $this->contractProblem($order)) {
+                    throw ValidationException::withMessages(['order' => $problem]);
+                }
                 $request = $order->billPaymentRequests()->lockForUpdate()->findOrFail($request->id);
                 if (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists()) {
                     throw ValidationException::withMessages(['order' => __('domain.bill_payment_is_blocked_by_a_cancellation_intent')]);
@@ -144,13 +173,17 @@ class OrderBillPaymentService
                 if (! $assignment) {
                     throw ValidationException::withMessages(['order_captain_id' => __('domain.choose_a_participating_captain_for_this_order')]);
                 }
+                if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                    && $assignment->id !== (int) DB::scalar('SELECT shared_bill_payment_collector(?)', [$order->id])) {
+                    throw ValidationException::withMessages(['order_captain_id' => __('shared_orders.bill_collector_required')]);
+                }
                 if ($assignment->assigned_at->gt($deliveredAt)) {
                     throw ValidationException::withMessages(['order_captain_id' => __('domain.the_collector_did_not_participate_in_this_delivery')]);
                 }
                 $currency = Currency::query()->lockForUpdate()->findOrFail($request->currency_id);
                 try {
                     $principal = $this->posting->validatePlannedAmount($currency, $data['principal_amount']);
-                    $fee = $this->posting->validatePlannedAmount($currency, $request->service_fee);
+                    $fee = $this->fees->calculate($request->feeRule, $currency, $principal);
                 } catch (FinancialLedgerException $exception) {
                     throw ValidationException::withMessages(['principal_amount' => UiLabels::error($exception->getMessage())]);
                 }
@@ -234,5 +267,15 @@ class OrderBillPaymentService
     {
         Gate::forUser($actor)->authorize('bill_payments.record');
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order->id)->exists(), 403);
+    }
+
+    public function contractProblem(Order $order): ?string
+    {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+            return DB::scalar("SELECT to_regprocedure('shared_bill_payment_collector(bigint)') IS NOT NULL")
+                ? null : __('shared_orders.bill_activation_required');
+        }
+
+        return app(SharedPurchaseBoundary::class)->problem($order);
     }
 }

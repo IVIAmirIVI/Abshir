@@ -2,12 +2,16 @@
 
 namespace App\Services;
 
+use App\Enums\ShopBusinessClassification;
 use App\Models\Area;
 use App\Models\Shop;
 use App\Models\ShopType;
 use App\Models\User;
+use App\Rules\MobilePhone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ShopService
@@ -21,6 +25,7 @@ class ShopService
                 $shop = Shop::query()->lockForUpdate()->findOrFail($shop->id);
                 abort_unless($actor->canAccessShop($shop), 403);
             }
+            Validator::make($data, ['phone' => ['nullable', 'string', new MobilePhone]])->validate();
             $area = isset($data['area_id']) ? Area::query()->findOrFail($data['area_id']) : null;
             if (! $actor->isSuperAdmin() && ! $area) {
                 throw ValidationException::withMessages(['area_id' => __('domain.a_branch_scoped_user_must_select_an_accessible_area')]);
@@ -38,7 +43,10 @@ class ShopService
                 }
             }
 
-            $shop->fill($data)->save();
+            $classification = Validator::make([
+                'business_classification' => $data['business_classification'] ?? $shop->business_classification?->value,
+            ], ['business_classification' => ['required', Rule::enum(ShopBusinessClassification::class)]])->validate();
+            $shop->fill(array_merge($data, $classification))->save();
 
             return $shop;
         });

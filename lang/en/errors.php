@@ -13,6 +13,7 @@ return [
         '500' => 'Server error',
         '503' => 'Service unavailable',
     ],
+    'conflict_help' => 'The action could not complete because of a conflict. Refresh and check the current state before retrying.',
     'help' => 'The request could not be completed. Check the link and permissions, or try again.',
     'home' => 'Back to Abshir',
 ];

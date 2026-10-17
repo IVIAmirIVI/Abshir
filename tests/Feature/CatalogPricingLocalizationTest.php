@@ -102,12 +102,12 @@ class CatalogPricingLocalizationTest extends TestCase
         foreach (['12.3400', '0.0100'] as $offset => $amount) {
             $this->post(route('product-prices.store'), ['product_id' => $c['product']->id, 'shop_id' => $c['shop']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id, 'price' => $amount, 'observed_at' => now()->subHours(2 - $offset)->toDateTimeString(), 'source' => 'MANUAL', 'notes' => 'Price Original'])->assertSessionHasNoErrors()->assertSessionHas('status', __('pricing.flash_price_observation_recorded_historical_observations_cannot_be_edited_or_deleted'));
         }
-        $history = $this->get(route('products.price-history', $c['product']))->assertOk()->assertSee('سجل الأسعار: '.$c['product']->name)->assertSee('وقت رصد السعر')->assertSee('وقت الإدخال')->assertSee('12.3400')->assertSee('0.0100')->assertSee('Price Original')->assertSee('إدخال يدوي');
-        $this->assertSame(1, $this->xpath($history->getContent())->query('//bdi[@dir="ltr" and contains(text(), "12.3400 USD")]')->length);
+        $history = $this->get(route('products.price-history', $c['product']))->assertOk()->assertSee('سجل الأسعار: '.$c['product']->name)->assertSee('وقت رصد السعر')->assertSee('وقت الإدخال')->assertSee('12.34')->assertSee('0.01')->assertSee('Price Original')->assertSee('إدخال يدوي');
+        $this->assertSame(1, $this->xpath($history->getContent())->query('//bdi[@dir="ltr" and contains(text(), "12.34 USD")]')->length);
         $this->get(route('shops.price-history', $c['shop']))->assertOk()->assertSee('سجل الأسعار: '.$c['shop']->name)->assertSee($c['product']->name);
-        $this->get(route('products.price-comparison', $c['product']))->assertOk()->assertSee('مقارنة أسعار المحلات')->assertSee($c['shop']->name)->assertSee('0.0100')->assertDontSee('12.3400');
-        $estimate = $this->get(route('product-prices.estimate', ['preview' => 1, 'product_id' => $c['product']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id]))->assertOk()->assertSee('السعر التقديري المقترح')->assertSee('0.0100')->assertSee($c['shop']->name)->assertSee('نافذة التقدير');
-        $this->assertSame(1, $this->xpath($estimate->getContent())->query('//bdi[@dir="ltr" and text()="0.0100"]')->length);
+        $this->get(route('products.price-comparison', $c['product']))->assertOk()->assertSee('مقارنة أسعار المحلات')->assertSee($c['shop']->name)->assertSee('0.01')->assertDontSee('12.34');
+        $estimate = $this->get(route('product-prices.estimate', ['preview' => 1, 'product_id' => $c['product']->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id]))->assertOk()->assertSee('السعر التقديري المقترح')->assertSee('0.01')->assertSee($c['shop']->name)->assertSee('نافذة التقدير');
+        $this->assertSame(1, $this->xpath($estimate->getContent())->query('//bdi[@dir="ltr" and text()="0.01"]')->length);
         $unused = Product::create(['name' => 'No price Product', 'default_unit_id' => $c['unit']->id]);
         $this->get(route('product-prices.estimate', ['preview' => 1, 'product_id' => $unused->id, 'unit_id' => $c['unit']->id, 'currency_id' => $c['currency']->id]))->assertOk()->assertSee('لا يتوفر سعر تقديري')->assertDontSee('السعر التقديري المقترح');
         $this->assertSame(['12.3400', '0.0100'], $c['product']->priceHistory()->orderBy('id')->pluck('price')->all());

@@ -17,6 +17,7 @@ use App\Models\User;
 use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderItemService
@@ -48,6 +49,7 @@ class OrderItemService
             $orderShop = OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($orderShop->id);
             $estimate = $this->estimate($actor, $orderShop, $product, $unit, $data);
             $item = $orderShop->items()->create(['item_type' => $type, 'product_id' => $product?->id, 'product_name_snapshot' => $product?->name ?? $data['item_name'], 'unit_id' => $unit->id, 'unit_name_snapshot' => $unit->name, 'unit_symbol_snapshot' => $unit->symbol, 'requested_quantity' => $data['quantity'], 'current_quantity' => $data['quantity'], 'notes' => $data['notes'] ?? null, ...$estimate]);
+            $item->forceFill(app(SpecialProductDeliveryService::class)->captureItem($order, $product, $unit->id))->save();
             $this->pricingStatus->recalculate($order);
 
             return $item;
@@ -99,10 +101,44 @@ class OrderItemService
                     throw ValidationException::withMessages(['product_id' => __('domain.one_time_replacement_cannot_reference_a_product')]);
                 } $updates = ['item_type' => $newType, 'product_id' => $product?->id, 'product_name_snapshot' => $product?->name ?? $data['item_name'], 'unit_id' => $unit->id, 'unit_name_snapshot' => $unit->name, 'unit_symbol_snapshot' => $unit->symbol, 'current_quantity' => $data['quantity'], 'estimated_unit_price' => null, 'estimated_price_method' => null, 'estimated_source_shop_id' => null, 'estimated_source_price_observation_id' => null, 'estimated_source_observed_at' => null, 'estimation_window_days' => null, 'estimated_currency_id' => null, 'actual_unit_price' => null, 'actual_price_source' => null, 'actual_currency_id' => null, 'actual_price_confirmed_at' => null, 'actual_price_confirmed_by' => null];
             }
-            $item->update($updates);
+            if ($type !== OrderItemChangeType::Quantity && Schema::hasTable('product_delivery_policies')) {
+                $updates = array_merge($updates, ['special_delivery_policy_id' => null, 'special_delivery_assignments' => null],
+                    app(SpecialProductDeliveryService::class)->captureItem($order, $product, $unit->id));
+            }
+            $item->forceFill($updates)->save();
             $item->changes()->create(['change_type' => $type, 'previous_values' => $previous, 'new_values' => $item->fresh()->only(array_keys($updates)), 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $data['reason']]);
             $this->pricingStatus->recalculate($order);
         });
+    }
+
+    public function remove(User $actor, Order $order, OrderShop $shop, OrderItem $item): void
+    {
+        Gate::forUser($actor)->authorize('orders.update');
+        $this->ownership($actor, $order, $shop, $item);
+
+        DB::transaction(function () use ($order, $shop, $item): void {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->mutationGuard->assertMutableLocked($order);
+            OrderShop::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($shop->id);
+            $item = OrderItem::query()->where('order_shop_id', $shop->id)->lockForUpdate()->findOrFail($item->id);
+            if ($reason = $this->removalBlockReason($item)) {
+                throw ValidationException::withMessages(['item' => $reason]);
+            }
+            $item->delete();
+            $this->pricingStatus->recalculate($order);
+        });
+    }
+
+    public function removalBlockReason(OrderItem $item): ?string
+    {
+        if ($item->actual_unit_price !== null || $item->actual_price_confirmed_at !== null || $item->changes()->exists()) {
+            return __('domain.an_item_with_price_or_change_history_cannot_be_removed');
+        }
+        if (DB::table('invoice_items')->where('order_item_id', $item->id)->exists()) {
+            return __('domain.an_item_referenced_by_invoice_history_cannot_be_removed');
+        }
+
+        return null;
     }
 
     private function estimate(User $actor, OrderShop $shop, ?Product $product, Unit $unit, array $data): array

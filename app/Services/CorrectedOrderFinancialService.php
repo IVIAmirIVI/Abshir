@@ -31,6 +31,26 @@ class CorrectedOrderFinancialService
 {
     public const SOURCE = 'INVOICE_COLLECTION';
 
+    public function correctionPostingProblem(Order $order): ?string
+    {
+        return $this->correctionProblem($this->postingCorrection($order));
+    }
+
+    private function postingCorrection(Order $order): ?InvoiceFinancialCorrection
+    {
+        return Schema::hasTable('invoice_financial_corrections')
+            ? InvoiceFinancialCorrection::query()->where('order_id', $order->id)
+                ->whereIn('state', ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE', 'COMPLETED'])
+                ->orderByDesc('id')->first()
+            : null;
+    }
+
+    private function correctionProblem(?InvoiceFinancialCorrection $correction): ?string
+    {
+        return $correction && $correction->state !== InvoiceFinancialCorrectionState::Completed
+            ? __('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting') : null;
+    }
+
     public function __construct(
         private readonly OrderFinancialSourceSnapshotService $snapshots,
         private readonly FinancialPostingService $posting,
@@ -43,6 +63,15 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order, $allowLegacy): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 3) {
+                return app(OrderAccountingV3Service::class)->assess($order);
+            }
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->assess($order);
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                return app(SharedOrderFinancialPostingService::class)->assess($order);
+            }
 
             return $this->assessLocked($order, $allowLegacy);
         });
@@ -53,14 +82,19 @@ class CorrectedOrderFinancialService
     {
         return DB::transaction(function () use ($order): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            $correction = Schema::hasTable('invoice_financial_corrections')
-                ? InvoiceFinancialCorrection::query()->where('order_id', $order->id)
-                    ->whereIn('state', ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE', 'COMPLETED'])
-                    ->orderByDesc('id')->first()
-                : null;
+            if ((int) $order->accounting_contract_version === 3) {
+                return app(OrderAccountingV3Service::class)->postIfReady($order);
+            }
+            if ((int) $order->accounting_contract_version === 2) {
+                return app(OrderAccountingV2Service::class)->postIfReady($order);
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                return app(SharedOrderFinancialPostingService::class)->postIfReady($order);
+            }
+            $correction = $this->postingCorrection($order);
             if ($correction) {
-                if ($correction->state !== InvoiceFinancialCorrectionState::Completed) {
-                    throw ValidationException::withMessages(['order' => __('domain.an_unresolved_invoice_financial_correction_blocks_original_order_posting')]);
+                if ($problem = $this->correctionProblem($correction)) {
+                    throw ValidationException::withMessages(['order' => $problem]);
                 }
 
                 return $this->correctionPosting->postIfDeliveredLocked($order, $correction);

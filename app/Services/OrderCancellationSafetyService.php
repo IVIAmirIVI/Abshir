@@ -17,8 +17,9 @@ class OrderCancellationSafetyService
             && DB::scalar('SELECT captain_recovery_cancellation_allowed(?,?)', [$order->id, $forIntent]);
     }
 
-    public function assertNoFinancialCorrectionRequiredLocked(Order $order, bool $forIntent = false): void
+    public function assertNoFinancialCorrectionRequiredLocked(Order $order, bool $forIntent = false, bool $lockInvoice = true): void
     {
+        app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
         $correction = Schema::hasTable('invoice_financial_corrections') ? DB::table('invoice_financial_corrections')
             ->where('order_id', $order->id)->where('kind', 'CANCEL_AND_REFUND')
             ->whereIn('state', $forIntent ? ['REQUESTED', 'PREPARED', 'READY_TO_FINALIZE'] : ['COMPLETED'])
@@ -32,7 +33,12 @@ class OrderCancellationSafetyService
         }
         $invoiceIds = $order->invoices()->pluck('id')->map(fn ($id) => (string) $id)->all();
         $collectionIds = DB::table('invoice_collections')->where('order_id', $order->id)->pluck('id')->map(fn ($id) => (string) $id)->all();
-        if ($order->currentInvoice()->where('status', InvoiceStatus::Issued->value)->lockForUpdate()->exists()
+        $issuedInvoice = $order->currentInvoice()->where('status', InvoiceStatus::Issued->value);
+        // Financial mutations retain locking by default; only presentation opts out.
+        if ($lockInvoice) {
+            $issuedInvoice->lockForUpdate();
+        }
+        if ($issuedInvoice->exists()
             || $collectionIds !== []
             || $order->billPayments()->exists()
             || DB::table('financial_transactions')->where('transaction_kind', 'EVENT')

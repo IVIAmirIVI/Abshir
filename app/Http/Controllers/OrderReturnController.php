@@ -11,8 +11,11 @@ use App\Models\OrderShopReturnEvidence;
 use App\Services\OrderCancellationFinalizationService;
 use App\Services\OrderCancellationIntentService;
 use App\Services\OrderReturnEvidenceService;
+use App\Services\OrderShopEvidenceService;
 use App\Services\OrderShopPurchaseConfirmationService;
 use App\Services\OrderShopReturnService;
+use App\Services\SharedOrderShopPurchaseService;
+use App\Services\SharedPurchaseBoundary;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -21,17 +24,23 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OrderReturnController extends Controller
 {
-    public function purchase(Request $request, Order $order, OrderShop $orderShop, OrderShopPurchaseConfirmationService $service): RedirectResponse
+    public function purchase(Request $request, Order $order, OrderShop $orderShop, OrderShopPurchaseConfirmationService $service, OrderShopEvidenceService $combined): RedirectResponse
     {
         $data = $request->validate([
-            'order_captain_id' => ['required', 'integer'], 'currency_id' => ['required', 'integer'],
+            'order_captain_id' => [app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) ? 'prohibited' : 'required', 'integer'], 'currency_id' => ['required', 'integer'],
             'amount' => ['required', 'string'], 'purchased_at' => ['required', 'date'],
             'request_key' => ['required', 'uuid'], 'reference' => ['nullable', 'string', 'max:255'],
             'note' => ['nullable', 'string', 'max:3000'], 'evidence' => ['required', 'file', 'max:5120'],
+            'also_shop_receipt' => ['sometimes', 'boolean'],
         ]);
-        $service->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
+        if ($request->boolean('also_shop_receipt')) {
+            $combined->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
+        } else {
+            $purchaseService = app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) ? app(SharedOrderShopPurchaseService::class) : $service;
+            $purchaseService->record($request->user(), $order, $orderShop, $data, $request->file('evidence'));
+        }
 
-        return back()->with('status', __('orders.flash.purchase_recorded'));
+        return redirect()->route('orders.workflow', [$order, 'step' => 'shops'])->with('status', $request->boolean('also_shop_receipt') ? __('order_execution.dual_saved') : __('orders.flash.purchase_recorded'));
     }
 
     public function intent(Request $request, Order $order, OrderCancellationIntentService $service): RedirectResponse
@@ -42,7 +51,7 @@ class OrderReturnController extends Controller
         ]);
         $service->create($request->user(), $order, OrderCancellationReason::from($data['reason']), $data['notes'] ?? null, $data['request_key']);
 
-        return back()->with('status', __('orders.flash.intent_recorded'));
+        return redirect()->route('orders.workflow', $order)->with('status', __('orders.flash.intent_recorded'));
     }
 
     public function returnShop(Request $request, Order $order, OrderShop $orderShop, OrderShopReturnService $service): RedirectResponse
@@ -63,14 +72,14 @@ class OrderReturnController extends Controller
         ]);
         $service->record($request->user(), $order, $orderShop, $data, $files);
 
-        return back()->with('status', __('orders.flash.return_recorded'));
+        return redirect()->route('orders.workflow', $order)->with('status', __('orders.flash.return_recorded'));
     }
 
     public function finalize(Request $request, Order $order, OrderCancellationFinalizationService $service): RedirectResponse
     {
         $service->finalize($request->user(), $order);
 
-        return back()->with('status', __('orders.flash.cancelled_after'));
+        return redirect()->route('orders.workflow', $order)->with('status', __('orders.flash.cancelled_after'));
     }
 
     public function purchaseEvidence(Request $request, Order $order, OrderShop $orderShop, OrderShopPurchaseConfirmation $purchase, OrderReturnEvidenceService $evidence): StreamedResponse

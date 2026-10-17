@@ -51,18 +51,71 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\RefreshAccountingV1Database;
 use Tests\TestCase;
 
 class OrderFinancialPostingTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshAccountingV1Database;
+
+    public function test_special_product_migrations_preserve_posted_v1_money_and_ordinary_sources(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $tables = ['financial_entries', 'financial_transactions', 'order_financial_source_snapshots', 'invoices', 'invoice_collections'];
+        $before = collect($tables)->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()]);
+        $allocation = $c['order']->currentDeliveryPricing->allocations()->sole();
+        $original = $allocation->getAttributes();
+        foreach (['2026_10_17_000000_add_captain_fuel_allowance.php',
+            '2026_10_17_010000_add_special_product_delivery_policies.php',
+            '2026_10_17_020000_validate_special_delivery_allocations.php',
+            '2026_10_17_161740_add_supervisor_approved_special_addons.php'] as $migration) {
+            $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/'.$migration, '--force' => true]));
+        }
+        $this->assertSame($original, array_intersect_key($allocation->fresh()->getAttributes(), $original));
+        $this->assertNull($allocation->fresh()->special_delivery_components);
+        $this->assertDatabaseCount('product_delivery_policies', 0);
+        app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+        foreach ($tables as $table) {
+            $this->assertSame($before[$table], DB::table($table)->orderBy('id')->get()->toJson());
+        }
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public function test_fuel_migration_preserves_existing_captains_and_posted_v1_money(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $allocation = $c['order']->currentDeliveryPricing->allocations()->sole();
+        $before = $allocation->getAttributes();
+        $snapshot = app(OrderFinancialSourceSnapshotService::class)->read($invoice);
+        $entries = DB::table('financial_entries')->orderBy('id')->get()->toJson();
+        $transactions = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
+
+        $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/2026_10_17_000000_add_captain_fuel_allowance.php', '--force' => true]));
+
+        $this->assertSame('0.0000', $c['captains'][0]->fresh()->fuel_allowance_percentage);
+        $after = $allocation->fresh();
+        $this->assertSame($before, array_intersect_key($after->getAttributes(), $before));
+        $this->assertNull($after->base_captain_share_percent_snapshot);
+        $this->assertSame('0.0000', $after->fuel_allowance_amount);
+        $this->assertSame($snapshot, app(OrderFinancialSourceSnapshotService::class)->read($invoice));
+        app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+        $this->assertSame($entries, DB::table('financial_entries')->orderBy('id')->get()->toJson());
+        $this->assertSame($transactions, DB::table('financial_transactions')->orderBy('id')->get()->toJson());
+    }
 
     public function test_completed_payout_cannot_be_reversed_by_service_or_direct_sql(): void
     {
@@ -354,6 +407,20 @@ class OrderFinancialPostingTest extends TestCase
             $data('3.25'), [['financial_entry_id' => $delivery->financial_entry_id, 'amount' => '3.25']], $image());
         $this->assertSame('3.2500', $payout->amount);
         $this->assertSame('0.0000', $balances->captainBranchBalance($captain, $c['branch'], $c['currency'], FinancialAccountKind::CaptainCompanyReceivable));
+    }
+
+    public function test_missing_shop_origin_still_rejects_pricing_without_creating_a_version(): void
+    {
+        $c = $this->context();
+        $c['shop']->update(['origin_area_id' => null]);
+        $before = $c['order']->deliveryPricings()->count();
+        try {
+            app(OrderDeliveryPricingService::class)->price($c['employee'], $c['order'], $c['from']);
+            $this->fail('Pricing accepted an origin outside the OrderShop source contract.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(__('domain.the_delivery_origin_must_match_the_order_shop_snapshot'), $exception->errors()['from_area_id'][0]);
+        }
+        $this->assertSame($before, $c['order']->deliveryPricings()->count());
     }
 
     public function test_cash_waits_for_delivery_then_debits_primary_deposit_without_custody(): void
@@ -1055,7 +1122,7 @@ SQL);
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branch);
         $order = app(OrderService::class)->create($employee, ['branch_id' => $branch->id, 'customer_id' => $customer->id, 'customer_phone_id' => $phone->id, 'customer_address_id' => $address->id, 'source' => 'MANUAL', 'entry_mode' => 'LIVE']);
-        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Shop', 'sort_order' => 1]);
+        $shop = OrderShop::create(['order_id' => $order->id, 'shop_type' => OrderShopType::OneTime, 'business_classification_snapshot' => ShopBusinessClassification::Shop, 'shop_name_snapshot' => 'Shop', 'origin_area_id' => $from->id, 'sort_order' => 1]);
         $order->update(['pricing_class' => OrderPricingClass::SingleShop]);
         OrderItem::create(['order_shop_id' => $shop->id, 'item_type' => OrderItemType::OneTime, 'product_name_snapshot' => 'Item', 'unit_name_snapshot' => 'Piece', 'requested_quantity' => '1', 'current_quantity' => '1', 'actual_unit_price' => $itemsSubtotal, 'actual_price_source' => ActualPriceSource::ManualVerified, 'actual_currency_id' => $currency->id, 'actual_price_confirmed_at' => now(), 'actual_price_confirmed_by' => $employee->id]);
         app(OrderPricingService::class)->recalculate($order);
@@ -1127,6 +1194,7 @@ SQL);
     {
         $assignment = $c['order']->captainAssignments()->sole();
 
+        // Validate legacy payloads against persisted sources, including database timestamp precision.
         return $invoice->collection()->create([
             'order_id' => $c['order']->id,
             'captain_id' => $method === InvoiceCollectionMethod::Cash ? $assignment->captain_id : null,
@@ -1136,7 +1204,7 @@ SQL);
             'amount' => $amount,
             'collected_at' => now(),
             'recorded_by' => $c['employee']->id,
-        ]);
+        ])->fresh();
     }
 
     private function legacyInvoiceDrift(Invoice $invoice, array $changes): void

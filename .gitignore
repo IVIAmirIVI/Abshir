@@ -5,6 +5,7 @@
 .env.production
 .env.*
 !.env.example
+!.env.production.example
 /.vite/
 /.vite-temp/
 vite.config.*.timestamp-*
@@ -30,3 +31,7 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local cleanup evidence includes operational records and attachment references.
+/docs/order-cleanup-dry-run-2026-10-09/preview-audit.json
+/.phpunit-mc-*.xml

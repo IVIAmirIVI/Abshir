@@ -2,24 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\OrderEntryMode;
-use App\Enums\OrderOperationalStatus;
-use App\Enums\OrderShopType;
-use App\Enums\OrderSource;
 use App\Http\Requests\OrderRequest;
-use App\Models\Area;
-use App\Models\Captain;
-use App\Models\Currency;
-use App\Models\Customer;
 use App\Models\Order;
-use App\Models\Product;
-use App\Models\Shop;
-use App\Models\Unit;
-use App\Services\OrderCancellationSafetyService;
-use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderService;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Services\OrderWorkflowData;
+use App\Services\OrderWorkflowState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,68 +17,35 @@ class OrderController extends Controller
     public function index(Request $r): View
     {
         Gate::authorize('orders.view');
-        $q = trim($r->string('search')->toString());
-        $term = '%'.mb_strtolower($q).'%';
-        $orders = Order::query()->accessibleTo($r->user())->with('branch')->when($q !== '', fn (Builder $b) => $b->where(fn (Builder $x) => $x->whereRaw('LOWER(order_number) LIKE ?', [$term])->orWhereRaw('LOWER(customer_name_snapshot) LIKE ?', [$term])->orWhere('customer_phone_snapshot', 'like', "%$q%")))->when($r->filled('branch_id'), fn (Builder $b) => $b->where('branch_id', $r->integer('branch_id')))->when($r->filled('operational_status'), fn (Builder $b) => $b->where('operational_status', $r->input('operational_status')))->when($r->filled('pricing_status'), fn (Builder $b) => $b->where('pricing_status', $r->input('pricing_status')))->when($r->filled('from'), fn (Builder $b) => $b->whereDate('ordered_at', '>=', $r->date('from')))->when($r->filled('to'), fn (Builder $b) => $b->whereDate('ordered_at', '<=', $r->date('to')))->latest('ordered_at')->paginate(25)->withQueryString();
 
-        return view('orders.index', ['orders' => $orders, 'branches' => $r->user()->availableBranches()->orderBy('name')->get()]);
+        return view('orders.index');
     }
 
     public function create(Request $r): View
     {
         Gate::authorize('orders.create');
 
-        return view('orders.create', [
-            'branches' => $r->user()->availableBranches()->where('is_active', true)->orderBy('name')->get(),
-            'customers' => Customer::query()->accessibleTo($r->user())->where('is_active', true)->with([
-                'phones',
-                'addresses' => fn (HasMany $q) => $q->where('is_active', true)->whereHas('area', fn (Builder $areas) => $areas->where('is_active', true)),
-                'addresses.area.branch',
-            ])->orderBy('name')->get(),
-            'sources' => OrderSource::staffChoices(),
-            'entryModes' => $r->user()->can('orders.historical_entry') ? OrderEntryMode::cases() : [OrderEntryMode::Live],
-        ]);
+        return view('orders.create');
     }
 
     public function store(OrderRequest $r, OrderService $s): RedirectResponse
     {
         $o = $s->create($r->user(), $r->validated());
 
-        return redirect()->route('orders.show', $o)->with('status', __('orders.flash.created'));
+        return redirect()->route('orders.workflow', $o)->with('status', __('orders.flash.created'));
     }
 
-    public function show(Request $r, Order $order, OrderService $s, OrderDeliveryPricingService $deliveryPricing): View
+    public function workflow(Request $r, Order $order, OrderService $s): View
     {
         $s->assertAccess($r->user(), $order);
-        $order->load(['branch.defaultCurrency', 'destinationArea.parent', 'shops.shop.area', 'shops.receipts.uploadedBy', 'shops.items.estimatedSourceShop', 'shops.items.estimatedCurrency', 'shops.items.actualCurrency', 'shops.items.changes.changedBy', 'captainAssignments.captain.user', 'captainRatings.captain.user', 'cancellation.cancelledBy', 'statusHistory.changedBy', 'invoices.currency', 'invoices.collection', 'currentInvoice', 'billPaymentRequests.currency', 'billPaymentRequests.payment.evidence', 'billPaymentRequests.payment.paidBy', 'billPaymentRequests.payment.orderCaptain.captain.user']);
-        $order->load(['shops.purchaseConfirmation.currency', 'shops.shopReturn.evidence', 'cancellationIntent.requiredShops', 'purchaseConfirmations', 'shopReturns']);
-        $captains = Captain::query()->accessibleTo($r->user())->with(['user', 'employmentPeriods', 'branchAssignments'])->where('operational_status', 'AVAILABLE')->whereHas('user', fn (Builder $q) => $q->where('is_active', true))->whereHas('employmentPeriods', fn (Builder $q) => $q->whereNull('ended_at'))->get()->filter(fn (Captain $c) => $c->activeOperationalBranches()->contains('id', $order->branch_id));
 
-        $shops = Shop::query()->with('type')->accessibleTo($r->user())->where('is_active', true)
-            ->where(function (Builder $query) use ($r, $order): void {
-                $query->whereHas('area', fn (Builder $areas) => $areas->where('branch_id', $order->branch_id));
-                if ($r->user()->isSuperAdmin()) {
-                    $query->orWhereNull('area_id');
-                }
-            })->orderBy('name')->get();
+        return view('orders.workflow', compact('order'));
+    }
 
-        $pricingQuery = $order->currentDeliveryPricing()->with(['rule', 'fromArea.parent', 'toArea.parent', 'currency']);
-        if ($r->user()->can('delivery_financial_details.view')) {
-            $pricingQuery->with('allocations.captain.user');
-        }
-        $currentDeliveryPricing = $pricingQuery->first();
-        $pricingOrigins = Area::query()->accessibleTo($r->user())->where('is_active', true)->where('branch_id', $order->branch_id)->orderBy('name')->get();
-        $shopAreaIds = $order->shops->pluck('shop.area_id')->filter()->unique();
-        $suggestedOriginId = $order->shops->where('shop_type', OrderShopType::OneTime)->isEmpty() && $shopAreaIds->count() === 1 ? $shopAreaIds->first() : null;
-        $pricingPreview = null;
-        if ($r->filled('preview_from_area_id')) {
-            $validated = $r->validate(['preview_from_area_id' => ['required', 'integer', 'exists:areas,id']]);
-            $pricingPreview = $deliveryPricing->preview($r->user(), $order, Area::findOrFail($validated['preview_from_area_id']));
-        }
+    public function show(Request $r, Order $order, OrderWorkflowData $data, OrderWorkflowState $state): View
+    {
+        $view = $data->load($r->user(), $order);
 
-        $recoveredCancellationAvailable = $order->operational_status === OrderOperationalStatus::Delivered
-            && app(OrderCancellationSafetyService::class)->allowsRecoveredDeliveredCancellation($order, true);
-
-        return view('orders.show', ['order' => $order, 'shops' => $shops, 'products' => Product::where('is_active', true)->orderBy('name')->get(), 'units' => Unit::where('is_active', true)->orderBy('name')->get(), 'currencies' => Currency::where('is_active', true)->orderBy('code')->get(), 'captains' => $captains, 'currentDeliveryPricing' => $currentDeliveryPricing, 'pricingOrigins' => $pricingOrigins, 'destinationAreas' => $pricingOrigins, 'suggestedOriginId' => $suggestedOriginId, 'pricingPreview' => $pricingPreview, 'recoveredCancellationAvailable' => $recoveredCancellationAvailable]);
+        return view('orders.show', $view + ['workflow' => $state->describe($r->user(), $order)]);
     }
 }

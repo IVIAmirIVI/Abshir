@@ -167,19 +167,19 @@ class Phase85OrderExceptionsTest extends TestCase
         $context = $this->context();
         $visible = Customer::create(['name' => 'Visible Match']);
         $visible->addresses()->create(['area_id' => $context['area']->id, 'address_line_1' => 'Visible']);
-        $visible->phones()->create(['phone' => '+963 944 111 222', 'normalized_phone' => '963944111222']);
+        $visible->phones()->create(['phone' => '0944111222', 'normalized_phone' => '0944111222']);
         $foreignBranch = Branch::factory()->create();
         $hidden = Customer::create(['name' => 'Hidden Match']);
         $hidden->addresses()->create(['area_id' => Area::factory()->for($foreignBranch)->create()->id, 'address_line_1' => 'Hidden']);
-        $hidden->phones()->create(['phone' => '963944111222', 'normalized_phone' => '963944111222']);
+        $hidden->phones()->create(['phone' => '0944111222', 'normalized_phone' => '0944111222']);
 
-        $response = $this->actingAs($context['actor'])->getJson(route('customers.phone-matches', [$context['customer'], 'phone' => '963-944-111-222']))->assertOk();
+        $response = $this->actingAs($context['actor'])->getJson(route('customers.phone-matches', [$context['customer'], 'phone' => '0944-111-222']))->assertOk();
         $response->assertJsonCount(1, 'matches')->assertJsonPath('matches.0.id', $visible->id)->assertJsonMissing(['name' => 'Hidden Match']);
 
-        $this->post(route('customers.phones.store', $context['customer']), ['phone' => '963944111222'])->assertSessionHasErrors('phone');
-        $this->post(route('customers.phones.store', $context['customer']), ['phone' => '963944111222', 'duplicate_acknowledged' => true])->assertSessionHasNoErrors();
-        $this->assertDatabaseHas('customer_phones', ['customer_id' => $context['customer']->id, 'normalized_phone' => '963944111222']);
-        $this->assertDatabaseHas('customer_phones', ['customer_id' => $visible->id, 'normalized_phone' => '963944111222']);
+        $this->post(route('customers.phones.store', $context['customer']), ['phone' => '0944111222'])->assertSessionHasErrors('phone');
+        $this->post(route('customers.phones.store', $context['customer']), ['phone' => '0944111222', 'duplicate_acknowledged' => true])->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('customer_phones', ['customer_id' => $context['customer']->id, 'normalized_phone' => '0944111222']);
+        $this->assertDatabaseHas('customer_phones', ['customer_id' => $visible->id, 'normalized_phone' => '0944111222']);
     }
 
     public function test_progress_receipts_and_delivery_evidence_are_enforced(): void

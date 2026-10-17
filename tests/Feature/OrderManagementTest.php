@@ -52,7 +52,7 @@ class OrderManagementTest extends TestCase
         $currency = Currency::create(['name' => 'Dollar '.$suffix, 'code' => 'C'.$suffix]);
         $product = Product::create(['name' => 'Original Product', 'default_unit_id' => $unit->id]);
         $shopType = ShopType::create(['name' => 'Normal Shop '.$suffix, 'business_classification' => 'SHOP']);
-        $shop = Shop::create(['name' => 'Registered Shop', 'area_id' => $area->id, 'shop_type_id' => $shopType->id]);
+        $shop = Shop::create(['name' => 'Registered Shop', 'area_id' => $area->id, 'shop_type_id' => $shopType->id, 'business_classification' => 'SHOP']);
         $actor = User::factory()->create();
         $actor->roles()->attach(Role::where('code', $role)->sole());
         $actor->branches()->attach($branch);

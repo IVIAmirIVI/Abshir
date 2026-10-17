@@ -1,6 +1,6 @@
 <x-app-layout>
     <x-slot name="header"><h2 class="text-xl font-semibold">{{ __('financial.ui.sham_reconciliation') }}</h2></x-slot>
-    <div class="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
+    <div class="financial-ui mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
         <p class="rounded bg-emerald-50 p-4">{{ __('financial.ui.sham_help') }}</p>
         <form class="grid gap-3 rounded bg-white p-4 shadow sm:grid-cols-3">
             <label class="space-y-1"><span>{{ __('financial.ui.from_date') }}</span><x-text-input name="from" type="date" :value="request('from')" class="w-full" dir="ltr"/></label>
@@ -13,7 +13,7 @@
         <div class="grid gap-4 lg:grid-cols-2">
             @forelse($collections as $collection)
                 <article class="space-y-1 rounded bg-white p-5 shadow">
-                    <p class="text-sm"><x-ltr>{{ $collection->collected_at->format('Y-m-d H:i') }}</x-ltr></p>
+                    <p class="text-sm"><x-ltr>{{ \App\Support\UiDate::datetime($collection->collected_at) }}</x-ltr></p>
                     <a class="font-semibold underline" href="{{ route('orders.invoices.show', [$collection->order, $collection->invoice]) }}"><x-ltr>{{ $collection->invoice->invoice_number }}</x-ltr></a>
                     <p>{{ __('common.terms.order') }} <x-ltr>{{ $collection->order->order_number }}</x-ltr> · {{ $collection->invoice->customer_name_snapshot }}</p>
                     <p>{{ __('common.terms.branch') }}: {{ $collection->order->branch->name }}</p>

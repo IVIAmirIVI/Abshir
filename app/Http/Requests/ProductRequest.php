@@ -24,6 +24,8 @@ class ProductRequest extends FormRequest
             'barcode' => ['nullable', 'string', 'max:100', Rule::unique('products')->ignore($this->route('product'))],
             'description' => ['nullable', 'string', 'max:10000'],
             'is_active' => ['prohibited'],
+            'is_special' => $this->user()?->isSuperAdmin() ? ['sometimes', 'boolean'] : ['prohibited'],
+            'special_policy' => $this->user()?->isSuperAdmin() ? ['sometimes', 'array:currency_id,delivery_fee,allocation_mode,captain_percentage,captain_fixed,company_fixed'] : ['prohibited'],
         ];
     }
 }

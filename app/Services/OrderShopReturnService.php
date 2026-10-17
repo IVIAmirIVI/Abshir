@@ -61,6 +61,7 @@ class OrderShopReturnService
         try {
             return DB::transaction(function () use ($actor, $order, $shop, $data, $files, $metadata, $returnedAt, $refundedAt, &$storedPaths): OrderShopReturn {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                app(SharedPurchaseBoundary::class)->assertLegacyFlowAllowedLocked($order);
                 $intent = $order->cancellationIntent()->lockForUpdate()->first();
                 if (! $intent || ! $intent->frozen_at) {
                     throw ValidationException::withMessages(['order' => __('domain.an_accepted_after_purchase_intent_is_required')]);

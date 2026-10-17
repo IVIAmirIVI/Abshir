@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ShopBusinessClassification;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['shop_type_id', 'area_id', 'name', 'code', 'phone', 'address', 'notes', 'is_mobile_visible', 'accepts_online_orders'])]
+#[Fillable(['business_classification', 'shop_type_id', 'area_id', 'name', 'code', 'phone', 'address', 'notes', 'is_mobile_visible', 'accepts_online_orders'])]
 class Shop extends Model
 {
     use HasFactory;
@@ -23,6 +24,7 @@ class Shop extends Model
     protected function casts(): array
     {
         return [
+            'business_classification' => ShopBusinessClassification::class,
             'is_active' => 'boolean',
             'is_mobile_visible' => 'boolean',
             'accepts_online_orders' => 'boolean',

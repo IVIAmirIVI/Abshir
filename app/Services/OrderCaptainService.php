@@ -4,17 +4,44 @@ namespace App\Services;
 
 use App\Enums\CaptainOperationalStatus;
 use App\Enums\OrderCaptainRole;
+use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Order;
 use App\Models\OrderCaptain;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderCaptainService
 {
     public function __construct(private readonly OrderDeliveryPricingService $deliveryPricing, private readonly OrderMutationGuard $mutationGuard) {}
+
+    public function eligibleForOrder(User $actor, Order $order): Collection
+    {
+        Gate::forUser($actor)->authorize('orders.view');
+        $this->access($actor, $order);
+
+        return $this->eligibleForBranch($actor, $order->branch);
+    }
+
+    /** The same eligibility used for assignment, available before an Order exists. */
+    public function eligibleForBranch(User $actor, Branch $branch): Collection
+    {
+        Gate::forUser($actor)->authorize('orders.view');
+        abort_unless($actor->canAccessBranch($branch), 403);
+
+        return Captain::query()->accessibleTo($actor)->with(['user', 'employmentPeriods', 'branchAssignments'])
+            ->where('operational_status', CaptainOperationalStatus::Available->value)
+            ->whereHas('user', fn (Builder $query) => $query->where('is_active', true))
+            ->whereHas('employmentPeriods', fn (Builder $query) => $query->whereNull('ended_at'))
+            ->get()
+            ->filter(fn (Captain $captain) => $captain->activeOperationalBranches()->contains('id', $branch->id))
+            ->values();
+    }
 
     public function assign(User $actor, Order $order, Captain $captain, OrderCaptainRole $role): OrderCaptain
     {
@@ -24,7 +51,11 @@ class OrderCaptainService
 
         return DB::transaction(function () use ($actor, $order, $captain, $role): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $order->accounting_contract_version === 3 && $order->captainAssignments()->whereNull('removed_at')->exists()) {
+                throw ValidationException::withMessages(['captain_id' => __('financial.accounting_v3_single_only')]);
+            }
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             if ($order->captainAssignments()->whereNull('removed_at')->where('captain_id', $captain->id)->exists()) {
                 throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_assigned')]);
             } $hasPrimary = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->exists();
@@ -47,6 +78,7 @@ class OrderCaptainService
         DB::transaction(function () use ($actor, $order, $assignment, $reason): void {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             $assignment = OrderCaptain::query()->where('order_id', $order->id)->lockForUpdate()->findOrFail($assignment->id);
             if ($assignment->removed_at) {
                 throw ValidationException::withMessages(['assignment' => __('domain.assignment_is_already_removed')]);
@@ -67,6 +99,7 @@ class OrderCaptainService
         return DB::transaction(function () use ($actor, $order, $captain, $reason): OrderCaptain {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertMutableLocked($order);
+            $this->assertLegacySelectionAllowed($order);
             $current = $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', OrderCaptainRole::PrimaryCollection->value)->lockForUpdate()->firstOrFail();
             if ($current->captain_id === $captain->id) {
                 throw ValidationException::withMessages(['captain_id' => __('domain.captain_is_already_primary_collection')]);
@@ -93,5 +126,12 @@ class OrderCaptainService
     private function access(User $actor, Order $order): void
     {
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+    }
+
+    private function assertLegacySelectionAllowed(Order $order): void
+    {
+        if (Schema::hasTable('order_captain_selections') && $order->captainSelections()->exists()) {
+            throw ValidationException::withMessages(['captain_id' => __('shared_orders.use_selection')]);
+        }
     }
 }

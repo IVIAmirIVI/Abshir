@@ -4,9 +4,11 @@ use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\DeliveryPricingSettingController;
 use App\Http\Controllers\Admin\PriceEstimationSettingController;
 use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\SecurityAuditController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AreaController;
 use App\Http\Controllers\BillPaymentFeeRuleController;
+use App\Http\Controllers\CaptainBenefitRequestController;
 use App\Http\Controllers\CaptainBranchAssignmentController;
 use App\Http\Controllers\CaptainController;
 use App\Http\Controllers\CaptainDepositManualAdjustmentController;
@@ -14,20 +16,26 @@ use App\Http\Controllers\CaptainEmploymentController;
 use App\Http\Controllers\CaptainFinancialController;
 use App\Http\Controllers\CaptainGroupController;
 use App\Http\Controllers\CaptainGroupMembershipController;
+use App\Http\Controllers\CaptainInformationController;
+use App\Http\Controllers\CaptainPortalController;
 use App\Http\Controllers\CaptainReceivableRecoveryController;
 use App\Http\Controllers\CaptainStatusController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerAddressController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CustomerCreditController;
 use App\Http\Controllers\CustomerPhoneController;
 use App\Http\Controllers\CustomerPhoneMatchController;
+use App\Http\Controllers\CustomerReturnController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeliveryOverrideController;
 use App\Http\Controllers\DeliveryPricingRuleController;
+use App\Http\Controllers\InternalNoticeController;
 use App\Http\Controllers\InvoiceCollectionController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceFinancialCorrectionController;
+use App\Http\Controllers\ManagementReportController;
 use App\Http\Controllers\OrderBillPaymentController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderDeliveryPricingController;
@@ -41,10 +49,14 @@ use App\Http\Controllers\ProductGroupMembershipController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductPriceController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SharedOrderFinancialReviewController;
+use App\Http\Controllers\ShopCommissionAccountController;
 use App\Http\Controllers\ShopController;
 use App\Http\Controllers\ShopPartnershipController;
 use App\Http\Controllers\ShopProductController;
 use App\Http\Controllers\ShopTypeController;
+use App\Http\Controllers\SpecialAddonApprovalController;
+use App\Http\Controllers\SpecialDeliveryPortionController;
 use App\Http\Controllers\UnitController;
 use Illuminate\Support\Facades\Route;
 
@@ -57,13 +69,32 @@ Route::get('/dashboard', DashboardController::class)
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/captain-portal', [CaptainPortalController::class, 'index'])->name('captain.portal');
+    Route::get('/captain-portal/orders/{order}', [CaptainPortalController::class, 'show'])->whereNumber('order')->name('captain.portal.orders.show');
+    Route::get('/reports', ManagementReportController::class)->name('reports.index');
+    Route::get('/reports/{type}/csv', [ManagementReportController::class, 'export'])->name('reports.export');
+    Route::get('/reports/{type}', [ManagementReportController::class, 'detail'])->name('reports.detail');
+    Route::get('/notifications', [InternalNoticeController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/create', [InternalNoticeController::class, 'create'])->name('notifications.create');
+    Route::post('/notifications', [InternalNoticeController::class, 'store'])->name('notifications.store');
+    Route::post('/notifications/{id}/read', [InternalNoticeController::class, 'read'])->name('notifications.read');
+    Route::get('/notifications/{id}/open', [InternalNoticeController::class, 'open'])->name('notifications.open');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::get('/my-captain-information', [CaptainInformationController::class, 'self'])->name('captain.self-information');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
 });
 
 require __DIR__.'/auth.php';
 
+// Existing web session authentication and active-user checks; disabled by default in the controller.
+Route::middleware(['auth:web', 'throttle:60,1'])->prefix('api/v1')->name('api.v1.')->group(function () {
+    Route::get('me', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'me'])->name('me');
+    Route::get('captain/orders', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'index'])->name('captain.orders.index');
+    Route::get('captain/orders/{order}', [App\Http\Controllers\Api\V1\CaptainPortalController::class, 'show'])->whereNumber('order')->name('captain.orders.show');
+});
+
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
+    Route::get('security-audit', [SecurityAuditController::class, 'index'])->name('security-audit.index');
     Route::resource('users', UserController::class)->except(['show', 'destroy']);
     Route::patch('users/{user}/status', [UserController::class, 'status'])->name('users.status');
     Route::resource('branches', BranchController::class)->except(['show', 'destroy']);
@@ -92,6 +123,13 @@ Route::middleware('auth')->group(function () {
     Route::resource('areas', AreaController::class)->except(['show', 'destroy']);
     Route::patch('areas/{area}/status', [AreaController::class, 'status'])->name('areas.status');
     Route::resource('captains', CaptainController::class)->except('destroy');
+    Route::get('captains/{captain}/information', CaptainInformationController::class)->name('captains.information');
+    Route::get('captains/{captain}/requests', [CaptainBenefitRequestController::class, 'index'])->name('captains.requests.index');
+    Route::post('captains/{captain}/requests', [CaptainBenefitRequestController::class, 'store'])->name('captains.requests.store');
+    Route::get('captains/{captain}/requests/{proposal}', [CaptainBenefitRequestController::class, 'show'])->name('captains.requests.show');
+    Route::post('captains/{captain}/requests/{proposal}/revisions', [CaptainBenefitRequestController::class, 'revise'])->name('captains.requests.revise');
+    Route::post('captains/{captain}/requests/{proposal}/review', [CaptainBenefitRequestController::class, 'review'])->name('captains.requests.review');
+    Route::get('captains/{captain}/requests/{proposal}/evidence', [CaptainBenefitRequestController::class, 'evidence'])->name('captains.requests.evidence');
     Route::get('captain-financials', [CaptainFinancialController::class, 'index'])->name('captain-financials.index');
     Route::get('captains/{captain}/financials', [CaptainFinancialController::class, 'show'])->name('captains.financials.show');
     Route::post('captains/{captain}/financials/manual-deposit-adjustments', [CaptainDepositManualAdjustmentController::class, 'store'])->name('captains.manual-deposit-adjustments.store');
@@ -139,6 +177,12 @@ Route::middleware('auth')->group(function () {
     Route::patch('shops/{shop}/products/{shop_product}/status', [ShopProductController::class, 'status'])->name('shops.products.status');
     Route::post('shops/{shop}/partnerships', [ShopPartnershipController::class, 'store'])->name('shops.partnerships.store');
     Route::patch('shops/{shop}/partnerships/{partnership}/end', [ShopPartnershipController::class, 'end'])->name('shops.partnerships.end');
+    Route::get('shops/{shop}/partnerships/{partnership}/commission-drafts', [ShopPartnershipController::class, 'commissions'])->name('shops.partnerships.commissions');
+    Route::post('shops/{shop}/partnerships/{partnership}/commission-drafts/{draft}/activation', [ShopPartnershipController::class, 'commissionActivation'])->whereNumber('draft')->name('shops.partnerships.commissions.activation');
+    Route::get('shops/{shop}/commission-account', [ShopCommissionAccountController::class, 'show'])->name('shops.commission-account');
+    Route::post('shops/{shop}/commission-account/{account}/payments', [ShopCommissionAccountController::class, 'payment'])->whereNumber('account')->name('shops.commission-payments.store');
+    Route::post('shops/{shop}/partnerships/{partnership}/commission-drafts', [ShopPartnershipController::class, 'commissionStore'])->name('shops.partnerships.commissions.store');
+    Route::post('shops/{shop}/partnerships/{partnership}/commission-drafts/{draft}/revisions', [ShopPartnershipController::class, 'commissionRevise'])->whereNumber('draft')->name('shops.partnerships.commissions.revise');
     Route::get('price-observations', [ProductPriceController::class, 'index'])->name('product-prices.index');
     Route::get('price-observations/create', [ProductPriceController::class, 'create'])->name('product-prices.create');
     Route::post('price-observations', [ProductPriceController::class, 'store'])->name('product-prices.store');
@@ -146,6 +190,7 @@ Route::middleware('auth')->group(function () {
     Route::get('products/{product}/price-comparison', [ProductPriceController::class, 'comparison'])->name('products.price-comparison');
     Route::get('shops/{shop}/price-history', [ProductPriceController::class, 'shopHistory'])->name('shops.price-history');
     Route::get('price-estimate', [ProductPriceController::class, 'estimate'])->name('product-prices.estimate');
+    Route::get('orders/{order}/workflow', [OrderController::class, 'workflow'])->name('orders.workflow');
     Route::resource('orders', OrderController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('orders/{order}/bill-payment-requests', [OrderBillPaymentController::class, 'request'])->name('orders.bill-payment-requests.store');
     Route::post('orders/{order}/bill-payment-requests/{billPaymentRequest}/cancel', [OrderBillPaymentController::class, 'cancel'])->name('orders.bill-payment-requests.cancel');
@@ -168,6 +213,12 @@ Route::middleware('auth')->group(function () {
     Route::get('orders/{order}/shops/{order_shop}/purchase-confirmations/{purchase}', [OrderReturnController::class, 'purchaseEvidence'])->name('orders.shops.purchases.evidence');
     Route::post('orders/{order}/cancellation-intent', [OrderReturnController::class, 'intent'])->name('orders.cancellation-intent.store');
     Route::post('orders/{order}/shops/{order_shop}/returns', [OrderReturnController::class, 'returnShop'])->name('orders.shops.returns.store');
+    Route::post('orders/{order}/customer-returns', [CustomerReturnController::class, 'store'])->name('orders.customer-returns.store');
+    Route::post('customers/{customer}/credits', [CustomerCreditController::class, 'store'])->name('customers.credits.store');
+    Route::post('customers/{customer}/credits/cash-payout', [CustomerCreditController::class, 'payout'])->name('customers.credits.payout');
+    Route::get('customers/{customer}/credits/cash-payout/{payout}/evidence', [CustomerCreditController::class, 'evidence'])->name('customers.credits.payout-evidence');
+    Route::post('orders/{order}/customer-returns/{returnCase}/movements', [CustomerReturnController::class, 'movement'])->name('orders.customer-returns.movements');
+    Route::get('orders/{order}/customer-return-evidence/{movement}', [CustomerReturnController::class, 'evidence'])->name('orders.customer-returns.evidence');
     Route::get('orders/{order}/shops/{order_shop}/returns/{shopReturn}/evidence/{proof}', [OrderReturnController::class, 'returnEvidence'])->name('orders.shops.returns.evidence');
     Route::post('orders/{order}/cancellation-finalize', [OrderReturnController::class, 'finalize'])->name('orders.cancellation-finalize');
     Route::post('orders/{order}/captain-ratings', [OrderPhase85Controller::class, 'rating'])->name('orders.captain-ratings.store');
@@ -177,9 +228,12 @@ Route::middleware('auth')->group(function () {
     Route::patch('delivery-overrides/{override}', [DeliveryOverrideController::class, 'resolve'])->name('delivery-overrides.resolve');
     Route::patch('orders/{order}/delivery-pricing/destination', [OrderDeliveryPricingController::class, 'destination'])->name('orders.delivery-pricing.destination');
     Route::post('orders/{order}/delivery-pricing', [OrderDeliveryPricingController::class, 'apply'])->name('orders.delivery-pricing.apply');
+    Route::post('orders/{order}/special-addons', [SpecialAddonApprovalController::class, 'store'])->name('orders.special-addons');
+    Route::post('orders/{order}/special-delivery-portions', [SpecialDeliveryPortionController::class, 'store'])->name('orders.special-delivery-portions');
     Route::post('orders/{order}/delivery-pricing/override', [OrderDeliveryPricingController::class, 'override'])->name('orders.delivery-pricing.override');
     Route::post('orders/{order}/delivery-pricing/discount', [OrderDeliveryPricingController::class, 'discount'])->name('orders.delivery-pricing.discount');
     Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('orders/{order}/invoice-preview', [InvoiceController::class, 'preview'])->name('orders.invoices.preview');
     Route::post('orders/{order}/invoices', [InvoiceController::class, 'store'])->name('orders.invoices.store');
     Route::get('orders/{order}/invoices/{invoice}', [InvoiceController::class, 'show'])->name('orders.invoices.show');
     Route::get('orders/{order}/invoices/{invoice}/print', [InvoiceController::class, 'print'])->name('orders.invoices.print');
@@ -188,6 +242,7 @@ Route::middleware('auth')->group(function () {
     Route::post('orders/{order}/invoices/{invoice}/void', [InvoiceController::class, 'void'])->name('orders.invoices.void');
     Route::post('orders/{order}/invoices/{invoice}/replace', [InvoiceController::class, 'replace'])->name('orders.invoices.replace');
     Route::get('invoice-collections', [InvoiceCollectionController::class, 'index'])->name('invoice-collections.index');
+    Route::get('captain-financials/shared-orders/{order}/review', SharedOrderFinancialReviewController::class)->name('shared-orders.financial-review');
     Route::get('invoice-collections/sham-cash', [InvoiceCollectionController::class, 'shamCash'])->name('invoice-collections.sham-cash');
     Route::post('invoices/{invoice}/collection', [InvoiceCollectionController::class, 'store'])->name('invoices.collection.store');
     Route::post('invoices/{invoice}/financial-corrections', [InvoiceFinancialCorrectionController::class, 'request'])->name('invoices.corrections.request');

@@ -1,0 +1,26 @@
+<?php
+
+return [
+    'mode' => 'Service fee calculation',
+    'fixed' => 'Fixed fee',
+    'tiered' => 'SYP tiered fees',
+    'from' => 'Inclusive minimum',
+    'until' => 'Exclusive maximum (blank = unlimited)',
+    'value' => 'Fee or percentage',
+    'percentage' => 'Percentage of entire principal',
+    'from_inclusive' => 'From',
+    'until_exclusive' => 'to less than',
+    'and_above' => 'and above',
+    'entire_principal' => 'of the entire bill principal',
+    'rounding' => 'Percentage fees round to the nearest multiple of 5 SYP; exact halfway cases round up. The principal is not rounded.',
+    'positive_only' => 'Each bill is evaluated independently; its principal must be greater than zero.',
+    'invalid_tiers' => 'Tiers are SYP-only and must cover all positive principals without overlaps or gaps using valid positive values.',
+    'currency_mismatch' => 'The fee currency must match the request currency.',
+    'migration_required' => 'Tier configuration requires the approved database migration first. No fees were activated automatically.',
+    'service_fee' => 'Abshir service fee',
+    'total' => 'Total customer amount',
+    'enter_principal' => 'Enter the bill principal to preview the service fee and total before confirmation.',
+    'calculated_later' => 'The fee is calculated when the principal is entered using the schedule version bound at initiation.',
+    'calculating' => 'Calculating fee…',
+    'version_help' => 'The schedule version is bound at initiation; the fee amount is frozen when payment is recorded. New versions never change earlier requests.',
+];

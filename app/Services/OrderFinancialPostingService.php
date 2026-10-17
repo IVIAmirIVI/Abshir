@@ -59,7 +59,7 @@ class OrderFinancialPostingService
             || FinancialTransaction::query()
                 ->where('source_type', self::COLLECTION_SOURCE)
                 ->whereIn('source_id', $invoice->collection()->pluck('id')->map(fn ($id) => (string) $id))
-                ->whereIn('event_type', collect(FinancialEventType::correctedOrderDerived())->map->value)
+                ->whereIn('event_type', [FinancialEventType::SharedInvoiceCashCustodyReceived->value, FinancialEventType::SharedOrderProductReimbursementDue->value, FinancialEventType::SharedOrderDeliveryEntitlementDue->value, ...collect(FinancialEventType::correctedOrderDerived())->map->value, ...collect(FinancialEventType::accountingV2())->map->value, ...collect(FinancialEventType::accountingV3())->map->value])
                 ->exists();
     }
 

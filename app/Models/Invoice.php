@@ -43,6 +43,11 @@ class Invoice extends Model
         return $this->hasOne(InvoiceCollection::class);
     }
 
+    public function settledCorrection(): HasOne
+    {
+        return $this->hasOne(InvoiceFinancialCorrection::class, 'replacement_invoice_id')->where('state', 'COMPLETED');
+    }
+
     public function issuer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'issued_by');

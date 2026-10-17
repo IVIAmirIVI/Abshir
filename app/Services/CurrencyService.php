@@ -24,7 +24,9 @@ class CurrencyService
                     && (int) $data['decimal_places'] !== (int) $currency->decimal_places
                     && (FinancialTransaction::query()->where('currency_id', $currency->id)->exists()
                         || (Schema::hasTable('order_shop_purchase_confirmations')
-                            && DB::table('order_shop_purchase_confirmations')->where('currency_id', $currency->id)->exists()))) {
+                            && DB::table('order_shop_purchase_confirmations')->where('currency_id', $currency->id)->exists())
+                        || (Schema::hasTable('shop_commission_lines')
+                            && DB::table('shop_commission_lines')->where('currency_id', $currency->id)->whereNotNull('rule_id')->exists()))) {
                     throw ValidationException::withMessages([
                         'decimal_places' => __('domain.currency_decimal_precision_cannot_change_after_financial_ledger_or_verified_shop_purchase_use'),
                     ]);

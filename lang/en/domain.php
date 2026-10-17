@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'a_registered_shop_requires_an_active_area_before_it_can_be_added_to_an_order' => 'A registered Shop must have an active Area before it can be added to a new Order.',
+    'remove_the_shop_items_before_removing_the_shop' => 'Remove the Shop items first, then explicitly remove the empty Shop.',
+    'a_shop_with_operational_or_purchase_history_cannot_be_removed' => 'A Shop with operational, purchase, evidence, or return history cannot be removed.',
+    'an_order_shop_cannot_be_removed_after_invoice_history_exists' => 'An Order Shop cannot be removed after Invoice history exists.',
+    'an_item_with_price_or_change_history_cannot_be_removed' => 'An item with confirmed price or change history cannot be removed.',
+    'an_item_referenced_by_invoice_history_cannot_be_removed' => 'An item referenced by Invoice history cannot be removed.',
+    'select_the_one_time_shop_area' => 'Select the one-time Shop Area.',
+    'the_registered_shop_is_already_on_this_order_add_products_to_its_existing_section' => 'This Shop is already on the Order. Add products in its existing section.',
     'core_system_roles_are_protected_create_a_custom_role_to_change_access' => 'Core system roles are protected. Create a custom role to change access.',
     'an_area_with_children_or_customer_addresses_cannot_be_moved_to_another_branch' => 'An area with children or customer addresses cannot be moved to another branch.',
     'the_parent_area_must_belong_to_the_selected_branch' => 'The parent area must belong to the selected branch.',
@@ -263,6 +271,10 @@ return [
     'choose_restaurant_or_shop_because_this_registered_shop_type_is_not_configured' => 'Choose Restaurant or Shop because this registered Shop Type is not configured.',
     'the_selected_classification_conflicts_with_the_registered_shop_type' => 'The selected classification conflicts with the registered Shop Type.',
     'a_one_time_shop_cannot_reference_a_registered_shop' => 'A one-time Shop cannot reference a registered Shop.',
+    'a_registered_shop_cannot_include_one_time_shop_identity_data' => 'A registered Shop cannot include one-time Shop identity data.',
+    'the_delivery_origin_must_match_the_order_shop_snapshot' => 'The delivery origin must match the Order Shop Area snapshot.',
+    'reprice_the_multi_shop_order_to_capture_each_shop_route' => 'Reprice the multi-Shop Order to capture every Shop route.',
+    'the_order_shop_routes_changed_reprice_before_continuing' => 'The Order Shop routes changed. Reprice before continuing.',
     'choose_restaurant_or_shop_for_a_one_time_shop' => 'Choose Restaurant or Shop for a one-time Shop.',
     'the_order_shop_classification_snapshot_is_immutable' => 'The Order Shop classification snapshot is immutable.',
     'this_operational_status_transition_is_not_allowed' => 'This operational status transition is not allowed.',
@@ -296,4 +308,9 @@ return [
     'evidence_integrity' => 'Evidence integrity check failed.',
     'adjustment_integrity' => 'Adjustment evidence integrity check failed.',
     'inactive_account' => 'Your account is inactive. Contact an administrator.',
+    'shared_purchase_settlement_not_enabled' => 'Shared purchase settlement and refunds are not enabled. Do not use the legacy financial workflow.',
+    'shared_purchase_requires_two_captains' => 'A shared purchase requires exactly two active Captains and one designated collector.',
+    'shared_purchase_before_assignment' => 'The purchase cannot precede either Captain assignment.',
+    'shared_purchase_exact_halves_required' => 'A positive purchase amount must split into exact equal Currency units. Odd minor-unit handling awaits approval.',
+    'shared_purchase_requires_unsettled_order' => 'Shared purchases require an open Order without existing Invoices, bill services or single-payer purchases.',
 ];

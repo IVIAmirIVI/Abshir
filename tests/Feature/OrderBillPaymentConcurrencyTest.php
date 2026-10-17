@@ -14,6 +14,7 @@ use App\Models\Customer;
 use App\Models\FinancialTransaction;
 use App\Models\Order;
 use App\Models\OrderCaptain;
+use App\Models\OrderStatusHistory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BillPaymentFeeRuleService;
@@ -27,11 +28,95 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class OrderBillPaymentConcurrencyTest extends TestCase
 {
+    public function test_pending_tier_migration_preserves_existing_fixed_financial_history_and_trigger_dependencies(): void
+    {
+        $this->assertSame('abshir_testing', DB::selectOne('SELECT current_database() AS name')->name);
+        $connection = (string) config('database.default');
+        $key = "database.connections.{$connection}.search_path";
+        $original = config($key);
+        $schema = 'bill_legacy_migration_'.str()->lower(str()->random(12));
+        $tierPath = database_path('migrations/2026_10_08_010000_add_tiered_bill_payment_fees.php');
+        $beforeFiles = Storage::disk(OrderBillPaymentService::DISK)->allFiles();
+        DB::statement('CREATE SCHEMA "'.$schema.'"');
+        try {
+            config([$key => $schema]);
+            DB::purge($connection);
+            DB::reconnect($connection);
+            $priorPaths = array_values(array_filter(glob(database_path('migrations/*.php')), fn ($path) => $path !== $tierPath));
+            Artisan::call('migrate', ['--path' => $priorPaths, '--realpath' => true, '--force' => true]);
+            Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
+            $c = $this->fixture();
+            $service = app(OrderBillPaymentService::class);
+            $request = $service->request($c['employee'], $c['order'], $c['currency']->id);
+            $pending = $service->request($c['employee'], $c['order'], $c['currency']->id);
+            $cancelled = $service->request($c['employee'], $c['order'], $c['currency']->id);
+            $service->cancel($c['employee'], $c['order'], $cancelled, 'Legacy cancellation');
+            $this->deliveredHistory($c);
+            $payment = $service->complete($c['employee'], $c['order'], $request, [
+                'order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id,
+                'bill_number' => 'LEGACY', 'bill_date' => today()->toDateString(),
+                'principal_amount' => '1125.12', 'payment_reference' => 'SHAM-LEGACY',
+            ], [UploadedFile::fake()->createWithContent('legacy.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))]);
+            $tables = ['bill_payment_fee_rules', 'order_bill_payment_requests', 'order_bill_payments',
+                'order_bill_payment_principal_handovers', 'order_bill_payment_evidence', 'financial_transactions', 'financial_entries', 'currencies'];
+            $before = [];
+            foreach ($tables as $table) {
+                $before[$table] = DB::table($table)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
+            }
+            $triggerSql = "SELECT t.tgname, t.tgfoid, t.tgenabled, t.tgdeferrable, t.tginitdeferred FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname=current_schema() AND NOT t.tgisinternal
+                AND (c.relname IN ('bill_payment_fee_rules','order_bill_payment_requests','order_bill_payments')
+                     OR t.tgname='bill_payment_event_commit_guard')
+                AND t.tgname <> 'bill_payment_fee_configuration_guard' ORDER BY t.tgname";
+            $triggers = DB::select($triggerSql);
+            Artisan::call('migrate', ['--path' => [$tierPath], '--realpath' => true, '--force' => true]);
+            foreach ($tables as $table) {
+                $after = DB::table($table)->orderBy('id')->get()->map(function ($row) use ($table) {
+                    $row = (array) $row;
+                    if ($table === 'bill_payment_fee_rules') {
+                        $this->assertSame('FIXED', $row['fee_mode']);
+                        $this->assertNull($row['fee_tiers']);
+                        unset($row['fee_mode'], $row['fee_tiers']);
+                    }
+
+                    return $row;
+                })->all();
+                $this->assertSame($before[$table], $after, "Historical {$table} data changed.");
+            }
+            $this->assertEquals($triggers, DB::select($triggerSql));
+            foreach ($triggers as $trigger) {
+                $this->assertSame('O', $trigger->tgenabled);
+                if (in_array($trigger->tgname, ['completed_bill_payment_commit_guard', 'bill_payment_event_commit_guard'], true)) {
+                    $this->assertTrue($trigger->tgdeferrable);
+                    $this->assertTrue($trigger->tginitdeferred);
+                }
+            }
+            foreach (['verify_bill_payment_request_fee_source()' => 'trigger', 'verify_completed_bill_payment_source()' => 'trigger',
+                'validate_completed_bill_payment_at_commit(bigint)' => 'void', 'guard_bill_payment_fee_history()' => 'trigger',
+                'calculated_bill_payment_fee(bigint,numeric)' => 'numeric'] as $signature => $result) {
+                $this->assertSame($result, DB::selectOne('SELECT pg_get_function_result(to_regprocedure(?)) AS result', [$signature])->result);
+            }
+            $this->assertSame('2.0000', $payment->fresh()->service_fee);
+            $this->assertSame('1125.1200', $payment->fresh()->principal_amount);
+            DB::select('SELECT validate_completed_bill_payment_at_commit(?)', [$payment->id]);
+            $this->assertSame('2.0000', $service->preview($c['employee'], $c['order']->fresh(), $pending, '1125.12')['fee']);
+            $this->assertTrue(DB::table('migrations')->where('migration', '2026_10_08_010000_add_tiered_bill_payment_fees')->exists());
+        } finally {
+            Storage::disk(OrderBillPaymentService::DISK)->delete(array_values(array_diff(Storage::disk(OrderBillPaymentService::DISK)->allFiles(), $beforeFiles)));
+            DB::purge($connection);
+            config([$key => $original]);
+            DB::reconnect($connection);
+            DB::statement('DROP SCHEMA IF EXISTS "'.$schema.'" CASCADE');
+        }
+    }
+
     public function test_deferred_commit_failure_removes_evidence_and_rolls_back_all_financial_sources(): void
     {
         if (DB::getDriverName() !== 'pgsql') {
@@ -51,8 +136,7 @@ class OrderBillPaymentConcurrencyTest extends TestCase
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $this->deliveredHistory($c);
             DB::unprepared(<<<'SQL'
 CREATE FUNCTION reject_test_bill_evidence_at_commit() RETURNS trigger AS $$
 BEGIN
@@ -105,8 +189,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $history = $this->deliveredHistory($c);
             $at = now()->startOfSecond();
             $attributes = [
                 'request_id' => $request->id, 'order_id' => $c['order']->id,
@@ -114,9 +197,9 @@ SQL);
                 'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                 'bill_number' => 'SQL-1', 'bill_date' => today()->toDateString(),
                 'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at,
-                'paid_at' => $at, 'paid_by' => $c['employee']->id, 'payment_reference' => 'SQL-REF',
-                'created_at' => $at, 'updated_at' => $at,
+                'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at->format('Y-m-d H:i:s.uP'),
+                'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id, 'payment_reference' => 'SQL-REF',
+                'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
             ];
             foreach (['payment_only', 'without_evidence', 'without_ledger'] as $case) {
                 try {
@@ -127,8 +210,8 @@ SQL);
                                 'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                                 'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                                 'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                                'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                                'created_at' => $at, 'updated_at' => $at,
+                                'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                                'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ]);
                         }
                         if ($case === 'without_ledger') {
@@ -137,9 +220,9 @@ SQL);
                                 'storage_path' => $c['order']->id.'/'.$request->id.'/'.$paymentId.'/proof.png',
                                 'original_filename' => 'proof.png', 'mime_type' => 'image/png', 'file_size' => 1,
                                 'sha256' => str_repeat('a', 64), 'uploaded_by' => $c['employee']->id,
-                                'uploaded_at' => $at, 'created_at' => $at, 'updated_at' => $at,
+                                'uploaded_at' => $at->format('Y-m-d H:i:s.uP'), 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ]);
-                            DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at]);
+                            DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at->format('Y-m-d H:i:s.uP')]);
                         }
                     });
                     $this->fail("The database committed {$case}.");
@@ -168,8 +251,8 @@ SQL);
                             'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                             'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                             'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                            'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                            'created_at' => $at, 'updated_at' => $at,
+                            'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                            'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                             ...$change,
                         ]);
                     });
@@ -237,13 +320,7 @@ SQL);
             foreach ($cases as $case) {
                 $requests[$case] = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
             }
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $deliveredAt = $history->fresh()->changed_at;
             $accounts = app(FinancialAccountService::class);
             $owner = $accounts->ownerForCaptain($c['assignment']->captain);
@@ -273,23 +350,23 @@ SQL);
                             'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                             'bill_number' => 'COMMIT-'.$case, 'bill_date' => today()->toDateString(),
                             'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                            'total_customer_cash' => '102', 'delivered_at' => $deliveredAt,
-                            'paid_at' => $at, 'paid_by' => $c['employee']->id,
-                            'payment_reference' => 'COMMIT-'.$case, 'created_at' => $at, 'updated_at' => $at,
+                            'total_customer_cash' => '102', 'delivered_at' => $deliveredAt->format('Y-m-d H:i:s.uP'),
+                            'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id,
+                            'payment_reference' => 'COMMIT-'.$case, 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         $handoverId = DB::table('order_bill_payment_principal_handovers')->insertGetId([
                             'bill_payment_id' => $paymentId, 'order_id' => $c['order']->id,
                             'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['assignment']->captain_id,
                             'currency_id' => $c['currency']->id, 'principal_amount' => '100',
-                            'received_by' => $c['employee']->id, 'occurred_at' => $at,
-                            'created_at' => $at, 'updated_at' => $at,
+                            'received_by' => $c['employee']->id, 'occurred_at' => $at->format('Y-m-d H:i:s.uP'),
+                            'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         DB::table('order_bill_payment_evidence')->insert([
                             'bill_payment_id' => $paymentId,
                             'storage_path' => $c['order']->id.'/'.$request->id.'/'.$paymentId.'/proof.png',
                             'original_filename' => 'proof.png', 'mime_type' => 'image/png', 'file_size' => 1,
                             'sha256' => str_repeat('a', 64), 'uploaded_by' => $c['employee']->id,
-                            'uploaded_at' => $at, 'created_at' => $at, 'updated_at' => $at,
+                            'uploaded_at' => $at->format('Y-m-d H:i:s.uP'), 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                         ]);
                         $posting = app(FinancialPostingService::class);
                         if ($case !== 'missing_cash_increase') {
@@ -321,7 +398,7 @@ SQL);
                                 [['account' => $deposit, 'direction' => FinancialEntryDirection::Decrease, 'amount' => '2']],
                                 $c['order']->branch, $c['employee']);
                         }
-                        DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at]);
+                        DB::table('order_bill_payment_requests')->where('id', $request->id)->update(['status' => 'COMPLETED', 'completed_at' => $at->format('Y-m-d H:i:s.uP')]);
                         if (in_array($case, ['missing_evidence', 'missing_handover'], true)) {
                             // Remove exactly one companion after a complete set passes the immediate
                             // request guard, then restore the immutable trigger before COMMIT.
@@ -360,7 +437,13 @@ SQL);
         }
     }
 
-    public function test_two_real_completion_services_contend_and_only_one_posts_money(): void
+    public static function completionFeeModes(): array
+    {
+        return ['fixed' => [false], 'tiered SYP' => [true]];
+    }
+
+    #[DataProvider('completionFeeModes')]
+    public function test_two_real_completion_services_contend_and_only_one_posts_money(bool $tiered): void
     {
         if (DB::getDriverName() !== 'pgsql') {
             $this->markTestSkipped('Independent-service concurrency requires PostgreSQL.');
@@ -376,14 +459,15 @@ SQL);
             DB::reconnect($connection);
             Artisan::call('migrate', ['--force' => true]);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
-            $c = $this->fixture();
+            $c = $this->fixture($tiered);
+            $principal = $tiered ? '1500' : '100';
+            $fee = $tiered ? '30.0000' : '2.0000';
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $c['order']->statusHistory()->create(['previous_status' => OrderOperationalStatus::HeadingToCustomer, 'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+            $this->deliveredHistory($c);
             $filesBefore = Storage::disk(OrderBillPaymentService::DISK)->allFiles();
             $results = $this->race([
-                ['operation' => 'complete', 'evidence_name' => 'proof-worker-a.png', 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id, 'request_id' => $request->id, 'data' => ['order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id, 'bill_number' => 'B-1', 'bill_date' => today()->toDateString(), 'principal_amount' => '100', 'payment_reference' => 'SHAM-1']],
-                ['operation' => 'complete', 'evidence_name' => 'proof-worker-b.png', 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id, 'request_id' => $request->id, 'data' => ['order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id, 'bill_number' => 'B-1', 'bill_date' => today()->toDateString(), 'principal_amount' => '100', 'payment_reference' => 'SHAM-1']],
+                ['operation' => 'complete', 'evidence_name' => 'proof-worker-a.png', 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id, 'request_id' => $request->id, 'data' => ['order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id, 'bill_number' => 'B-1', 'bill_date' => today()->toDateString(), 'principal_amount' => $principal, 'payment_reference' => 'SHAM-1']],
+                ['operation' => 'complete', 'evidence_name' => 'proof-worker-b.png', 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id, 'request_id' => $request->id, 'data' => ['order_captain_id' => $c['assignment']->id, 'currency_id' => $c['currency']->id, 'bill_number' => 'B-1', 'bill_date' => today()->toDateString(), 'principal_amount' => $principal, 'payment_reference' => 'SHAM-1']],
             ], 'orders', $c['order']->id);
             $this->assertSame(1, collect($results)->where('status', 'success')->count(), json_encode($results));
             $loser = collect($results)->firstWhere('status', 'error');
@@ -391,6 +475,8 @@ SQL);
             $this->assertSame(1, $c['order']->billPayments()->count());
             $this->assertSame(1, $c['order']->billPaymentRequests()->where('status', 'COMPLETED')->count());
             $payment = $c['order']->billPayments()->sole();
+            $this->assertSame($fee, $payment->service_fee);
+            $this->assertSame($tiered ? null : $fee, $request->fresh()->service_fee);
             $this->assertSame(1, $payment->handover()->count());
             $evidence = $payment->evidence()->sole();
             $this->assertContains($evidence->original_filename, ['proof-worker-a.png', 'proof-worker-b.png']);
@@ -404,9 +490,9 @@ SQL);
             ])->get()->keyBy('event_type');
             $this->assertCount(3, $events);
             foreach ([
-                FinancialEventType::BillPaymentCashCollected->value => [FinancialAccountKind::CaptainCashCustody, FinancialEntryDirection::Increase, '100.0000'],
-                FinancialEventType::BillPaymentPrincipalHandedOver->value => [FinancialAccountKind::CaptainCashCustody, FinancialEntryDirection::Decrease, '100.0000'],
-                FinancialEventType::BillPaymentServiceFeeRetained->value => [FinancialAccountKind::CaptainDeposit, FinancialEntryDirection::Decrease, '2.0000'],
+                FinancialEventType::BillPaymentCashCollected->value => [FinancialAccountKind::CaptainCashCustody, FinancialEntryDirection::Increase, $principal.'.0000'],
+                FinancialEventType::BillPaymentPrincipalHandedOver->value => [FinancialAccountKind::CaptainCashCustody, FinancialEntryDirection::Decrease, $principal.'.0000'],
+                FinancialEventType::BillPaymentServiceFeeRetained->value => [FinancialAccountKind::CaptainDeposit, FinancialEntryDirection::Decrease, $fee],
             ] as $eventType => [$kind, $direction, $amount]) {
                 $this->assertSame(1, FinancialTransaction::where('event_type', $eventType)->count());
                 $entry = $events[$eventType]->entries->sole();
@@ -421,7 +507,7 @@ SQL);
                     DB::transaction(fn () => app(FinancialPostingService::class)->postEvent(
                         $c['currency'], 'ORDER_BILL_PAYMENT', $sourceId,
                         FinancialEventType::BillPaymentCashCollected->value, $version, $payment->delivered_at,
-                        [['account' => $cashAccount, 'direction' => FinancialEntryDirection::Increase, 'amount' => '100']],
+                        [['account' => $cashAccount, 'direction' => FinancialEntryDirection::Increase, 'amount' => $principal]],
                         $c['order']->branch, $c['employee'],
                     ));
                     $this->fail('An extra or noncanonical bill-payment event committed.');
@@ -470,13 +556,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $at = now()->startOfSecond();
             [$mutation, $payment] = $this->raceDeliverySource(
                 ['operation' => 'mutate_delivery_hold', 'history_id' => $history->id],
@@ -486,9 +566,9 @@ SQL);
                     'currency_id' => $c['currency']->id, 'fee_rule_id' => $request->fee_rule_id,
                     'bill_number' => 'DIRECT-SQL', 'bill_date' => today()->toDateString(),
                     'principal_amount' => '100', 'service_fee' => $request->service_fee,
-                    'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at,
-                    'paid_at' => $at, 'paid_by' => $c['employee']->id,
-                    'payment_reference' => 'DIRECT-SQL', 'created_at' => $at, 'updated_at' => $at,
+                    'total_customer_cash' => '102', 'delivered_at' => $history->fresh()->changed_at->format('Y-m-d H:i:s.uP'),
+                    'paid_at' => $at->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id,
+                    'payment_reference' => 'DIRECT-SQL', 'created_at' => $at->format('Y-m-d H:i:s.uP'), 'updated_at' => $at->format('Y-m-d H:i:s.uP'),
                 ]],
             );
             $this->assertSame('success', $mutation['status']);
@@ -525,13 +605,7 @@ SQL);
             Artisan::call('db:seed', ['--class' => AuthorizationSeeder::class, '--force' => true]);
             $c = $this->fixture();
             $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
-            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
-            $history = $c['order']->statusHistory()->create([
-                'previous_status' => OrderOperationalStatus::HeadingToCustomer,
-                'new_status' => OrderOperationalStatus::Delivered,
-                'changed_by' => $c['employee']->id,
-                'changed_at' => now(),
-            ]);
+            $history = $this->deliveredHistory($c);
             $originalDeliveryAt = $history->fresh()->changed_at;
             $completion = [
                 'actor_id' => $c['employee']->id, 'order_id' => $c['order']->id,
@@ -684,9 +758,20 @@ SQL);
         }
     }
 
-    private function fixture(): array
+    private function deliveredHistory(array $c): OrderStatusHistory
     {
-        $currency = Currency::create(['name' => 'Dollar', 'code' => 'USD', 'decimal_places' => 2]);
+        return DB::transaction(function () use ($c): OrderStatusHistory {
+            $previous = $c['order']->fresh()->operational_status;
+            $c['order']->forceFill(['operational_status' => OrderOperationalStatus::Delivered])->save();
+
+            return $c['order']->statusHistory()->create(['previous_status' => $previous,
+                'new_status' => OrderOperationalStatus::Delivered, 'changed_by' => $c['employee']->id, 'changed_at' => now()]);
+        });
+    }
+
+    private function fixture(bool $tiered = false): array
+    {
+        $currency = Currency::create(['name' => 'Dollar', 'code' => $tiered ? 'SYP' : 'USD', 'decimal_places' => 2]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $customer = Customer::create(['name' => 'Race customer']);
         $admin = User::factory()->create();
@@ -697,7 +782,7 @@ SQL);
         $order = Order::create(['branch_id' => $branch->id, 'customer_id' => $customer->id, 'order_number' => 'BILL-RACE', 'ordered_at' => now(), 'customer_name_snapshot' => 'Race customer', 'customer_phone_snapshot' => '123', 'area_name_snapshot' => 'Area', 'address_line_1_snapshot' => 'Street', 'created_by' => $employee->id]);
         $captain = Captain::create(['user_id' => User::factory()->create()->id, 'home_branch_id' => $branch->id, 'operational_status' => CaptainOperationalStatus::Available]);
         $assignment = OrderCaptain::create(['order_id' => $order->id, 'captain_id' => $captain->id, 'assignment_role' => 'SUPPORT', 'assigned_at' => now()->subHour(), 'assigned_by' => $employee->id]);
-        $rule = app(BillPaymentFeeRuleService::class)->create($admin, $currency->id, '2', now()->subDay());
+        $rule = app(BillPaymentFeeRuleService::class)->create($admin, $currency->id, $tiered ? null : '2', now()->subDay(), $tiered ? BillPaymentFeeRuleService::sypTiers() : null);
 
         return compact('currency', 'admin', 'employee', 'order', 'assignment', 'rule');
     }

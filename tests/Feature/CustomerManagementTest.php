@@ -78,10 +78,23 @@ class CustomerManagementTest extends TestCase
     {
         $admin = $this->account();
         [$first, $second] = Customer::factory()->count(2)->create();
-        $this->actingAs($admin)->post(route('customers.phones.store', $first), ['phone' => '+963 944 123 456', 'label' => 'Mobile'])->assertSessionHasNoErrors();
-        $this->post(route('customers.phones.store', $first), ['phone' => '963-944-123-456'])->assertSessionHasErrors('normalized_phone');
-        $this->post(route('customers.phones.store', $second), ['phone' => '963-944-123-456', 'duplicate_acknowledged' => true])->assertSessionHasNoErrors();
-        $this->assertSame('963944123456', $first->phones()->sole()->normalized_phone);
+        $this->actingAs($admin)->post(route('customers.phones.store', $first), ['phone' => '011 123 4567', 'label' => 'Landline'])->assertSessionHasNoErrors();
+        $this->post(route('customers.phones.store', $first), ['phone' => '011-123-4567'])->assertSessionHasErrors('normalized_phone');
+        $this->post(route('customers.phones.store', $second), ['phone' => '011-123-4567', 'duplicate_acknowledged' => true])->assertSessionHasNoErrors();
+        $this->assertSame('0111234567', $first->phones()->sole()->normalized_phone);
+    }
+
+    public function test_mobile_phone_http_validation_and_existing_customer_uniqueness(): void
+    {
+        $customer = Customer::factory()->create();
+        $this->actingAs($this->account());
+        foreach (['09 12345678', '09a12345678', '091234567', '09123456789', '+963912345678', '٠٩١٢٣٤٥٦٧٨'] as $invalid) {
+            $this->post(route('customers.phones.store', $customer), ['phone' => $invalid])->assertSessionHasErrors('phone');
+        }
+        $this->assertSame(0, $customer->phones()->count());
+        $this->post(route('customers.phones.store', $customer), ['phone' => '0912345678'])->assertSessionHasNoErrors();
+        $this->assertSame('0912345678', $customer->phones()->sole()->phone);
+        $this->post(route('customers.phones.store', $customer), ['phone' => '0912345678'])->assertSessionHasErrors('normalized_phone');
     }
 
     public function test_phone_primary_switching_and_delete_promotion_are_atomic(): void

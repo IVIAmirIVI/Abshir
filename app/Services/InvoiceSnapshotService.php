@@ -9,10 +9,41 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InvoiceSnapshotService
 {
+    /** Read the same locked source facts and fingerprint used by issuance, without changing them. */
+    public function currentSourcesAreStale(Invoice $invoice): bool
+    {
+        return DB::transaction(function () use ($invoice): bool {
+            $order = Order::query()->lockForUpdate()->findOrFail($invoice->order_id);
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
+
+            try {
+                return $this->isStale($invoice, $this->build($order));
+            } catch (ValidationException) {
+                return true;
+            }
+        });
+    }
+
+    /** Read-only eligibility using the exact production snapshot builder. */
+    public function readinessProblem(Order $order): ?string
+    {
+        return DB::transaction(function () use ($order): ?string {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            try {
+                $this->build($order);
+
+                return null;
+            } catch (ValidationException $exception) {
+                return collect($exception->errors())->flatten()->first();
+            }
+        });
+    }
+
     public function build(Order $order): array
     {
         $order->refresh();
@@ -24,6 +55,9 @@ class InvoiceSnapshotService
             throw ValidationException::withMessages(['invoice' => __('domain.the_order_requires_at_least_one_item')]);
         }
         $pricing = $order->currentDeliveryPricing()->with('currency')->lockForUpdate()->first();
+        if ($pricing) {
+            app(SpecialProductDeliveryService::class)->assertCurrentPricing($order, $pricing);
+        }
         if (! $pricing) {
             throw ValidationException::withMessages(['invoice' => __('domain.current_delivery_pricing_is_required')]);
         }

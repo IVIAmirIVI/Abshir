@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 #[Fillable(['shop_id', 'starts_at', 'ends_at', 'status', 'mobile_enabled', 'online_orders_enabled', 'notes'])]
@@ -26,6 +27,11 @@ class ShopPartnership extends Model
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function commissionDrafts(): HasMany
+    {
+        return $this->hasMany(ShopCommissionDraft::class);
     }
 
     public function createdBy(): BelongsTo

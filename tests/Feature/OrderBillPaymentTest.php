@@ -9,6 +9,8 @@ use App\Enums\FinancialEventType;
 use App\Enums\OrderCancellationReason;
 use App\Enums\OrderOperationalStatus;
 use App\Enums\OrderShopType;
+use App\Exceptions\FinancialLedgerException;
+use App\Livewire\Orders\BillPaymentFeePreview;
 use App\Models\Branch;
 use App\Models\Captain;
 use App\Models\Currency;
@@ -25,6 +27,7 @@ use App\Services\FinancialBalanceQueryService;
 use App\Services\OrderBillPaymentService;
 use App\Services\OrderCancellationIntentService;
 use App\Services\OrderStatusService;
+use Brick\Math\BigDecimal;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +36,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -206,7 +210,7 @@ SQL, [$payment->id]);
             }
             $delivery = $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole();
             try {
-                DB::transaction(fn () => DB::table('order_status_history')->where('id', $delivery->id)->update(['changed_at' => now()->addMinute()]));
+                DB::transaction(fn () => DB::table('order_status_history')->where('id', $delivery->id)->update(['changed_at' => now()->addMinute()->format('Y-m-d H:i:s.uP')]));
                 $this->fail('The historical delivery timestamp cannot change after bill payment.');
             } catch (QueryException) {
                 $this->assertSame($delivery->changed_at->toISOString(), $delivery->fresh()->changed_at->toISOString());
@@ -237,7 +241,7 @@ SQL, [$payment->id]);
             try {
                 DB::transaction(fn () => DB::table('order_status_history')->insert([
                     'order_id' => $c['order']->id, 'new_status' => 'DELIVERED',
-                    'changed_at' => now()->addMinute(), 'created_at' => now(), 'updated_at' => now(),
+                    'changed_at' => now()->addMinute()->format('Y-m-d H:i:s.uP'), 'created_at' => now(), 'updated_at' => now(),
                 ]));
                 $this->fail('A new delivery timestamp cannot supersede the payment source.');
             } catch (QueryException) {
@@ -301,10 +305,16 @@ SQL, [$payment->id]);
         } catch (ValidationException) {
             $this->assertDatabaseCount('order_bill_payments', 1);
         }
+        $this->actingAs($c['employee'])->get(route('orders.show', $c['order']))->assertOk()
+            ->assertSee(__('orders.ui_bill_pending'))->assertDontSee(__('orders.ui_additional_complete'));
         $service->complete($c['employee'], $c['order'], $second, [...$this->paymentData($c), 'bill_number' => 'B-101'], [$this->image()]);
         $this->assertSame(2, $c['order']->billPayments()->count());
         $this->assertSame(6, FinancialTransaction::count());
         $this->assertTrue($c['order']->additionalServicesComplete());
+        $this->get(route('orders.show', $c['order']))->assertOk()->assertSee(__('orders.ui_additional_complete'))
+            ->assertDontSee(__('orders.ui_bill_not_requested'))
+            ->assertDontSee('action="'.route('orders.bill-payment-requests.complete', [$c['order'], $first]).'"', false)
+            ->assertDontSee('action="'.route('orders.bill-payment-requests.cancel', [$c['order'], $first]).'"', false);
         $secondPayment = $second->fresh()->payment;
         $this->actingAs($c['employee'])->get(route('orders.bill-payments.evidence.show', [$c['order'], $first, $secondPayment, $secondPayment->evidence()->sole()]))->assertNotFound();
     }
@@ -551,10 +561,228 @@ SQL);
         $this->assertSame(3, FinancialTransaction::count());
     }
 
-    private function fixture(): array
+    public function test_tiered_syp_boundaries_complete_each_bill_independently_with_exact_financial_sources(): void
+    {
+        Storage::fake(OrderBillPaymentService::DISK);
+        $c = $this->fixture('SYP', 4);
+        $this->assertSame('abshir_testing', DB::selectOne('SELECT current_database() AS name')->name);
+        $rules = app(BillPaymentFeeRuleService::class);
+        $rule = $rules->create($c['admin'], $c['currency']->id, null, now()->subDay(), $rules::sypTiers());
+        $payments = app(OrderBillPaymentService::class);
+        $cases = ['299.9999' => '10.0000', '300' => '20.0000', '999.9999' => '20.0000',
+            '1000' => '20.0000', '1025' => '20.0000', '1100' => '20.0000', '1124.9999' => '20.0000',
+            '1125' => '25.0000', '1125.0001' => '25.0000', '1250' => '25.0000', '1350' => '25.0000',
+            '1374.9999' => '25.0000', '1375' => '30.0000', '1375.0001' => '30.0000',
+            '1500' => '30.0000', '10000' => '200.0000', '100000' => '2000.0000'];
+        $requests = [];
+        foreach ($cases as $principal => $fee) {
+            $requests[] = $payments->request($c['employee'], $c['order'], $c['currency']->id);
+            $this->assertNull(end($requests)->service_fee);
+            $this->assertSame($rule->id, end($requests)->fee_rule_id);
+        }
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->deliver($c);
+        $this->actingAs($c['employee'])->get(route('orders.workflow', $c['order']))->assertOk()
+            ->assertSee(__('bill_fees.calculated_later'))
+            ->assertSeeHtml('wire:model.live.debounce.250ms="principal"');
+        foreach (array_keys($cases) as $index => $principal) {
+            $principal = (string) $principal;
+            $request = $requests[$index];
+            $preview = $payments->preview($c['employee'], $c['order']->fresh(), $request, $principal);
+            $this->assertSame($cases[$principal], $preview['fee']);
+            Livewire::actingAs($c['employee'])->test(BillPaymentFeePreview::class, ['order' => $c['order'], 'request' => $request])
+                ->set('principal', $principal)->assertViewHas('preview', fn ($value) => $value === $preview);
+            $sql = DB::selectOne('SELECT calculated_bill_payment_fee(?, ?::numeric)::text AS fee', [$rule->id, $principal]);
+            $this->assertTrue(BigDecimal::of($sql->fee)->isEqualTo($cases[$principal]));
+            $payment = $payments->complete($c['employee'], $c['order'], $request,
+                [...$this->paymentData($c), 'principal_amount' => $principal, 'service_fee' => '99999'], [$this->image()]);
+            $this->assertSame($preview['fee'], $payment->service_fee);
+            $this->assertSame($preview['total'], $payment->total_customer_cash);
+            $this->assertSame($preview['principal'], $payment->principal_amount);
+            $this->assertNull($request->fresh()->service_fee);
+            DB::select('SELECT validate_completed_bill_payment_at_commit(?)', [$payment->id]);
+            $this->assertSame($preview['fee'], FinancialTransaction::where('source_type', 'ORDER_BILL_PAYMENT')
+                ->where('source_id', (string) $payment->id)->where('event_type', 'BILL_PAYMENT_SERVICE_FEE_RETAINED')->sole()->entries()->sole()->amount);
+        }
+        $this->assertDatabaseCount('financial_transactions', count($cases) * 3);
+        $this->assertDatabaseCount('invoice_collections', 0);
+    }
+
+    public function test_tier_version_is_bound_before_principal_and_completed_history_is_immutable(): void
+    {
+        Storage::fake(OrderBillPaymentService::DISK);
+        $c = $this->fixture('SYP', 0);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $rule = $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $fees::sypTiers());
+        $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $tiers = $fees::sypTiers();
+        $tiers[2]['value'] = '3';
+        $next = $fees->version($c['admin'], $rule, null, now()->addMinute(), $tiers);
+        $this->assertSame($next->id, $rule->fresh()->superseded_by);
+        $this->assertSame($next->id, $fees->applicable($c['currency']->id, $next->effective_from)->id);
+        $this->assertSame($rule->id, $fees->applicable($c['currency']->id, $next->effective_from->copy()->subMicrosecond())->id);
+        $this->travel(2)->minutes();
+        $later = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $this->assertSame($next->id, $later->fee_rule_id);
+        $this->deliver($c);
+        $payment = app(OrderBillPaymentService::class)->complete($c['employee'], $c['order'], $request,
+            [...$this->paymentData($c), 'principal_amount' => '1500'], [$this->image()]);
+        $this->assertSame('30.0000', $payment->service_fee);
+        $this->assertSame('45.0000', app(OrderBillPaymentService::class)->preview($c['employee'], $c['order']->fresh(), $later, '1500')['fee']);
+        try {
+            DB::transaction(fn () => DB::table('bill_payment_fee_rules')->where('id', $rule->id)->update(['fee_tiers' => json_encode($tiers)]));
+            $this->fail('An immutable schedule was rewritten.');
+        } catch (QueryException) {
+            $this->assertSame('30.0000', $payment->fresh()->service_fee);
+        }
+        DB::select('SELECT validate_completed_bill_payment_at_commit(?)', [$payment->id]);
+        $this->travelBack();
+    }
+
+    public function test_tiered_syp_fee_rounds_once_to_five_with_halfway_up(): void
+    {
+        $c = $this->fixture('SYP', 0);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $rule = $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $fees::sypTiers());
+        $this->assertSame('20.0000', $fees->calculate($rule, $c['currency'], '1025'));
+        $this->assertSame('20.0000', $fees->calculate($rule, $c['currency'], '1024'));
+        $this->assertSame('20', DB::selectOne('SELECT calculated_bill_payment_fee(?, 1025)::text AS fee', [$rule->id])->fee);
+        $this->assertSame('25.0000', $fees->calculate($rule, $c['currency'], '1125'));
+        $this->assertSame('25', DB::selectOne('SELECT calculated_bill_payment_fee(?, 1125)::text AS fee', [$rule->id])->fee);
+        $this->assertSame(0, $c['currency']->fresh()->decimal_places);
+        foreach (['299.9999', '0', '-1', 'NaN', 'Infinity', '1.00001'] as $invalid) {
+            try {
+                $fees->calculate($rule, $c['currency'], $invalid);
+                $this->fail('Invalid money accepted.');
+            } catch (FinancialLedgerException) {
+                $this->assertDatabaseCount('financial_transactions', 0);
+            }
+        }
+    }
+
+    public function test_fixed_syp_and_other_currency_fees_are_never_rounded_to_five(): void
+    {
+        $c = $this->fixture('SYP', 4);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $syp = $fees->create($c['admin'], $c['currency']->id, '22.5001', now()->subDay());
+        $other = Currency::create(['name' => 'Dollar', 'code' => 'USD', 'decimal_places' => 4]);
+        $usd = $fees->create($c['admin'], $other->id, '22.5001', now()->subDay());
+        foreach ([[$syp, $c['currency']], [$usd, $other]] as [$rule, $currency]) {
+            $this->assertSame('22.5001', $fees->calculate($rule, $currency, '1125.1234'));
+            $this->assertTrue(BigDecimal::of(DB::selectOne('SELECT calculated_bill_payment_fee(?, 1125.1234)::text AS fee', [$rule->id])->fee)->isEqualTo('22.5001'));
+            $this->assertSame(4, $currency->fresh()->decimal_places);
+        }
+    }
+
+    public function test_postgresql_tier_configuration_is_syp_only_on_insert_and_update(): void
+    {
+        $c = $this->fixture('SYP', 4);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $other = Currency::create(['name' => 'Dollar', 'code' => 'USD', 'decimal_places' => 4]);
+        try {
+            DB::transaction(fn () => DB::table('bill_payment_fee_rules')->insert(['currency_id' => $other->id,
+                'fee_mode' => 'TIERED', 'fixed_fee' => null, 'fee_tiers' => json_encode($fees::sypTiers()),
+                'effective_from' => now()->subDay(), 'created_by' => $c['admin']->id]));
+            $this->fail('PostgreSQL accepted non-SYP tiers on INSERT.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Tiered SYP bill fee', $exception->getMessage());
+        }
+        $rule = $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $fees::sypTiers());
+        try {
+            DB::transaction(fn () => DB::table('bill_payment_fee_rules')->where('id', $rule->id)->update(['currency_id' => $other->id]));
+            $this->fail('PostgreSQL accepted non-SYP tiers on UPDATE.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Tiered SYP bill fee', $exception->getMessage());
+        }
+        $this->assertSame($c['currency']->id, $rule->fresh()->currency_id);
+    }
+
+    public function test_ambiguous_and_non_syp_tiers_are_rejected_in_service_and_postgresql(): void
+    {
+        $c = $this->fixture('SYP', 4);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $invalids = [];
+        foreach (['299', '301'] as $from) {
+            $tiers = $fees::sypTiers();
+            $tiers[1]['from'] = $from;
+            $invalids[] = $tiers;
+        }
+        $tiers = $fees::sypTiers();
+        $tiers[2]['until'] = '2000';
+        $invalids[] = $tiers;
+        $tiers = $fees::sypTiers();
+        $tiers[2]['value'] = 'NaN';
+        $invalids[] = $tiers;
+        foreach ($invalids as $tiers) {
+            $this->expectValidation(fn () => $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $tiers));
+            try {
+                DB::transaction(fn () => DB::table('bill_payment_fee_rules')->insert(['currency_id' => $c['currency']->id,
+                    'fee_mode' => 'TIERED', 'fee_tiers' => json_encode($tiers), 'fixed_fee' => null,
+                    'effective_from' => now()->subDay(), 'created_by' => $c['admin']->id]));
+                $this->fail('PostgreSQL accepted malformed or overlapping ranges.');
+            } catch (QueryException) {
+                $this->assertDatabaseCount('bill_payment_fee_rules', 0);
+            }
+        }
+        $other = Currency::create(['name' => 'Other', 'code' => 'USD', 'decimal_places' => 2]);
+        $this->expectValidation(fn () => $fees->create($c['admin'], $other->id, null, now()->subDay(), $fees::sypTiers()));
+        $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $fees::sypTiers());
+        $this->expectValidation(fn () => $fees->create($c['admin'], $c['currency']->id, null, now(), $fees::sypTiers()));
+    }
+
+    public function test_tiered_admin_http_configuration_and_preview_permissions(): void
+    {
+        $c = $this->fixture('SYP', 0);
+        $this->actingAs($c['employee'])->post(route('admin.bill-payment-fees.store'), [])->assertForbidden();
+        $this->actingAs($c['admin'])->get(route('admin.bill-payment-fees.index'))->assertOk()->assertSee(__('bill_fees.tiered'));
+        $this->post(route('admin.bill-payment-fees.store'), ['currency_id' => $c['currency']->id, 'fee_mode' => 'TIERED',
+            'fee_tiers' => BillPaymentFeeRuleService::sypTiers(), 'effective_from' => now()->subDay()->toDateTimeString()])->assertSessionHasNoErrors()->assertRedirect();
+        $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        Livewire::actingAs($c['employee'])->test(BillPaymentFeePreview::class, ['order' => $c['order'], 'request' => $request])
+            ->set('principal', '1500')->assertSeeText('30 SYP')->assertSeeText('1530 SYP')->assertSee(__('bill_fees.total'))
+            ->set('principal', '0')->assertDontSeeHtml('data-bill-fee-preview')
+            ->set('principal', '300')->assertSee('320')->set('principal', '')->assertSee(__('bill_fees.enter_principal'));
+        $other = User::factory()->create();
+        $other->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
+        Livewire::actingAs($other)->test(BillPaymentFeePreview::class, ['order' => $c['order'], 'request' => $request])->assertNotFound();
+        $unauthorized = User::factory()->create();
+        Livewire::actingAs($unauthorized)->test(BillPaymentFeePreview::class, ['order' => $c['order'], 'request' => $request])->assertForbidden();
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertNull($request->fresh()->service_fee);
+    }
+
+    public function test_postgresql_rejects_forged_fee_and_request_snapshot_for_tiered_schedule(): void
+    {
+        $c = $this->fixture('SYP', 0);
+        $fees = app(BillPaymentFeeRuleService::class);
+        $rule = $fees->create($c['admin'], $c['currency']->id, null, now()->subDay(), $fees::sypTiers());
+        try {
+            DB::transaction(fn () => $c['order']->billPaymentRequests()->create(['currency_id' => $c['currency']->id,
+                'fee_rule_id' => $rule->id, 'service_fee' => '10', 'status' => 'REQUESTED', 'requested_at' => now(), 'requested_by' => $c['employee']->id]));
+            $this->fail('A fabricated tiered request fee was accepted.');
+        } catch (QueryException) {
+            $this->assertDatabaseCount('order_bill_payment_requests', 0);
+        }
+        $request = app(OrderBillPaymentService::class)->request($c['employee'], $c['order'], $c['currency']->id);
+        $this->deliver($c);
+        try {
+            DB::transaction(fn () => DB::table('order_bill_payments')->insert(['request_id' => $request->id,
+                'order_id' => $c['order']->id, 'order_captain_id' => $c['assignment']->id, 'captain_id' => $c['captain']->id,
+                'currency_id' => $c['currency']->id, 'fee_rule_id' => $rule->id, 'bill_number' => 'FORGED', 'bill_date' => today(),
+                'principal_amount' => '1025', 'service_fee' => '21', 'total_customer_cash' => '1046',
+                'delivered_at' => $c['order']->statusHistory()->where('new_status', 'DELIVERED')->sole()->changed_at,
+                'paid_at' => now()->format('Y-m-d H:i:s.uP'), 'paid_by' => $c['employee']->id, 'payment_reference' => 'FORGED']));
+            $this->fail('PostgreSQL accepted a forged completed fee.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('does not match its request', $exception->getMessage());
+            $this->assertDatabaseCount('order_bill_payments', 0);
+        }
+    }
+
+    private function fixture(?string $code = null, int $precision = 2): array
     {
         $this->seed(AuthorizationSeeder::class);
-        $currency = Currency::create(['name' => 'Dollar', 'code' => strtoupper(str()->random(3)), 'decimal_places' => 2]);
+        $currency = Currency::create(['name' => 'Currency', 'code' => $code ?? strtoupper(str()->random(3)), 'decimal_places' => $precision]);
         $branch = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $customer = Customer::create(['name' => 'Bill customer']);
         $admin = User::factory()->create();

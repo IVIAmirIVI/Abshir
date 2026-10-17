@@ -47,6 +47,15 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source, $kind, $proposal, $reason, $explanation, $requestKey): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            if ((int) $order->accounting_contract_version === 3) {
+                throw ValidationException::withMessages(['order' => __('financial.accounting_v3_correction_blocked')]);
+            }
+            if ((int) $order->accounting_contract_version === 2) {
+                throw ValidationException::withMessages(['invoice' => __('financial.accounting_v2_correction_blocked')]);
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->id);
             $collection = $invoice->collection()->lockForUpdate()->first();
             $existing = InvoiceFinancialCorrection::query()->where('request_key', $requestKey)->first();
@@ -104,6 +113,10 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->original_invoice_id);
             $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($source->original_collection_id);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
@@ -153,8 +166,9 @@ class InvoiceFinancialCorrectionService
     {
         Gate::forUser($actor)->authorize('invoice_corrections.prepare');
 
-        return DB::transaction(function () use ($source): InvoiceFinancialCorrection {
-            Order::query()->lockForUpdate()->findOrFail($source->order_id);
+        return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
+            $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
             if (! in_array($correction->state, [InvoiceFinancialCorrectionState::Requested, InvoiceFinancialCorrectionState::Prepared], true)
                 || $correction->refund()->exists()) {
@@ -173,6 +187,10 @@ class InvoiceFinancialCorrectionService
 
         return DB::transaction(function () use ($actor, $source): InvoiceFinancialCorrection {
             $order = Order::query()->lockForUpdate()->findOrFail($source->order_id);
+            abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                throw ValidationException::withMessages(['invoice' => __('shared_orders.shared_correction_blocked')]);
+            }
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($source->original_invoice_id);
             $collection = InvoiceCollection::query()->lockForUpdate()->findOrFail($source->original_collection_id);
             $correction = InvoiceFinancialCorrection::query()->lockForUpdate()->findOrFail($source->id);
@@ -268,6 +286,7 @@ class InvoiceFinancialCorrectionService
             } else {
                 $this->posting->postIfDeliveredLocked($order->fresh(), $correction->fresh());
             }
+            app(ShopCommissionAccountingService::class)->correctLocked($correction->fresh());
 
             return $correction->fresh();
         }, 3);

@@ -117,7 +117,8 @@ class CaptainFinancialOperationsTest extends TestCase
         $currency = Currency::create(['code' => 'USD', 'name' => 'Dollar', 'decimal_places' => 2]);
         $branchA = Branch::factory()->create(['default_currency_id' => $currency->id]);
         $branchB = Branch::factory()->create(['default_currency_id' => $currency->id]);
-        $captain = Captain::factory()->create(['home_branch_id' => $branchA->id]);
+        // Deliberately collide independent IDs: the forbidden Branch ID is also this Captain ID.
+        $captain = Captain::factory()->create(['id' => $branchB->id, 'home_branch_id' => $branchA->id]);
         $employee = User::factory()->create();
         $employee->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
         $employee->branches()->attach($branchA);
@@ -138,18 +139,26 @@ class CaptainFinancialOperationsTest extends TestCase
         $employeeRows = $balances->captainBalancesByBranch($captain, $currency, [$branchA->id]);
         $this->assertSame([$branchA->id], array_map('intval', array_keys($employeeRows)));
         $this->assertStringContainsString('"t"."branch_id" in', $captured[array_key_last($captured)]['sql']);
-        $this->assertContains($branchA->id, $captured[array_key_last($captured)]['bindings']);
-        $this->assertNotContains($branchB->id, $captured[array_key_last($captured)]['bindings']);
+        // Compare the binding belonging to the Branch predicate, not unrelated Captain/Currency IDs.
+        // PostgreSQL sequences are independent and may legitimately produce the same numeric ID.
+        $query = $captured[array_key_last($captured)];
+        $branchBindingPosition = substr_count(explode('"t"."branch_id"', $query['sql'], 2)[0], '?');
+        $this->assertSame($branchA->id, $query['bindings'][$branchBindingPosition]);
+        $this->assertNotSame($branchB->id, $query['bindings'][$branchBindingPosition]);
 
         $this->assertCount(0, $balances->payableReceivableEntries($captain, $branchA, $currency));
         $this->assertStringContainsString('"t"."branch_id" =', $captured[array_key_last($captured)]['sql']);
-        $this->assertContains($branchA->id, $captured[array_key_last($captured)]['bindings']);
-        $this->assertNotContains($branchB->id, $captured[array_key_last($captured)]['bindings']);
+        // Compare the binding belonging to the Branch predicate, not unrelated Captain/Currency IDs.
+        // PostgreSQL sequences are independent and may legitimately produce the same numeric ID.
+        $query = $captured[array_key_last($captured)];
+        $branchBindingPosition = substr_count(explode('"t"."branch_id"', $query['sql'], 2)[0], '?');
+        $this->assertSame($branchA->id, $query['bindings'][$branchBindingPosition]);
+        $this->assertNotSame($branchB->id, $query['bindings'][$branchBindingPosition]);
 
         $this->actingAs($employee)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertSee('20.0000')->assertDontSee('30.0000');
+            ->assertSee('>20</bdi>', false)->assertDontSee('>30</bdi>', false);
         $this->actingAs($admin)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertSee('20.0000')->assertSee('30.0000');
+            ->assertSee('>20</bdi>', false)->assertSee('>30</bdi>', false);
         $adminRows = $balances->captainBalancesByBranch($captain, $currency, null);
         $this->assertEqualsCanonicalizing([$branchA->id, $branchB->id], array_map('intval', array_keys($adminRows)));
     }
@@ -210,9 +219,9 @@ class CaptainFinancialOperationsTest extends TestCase
         $captain->forceFill(['home_branch_id' => $new->id])->save();
 
         $this->actingAs($oldEmployee)->get(route('captain-financials.index'))->assertOk()->assertSee($captain->user->name);
-        $this->get(route('captains.financials.show', $captain))->assertOk()->assertSee($old->name)->assertSee('20.0000');
+        $this->get(route('captains.financials.show', $captain))->assertOk()->assertSee($old->name)->assertSee('>20</bdi>', false);
         $this->actingAs($newEmployee)->get(route('captains.financials.show', $captain))->assertOk()
-            ->assertDontSee($old->name)->assertDontSee('20.0000');
+            ->assertDontSee($old->name)->assertDontSee('>20</bdi>', false);
         $this->post(route('captains.financials.deposits.store', $captain), [
             'branch_id' => $old->id, 'currency_id' => $currency->id,
             'request_key' => (string) str()->uuid(), 'amount' => '10',

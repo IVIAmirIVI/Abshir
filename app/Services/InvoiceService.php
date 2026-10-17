@@ -65,6 +65,9 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => __('domain.only_the_current_ready_invoice_may_be_issued')]);
             }
             $snapshot = $this->snapshots->build($order);
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                app(SharedOrderInvoiceSourceService::class)->fundingLocked($order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
+            }
             if ($this->snapshots->isStale($invoice, $snapshot)) {
                 throw ValidationException::withMessages(['invoice' => __('domain.the_ready_invoice_is_stale_refresh_it_before_issue')]);
             }
@@ -72,6 +75,7 @@ class InvoiceService
                 throw ValidationException::withMessages(['invoice' => __('domain.another_current_invoice_exists')]);
             }
             $invoice->update(['status' => InvoiceStatus::Issued, 'issued_at' => now(), 'issued_by' => $actor->id]);
+            app(ShopCommissionAccountingService::class)->freezeIssued($invoice->fresh());
             $this->financialSources->capture($invoice->fresh());
             $this->correctedFinancials->postIfReady($order);
 
@@ -100,6 +104,9 @@ class InvoiceService
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_voided_until_a_financial_reversal_workflow_exists')]);
             }
+            if ($problem = $this->retirementProblem($order)) {
+                throw ValidationException::withMessages(['invoice' => $problem]);
+            }
             $this->assertNotFinanciallyCrystallized($invoice);
             $invoice->update(['status' => InvoiceStatus::Voided, 'voided_at' => now(), 'voided_by' => $actor->id, 'void_reason' => $reason, 'superseded_at' => now()]);
         });
@@ -126,6 +133,9 @@ class InvoiceService
             }
             if ($invoice->collection()->lockForUpdate()->first()) {
                 throw ValidationException::withMessages(['invoice' => __('domain.a_collected_invoice_cannot_be_replaced_until_a_financial_reversal_workflow_exists')]);
+            }
+            if ($problem = $this->retirementProblem($order)) {
+                throw ValidationException::withMessages(['invoice' => $problem]);
             }
             $this->assertNotFinanciallyCrystallized($invoice);
             $snapshot = $this->snapshots->build($order);
@@ -162,6 +172,9 @@ class InvoiceService
 
     private function applySnapshot(Invoice $invoice, array $snapshot): Invoice
     {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($invoice->order)) {
+            app(SharedOrderInvoiceSourceService::class)->fundingLocked($invoice->order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
+        }
         $invoice->items()->delete();
         foreach ($snapshot['lines'] as $line) {
             $invoice->items()->create($line);
@@ -182,11 +195,27 @@ class InvoiceService
         abort_unless(Order::query()->accessibleTo($actor)->whereKey($order)->exists(), 403);
     }
 
-    private function assertNotCancelled(Order $order): void
+    public function mutationProblem(Order $order): ?string
     {
+        if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+            if (! $order->purchaseConfirmations()->where('purchase_mode', SharedPurchaseBoundary::MODE)->exists()) {
+                return __('shared_orders.complete_purchases_required');
+            }
+        } elseif ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order)) {
+            return $problem;
+        }
         if ($order->operational_status === OrderOperationalStatus::Cancelled
             || (Schema::hasTable('order_cancellation_intents') && $order->cancellationIntent()->exists())) {
-            throw ValidationException::withMessages(['invoice' => __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices')]);
+            return __('domain.cancelled_orders_cannot_create_refresh_or_issue_invoices');
+        }
+
+        return null;
+    }
+
+    private function assertNotCancelled(Order $order): void
+    {
+        if ($problem = $this->mutationProblem($order)) {
+            throw ValidationException::withMessages(['invoice' => $problem]);
         }
     }
 
@@ -197,5 +226,12 @@ class InvoiceService
                 'invoice' => __('domain.a_financially_crystallized_invoice_cannot_be_corrected_until_the_financial_reversal_workflow_exists'),
             ]);
         }
+    }
+
+    public function retirementProblem(Order $order): ?string
+    {
+        return app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+            && ! DB::scalar("SELECT to_regprocedure('shared_invoice_retirement_allowed(bigint)') IS NOT NULL")
+            ? __('shared_orders.invoice_version_activation_required') : null;
     }
 }

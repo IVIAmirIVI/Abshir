@@ -2,16 +2,17 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\Process\Process;
+use Tests\Support\AccountingV1Fixtures;
 use Tests\Support\ReceivableDispositionFixtures;
 use Tests\TestCase;
 
 class ReceivableDispositionConcurrencyTest extends TestCase
 {
+    use AccountingV1Fixtures;
     use ReceivableDispositionFixtures;
 
     public function test_payout_commits_first_and_prepare_freezes_the_committed_payment(): void
@@ -210,7 +211,7 @@ class ReceivableDispositionConcurrencyTest extends TestCase
             config([$key => $schema]);
             DB::purge($connection);
             DB::reconnect($connection);
-            Artisan::call('migrate', ['--force' => true]);
+            $this->migrateAccountingV1Schema();
             $callback();
         } finally {
             while (DB::transactionLevel()) {

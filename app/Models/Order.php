@@ -86,6 +86,11 @@ class Order extends Model
         return $this->hasMany(OrderCaptain::class);
     }
 
+    public function captainSelections(): HasMany
+    {
+        return $this->hasMany(OrderCaptainSelection::class)->orderBy('id');
+    }
+
     public function statusHistory(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class)->orderBy('changed_at')->orderBy('id');

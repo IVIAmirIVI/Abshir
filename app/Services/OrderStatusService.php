@@ -13,6 +13,52 @@ class OrderStatusService
 {
     public function __construct(private readonly CorrectedOrderFinancialService $financials, private readonly OrderMutationGuard $mutationGuard) {}
 
+    public function nextTransitionProblem(Order $order): ?string
+    {
+        $target = $order->operational_status->next();
+        if (! $target) {
+            return __('domain.this_operational_status_transition_is_not_allowed');
+        }
+
+        return $this->transitionProblem($order, $target);
+    }
+
+    private function transitionProblem(Order $order, OrderOperationalStatus $target): ?string
+    {
+        if ($problem = app(SharedPurchaseBoundary::class)->operationalProblem($order)) {
+            return $problem;
+        }
+        if (! $this->mutationGuard->isOperationalEvidenceMutable($order)) {
+            return __('domain.normal_order_advancement_is_frozen_by_an_after_purchase_cancellation_intent');
+        }
+        if ($order->operational_status->next() !== $target) {
+            return __('domain.this_operational_status_transition_is_not_allowed');
+        }
+        if ($target === OrderOperationalStatus::CaptainAssigned && ! $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', 'PRIMARY_COLLECTION')->exists()) {
+            return __('domain.assign_a_primary_collection_captain_first');
+        }
+        if ($target === OrderOperationalStatus::Delivered) {
+            if (! app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order) && ($problem = app(SharedPurchaseBoundary::class)->financialProblem($order))) {
+                return $problem;
+            }
+            if (app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)
+                && $order->shops()->whereDoesntHave('purchaseConfirmation', fn ($query) => $query->where('purchase_mode', SharedPurchaseBoundary::MODE))->exists()) {
+                return __('shared_orders.complete_purchases_required');
+            }
+            if ($problem = $this->financials->correctionPostingProblem($order)) {
+                return $problem;
+            }
+            if (! $order->shops()->exists()) {
+                return __('domain.at_least_one_shop_is_required_before_delivery');
+            }
+            if ($order->shops()->where(fn ($shops) => $shops->whereNull('picked_up_at')->orWhereDoesntHave('receipts'))->exists()) {
+                return __('domain.every_shop_must_be_picked_up_and_have_receipt_evidence_before_delivery');
+            }
+        }
+
+        return null;
+    }
+
     public function transition(User $actor, Order $order, OrderOperationalStatus $target, ?string $reason): void
     {
         Gate::forUser($actor)->authorize('orders.status.update');
@@ -21,24 +67,18 @@ class OrderStatusService
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->mutationGuard->assertNoCancellationIntentLocked($order);
             $previous = $order->operational_status;
-            if ($previous->next() !== $target) {
-                throw ValidationException::withMessages(['operational_status' => __('domain.this_operational_status_transition_is_not_allowed')]);
-            } if ($target === OrderOperationalStatus::CaptainAssigned && ! $order->captainAssignments()->whereNull('removed_at')->where('assignment_role', 'PRIMARY_COLLECTION')->exists()) {
-                throw ValidationException::withMessages(['operational_status' => __('domain.assign_a_primary_collection_captain_first')]);
-            } if ($target === OrderOperationalStatus::Delivered) {
-                if (! $order->shops()->exists()) {
-                    throw ValidationException::withMessages(['operational_status' => __('domain.at_least_one_shop_is_required_before_delivery')]);
-                }
-                $missingEvidence = $order->shops()->where(function ($shops): void {
-                    $shops->whereNull('picked_up_at')->orWhereDoesntHave('receipts');
-                })->exists();
-                if ($missingEvidence) {
-                    throw ValidationException::withMessages(['operational_status' => __('domain.every_shop_must_be_picked_up_and_have_receipt_evidence_before_delivery')]);
-                }
-            } $order->forceFill(['operational_status' => $target])->save();
+            if ($problem = $this->transitionProblem($order, $target)) {
+                throw ValidationException::withMessages(['operational_status' => $problem]);
+            }
+            if ($target === OrderOperationalStatus::Delivered && app(SharedPurchaseBoundary::class)->hasSelectedSharedContract($order)) {
+                $snapshot = app(InvoiceSnapshotService::class)->build($order);
+                app(SharedOrderInvoiceSourceService::class)->fundingLocked($order, $snapshot['currency']->id, $snapshot['pricing']->id, $snapshot['items_subtotal']);
+            }
+            $order->forceFill(['operational_status' => $target])->save();
             $order->statusHistory()->create(['previous_status' => $previous, 'new_status' => $target, 'changed_by' => $actor->id, 'changed_at' => now(), 'reason' => $reason]);
             if ($target === OrderOperationalStatus::Delivered) {
                 $this->financials->postIfReady($order);
+                app(ShopCommissionAccountingService::class)->postIfReady($order);
             }
         });
     }
