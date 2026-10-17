@@ -6,6 +6,7 @@ use App\Enums\DeliveryOverrideStatus;
 use App\Enums\DeliveryPricingStatus;
 use App\Enums\OrderPricingClass;
 use App\Models\Area;
+use App\Models\Captain;
 use App\Models\Currency;
 use App\Models\DeliveryFeeOverrideRequest;
 use App\Models\DeliveryPricingRule;
@@ -19,6 +20,7 @@ use Brick\Math\RoundingMode;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderDeliveryPricingService
@@ -347,8 +349,11 @@ class OrderDeliveryPricingService
         }
         $pricing = $order->deliveryPricings()->create(['version' => $version, 'delivery_pricing_rule_id' => $rule?->id, 'from_area_id' => $origin->id, 'to_area_id' => $destination->id, 'currency_id' => $currency->id, 'order_pricing_class_snapshot' => $order->pricing_class, 'route_count_snapshot' => $routeSnapshots->count(), 'suggested_unit_fee' => $rule?->delivery_unit_fee ?? $appliedFee, 'applied_unit_fee' => $appliedFee, 'captain_count_snapshot' => $active->count(), 'captain_share_percent_snapshot' => (string) $share, 'gross_delivery_total' => (string) $gross, 'discount_amount' => $discount, 'discount_reason' => $reason, 'discount_applied_by' => BigDecimal::of($discount)->isGreaterThan(0) ? $actor->id : null, 'discount_applied_at' => BigDecimal::of($discount)->isGreaterThan(0) ? now() : null, 'customer_delivery_total' => (string) $gross->minus($discount), 'status' => DeliveryPricingStatus::Priced, 'priced_at' => now(), 'created_by' => $actor->id]);
         $current?->update(['superseded_by' => $pricing->id]);
-        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active) as $row) {
-            $pricing->allocations()->create([...$row, 'currency_id' => $currency->id, 'captain_share_percent_snapshot' => (string) $share]);
+        // Historical V1 migration-state fixtures predate Captain allowance configuration.
+        $fuelPercentages = Schema::hasColumn('captains', 'fuel_allowance_percentage')
+            ? Captain::query()->whereIn('id', $active->pluck('captain_id'))->orderBy('id')->sharedLock()->pluck('fuel_allowance_percentage', 'id')->all() : null;
+        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active, $fuelPercentages) as $row) {
+            $pricing->allocations()->create([...$row, 'currency_id' => $currency->id, 'captain_share_percent_snapshot' => $row['captain_share_percent_snapshot'] ?? (string) $share]);
         }
         foreach ($routeSnapshots as $route) {
             $pricing->routes()->create([

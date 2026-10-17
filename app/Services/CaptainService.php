@@ -16,6 +16,8 @@ class CaptainService
         Gate::forUser($actor)->authorize($captain->exists ? 'captains.update' : 'captains.create');
 
         return DB::transaction(function () use ($actor, $captain, $data): Captain {
+            $fuel = app(CaptainFuelAllowanceService::class);
+            $fuel->lockConfiguration();
             if ($captain->exists) {
                 $captain = Captain::query()->lockForUpdate()->findOrFail($captain->id);
                 abort_unless($actor->canAccessCaptain($captain), 403);
@@ -40,6 +42,10 @@ class CaptainService
                     throw ValidationException::withMessages(['home_branch_id' => __('domain.the_home_branch_must_be_active')]);
                 }
             }
+            $data['fuel_allowance_percentage'] = (string) $fuel->percentage(
+                array_key_exists('fuel_allowance_percentage', $data) ? $data['fuel_allowance_percentage'] : ($captain->fuel_allowance_percentage ?? '0'),
+                app(DeliveryPricingSettings::class)->captainSharePercent(),
+            );
             $captain->fill($data);
             $captain->user_id ??= $data['user_id'];
             $captain->save();

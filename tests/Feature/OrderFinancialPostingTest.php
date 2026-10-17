@@ -64,6 +64,32 @@ class OrderFinancialPostingTest extends TestCase
 {
     use RefreshAccountingV1Database;
 
+    public function test_fuel_migration_preserves_existing_captains_and_posted_v1_money(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $allocation = $c['order']->currentDeliveryPricing->allocations()->sole();
+        $before = $allocation->getAttributes();
+        $snapshot = app(OrderFinancialSourceSnapshotService::class)->read($invoice);
+        $entries = DB::table('financial_entries')->orderBy('id')->get()->toJson();
+        $transactions = DB::table('financial_transactions')->orderBy('id')->get()->toJson();
+
+        $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/2026_10_17_000000_add_captain_fuel_allowance.php', '--force' => true]));
+
+        $this->assertSame('0.0000', $c['captains'][0]->fresh()->fuel_allowance_percentage);
+        $after = $allocation->fresh();
+        $this->assertSame($before, array_intersect_key($after->getAttributes(), $before));
+        $this->assertNull($after->base_captain_share_percent_snapshot);
+        $this->assertSame('0.0000', $after->fuel_allowance_amount);
+        $this->assertSame($snapshot, app(OrderFinancialSourceSnapshotService::class)->read($invoice));
+        app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+        $this->assertSame($entries, DB::table('financial_entries')->orderBy('id')->get()->toJson());
+        $this->assertSame($transactions, DB::table('financial_transactions')->orderBy('id')->get()->toJson());
+    }
+
     public function test_completed_payout_cannot_be_reversed_by_service_or_direct_sql(): void
     {
         Storage::fake('captain_financial_evidence');

@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
-#[Fillable(['user_id', 'home_branch_id', 'operational_status', 'employee_code', 'notes'])]
+#[Fillable(['user_id', 'home_branch_id', 'operational_status', 'employee_code', 'notes', 'fuel_allowance_percentage'])]
 class Captain extends Model
 {
     /** @use HasFactory<CaptainFactory> */
@@ -26,6 +26,7 @@ class Captain extends Model
     {
         return [
             'operational_status' => CaptainOperationalStatus::class,
+            'fuel_allowance_percentage' => 'decimal:4',
         ];
     }
 

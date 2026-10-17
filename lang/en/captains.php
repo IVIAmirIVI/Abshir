@@ -1,6 +1,15 @@
 <?php
 
 return [
+    'fuel_label' => 'Additional Captain share (%)',
+    'fuel_help' => 'Additional percentage points from the company delivery share, with no extra customer charge. Up to 4 decimal places; base plus additional percentage must not exceed 100%. Applies to future pricing versions.',
+    'fuel_invalid' => 'Enter a percentage from 0 to 100 using Western digits and at most 4 decimal places.',
+    'fuel_exceeds_share' => 'The base Captain share plus additional percentage must not exceed 100%.',
+    'fuel_base_exceeds_share' => 'This base share would exceed 100% for a Captain with a configured additional percentage. Adjust that percentage first.',
+    'fuel_base' => 'Base percentage',
+    'fuel_applied' => 'Applied additional percentage',
+    'fuel_effective' => 'Final Captain percentage',
+    'fuel_company' => 'Company percentage before discount',
     'navigation' => [
         'label' => 'Captain management',
         'index' => 'Captain list',
