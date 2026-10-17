@@ -15,7 +15,7 @@ class OrderItem extends Model
 {
     protected function casts(): array
     {
-        return ['item_type' => OrderItemType::class, 'requested_quantity' => 'decimal:4', 'current_quantity' => 'decimal:4', 'estimated_unit_price' => 'decimal:4', 'estimated_price_method' => OrderEstimateMethod::class, 'estimated_source_observed_at' => 'datetime', 'actual_unit_price' => 'decimal:4', 'actual_price_source' => ActualPriceSource::class, 'actual_price_confirmed_at' => 'datetime'];
+        return ['special_delivery_assignments' => 'array', 'item_type' => OrderItemType::class, 'requested_quantity' => 'decimal:4', 'current_quantity' => 'decimal:4', 'estimated_unit_price' => 'decimal:4', 'estimated_price_method' => OrderEstimateMethod::class, 'estimated_source_observed_at' => 'datetime', 'actual_unit_price' => 'decimal:4', 'actual_price_source' => ActualPriceSource::class, 'actual_price_confirmed_at' => 'datetime'];
     }
 
     public function orderShop(): BelongsTo

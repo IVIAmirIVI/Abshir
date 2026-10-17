@@ -64,6 +64,32 @@ class OrderFinancialPostingTest extends TestCase
 {
     use RefreshAccountingV1Database;
 
+    public function test_special_product_migrations_preserve_posted_v1_money_and_ordinary_sources(): void
+    {
+        $c = $this->context();
+        $invoice = $this->issue($c);
+        $this->markDelivered($c);
+        app(InvoiceCollectionService::class)->record($c['employee'], $invoice, InvoiceCollectionMethod::ShamCash,
+            $invoice->grand_total, $c['currency']->id, now());
+        $tables = ['financial_entries', 'financial_transactions', 'order_financial_source_snapshots', 'invoices', 'invoice_collections'];
+        $before = collect($tables)->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()]);
+        $allocation = $c['order']->currentDeliveryPricing->allocations()->sole();
+        $original = $allocation->getAttributes();
+        foreach (['2026_10_17_000000_add_captain_fuel_allowance.php',
+            '2026_10_17_010000_add_special_product_delivery_policies.php',
+            '2026_10_17_020000_validate_special_delivery_allocations.php'] as $migration) {
+            $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/'.$migration, '--force' => true]));
+        }
+        $this->assertSame($original, array_intersect_key($allocation->fresh()->getAttributes(), $original));
+        $this->assertNull($allocation->fresh()->special_delivery_components);
+        $this->assertDatabaseCount('product_delivery_policies', 0);
+        app(CorrectedOrderFinancialService::class)->postIfReady($c['order']);
+        foreach ($tables as $table) {
+            $this->assertSame($before[$table], DB::table($table)->orderBy('id')->get()->toJson());
+        }
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
     public function test_fuel_migration_preserves_existing_captains_and_posted_v1_money(): void
     {
         $c = $this->context();

@@ -114,6 +114,7 @@ trait OverridesWizardDelivery
             $proposal['routes']->map(fn ($route) => [$route['origin']?->id, $route['destination']->id,
                 $route['rule']?->id, $decimal($route['proposed_unit_fee'])])->values()->all(),
             $proposal['is_multi_shop'],
+            $proposal['special_review'] ?? [],
             $this->deliveryOverrideEnabled ? $decimal(app(DeliveryPricingSettings::class)->captainSharePercent()) : null,
             $this->deliveryOverrideEnabled ? $decimal(app(DeliveryPricingSettings::class)->overrideThresholdPercent()) : null,
         ], JSON_THROW_ON_ERROR));

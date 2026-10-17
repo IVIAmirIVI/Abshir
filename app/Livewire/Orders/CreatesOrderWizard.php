@@ -39,6 +39,10 @@ trait CreatesOrderWizard
     #[Locked]
     public array $groups = [];
 
+    public array $specialDeliveryAssignments = [];
+
+    public bool $specialProductsOnly = false;
+
     #[Locked]
     public array $itemDrafts = [];
 
@@ -151,6 +155,9 @@ trait CreatesOrderWizard
             } elseif ($step === 3) {
                 $this->validateWizardParticipants();
                 $proposal = $this->requireDeliveryProposal();
+                if ($proposal['special_incomplete'] ?? false) {
+                    throw ValidationException::withMessages(['special_delivery' => __('special.assign_portions')]);
+                }
                 if ($this->deliveryOverrideEnabled) {
                     $this->validateDeliveryOverride($proposal);
                 }
@@ -164,7 +171,7 @@ trait CreatesOrderWizard
     private function requireDeliveryProposal(): array
     {
         $address = app(OrderCreationDraftService::class)->contacts(auth()->user(), $this->validate($this->rules()));
-        $proposal = app(OrderCreationDraftService::class)->preview(auth()->user(), $this->branchId, $address, $this->groups);
+        $proposal = app(OrderCreationDraftService::class)->preview(auth()->user(), $this->branchId, $address, $this->groups, $this->wizardCaptainIds, $this->specialDeliveryAssignments);
         if (! $proposal['complete']) {
             throw ValidationException::withMessages(['delivery' => __('orders.wizard.missing_route')]);
         }
@@ -370,6 +377,11 @@ trait CreatesOrderWizard
         $this->draftGroup($key);
         abort_unless(isset($this->groups[$key]['items'][$index]), 404);
         array_splice($this->groups[$key]['items'], $index, 1);
+        foreach (array_keys($this->specialDeliveryAssignments) as $sourceKey) {
+            if (str_starts_with($sourceKey, $key.'_')) {
+                unset($this->specialDeliveryAssignments[$sourceKey]);
+            }
+        }
     }
 
     #[Computed]
@@ -382,6 +394,7 @@ trait CreatesOrderWizard
 
         // Catalog Products are global in the existing OrderItemService contract.
         return Product::query()->where('is_active', true)->with('defaultUnit')
+            ->when($this->specialProductsOnly, fn ($q) => $q->where('is_special', true))
             ->when(trim($this->productSearch) !== '', fn ($q) => $q->where(fn ($q) => $q
                 ->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower(trim($this->productSearch)).'%'])
                 ->orWhereRaw('LOWER(sku) LIKE ?', ['%'.mb_strtolower(trim($this->productSearch)).'%'])))

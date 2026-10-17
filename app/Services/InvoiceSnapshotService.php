@@ -55,6 +55,9 @@ class InvoiceSnapshotService
             throw ValidationException::withMessages(['invoice' => __('domain.the_order_requires_at_least_one_item')]);
         }
         $pricing = $order->currentDeliveryPricing()->with('currency')->lockForUpdate()->first();
+        if ($pricing) {
+            app(SpecialProductDeliveryService::class)->assertCurrentPricing($order, $pricing);
+        }
         if (! $pricing) {
             throw ValidationException::withMessages(['invoice' => __('domain.current_delivery_pricing_is_required')]);
         }

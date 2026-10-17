@@ -83,7 +83,11 @@ class OrderDeliveryPricingService
             throw ValidationException::withMessages(['from_area_id' => __('domain.the_delivery_origin_must_match_the_order_shop_snapshot')]);
         }
 
-        return $this->previewRoutes($actor, $routes, $destination, $currency, $order->pricing_class);
+        $preview = $this->previewRoutes($actor, $routes, $destination, $currency, $order->pricing_class);
+        $special = app(SpecialProductDeliveryService::class)->quote(app(SpecialProductDeliveryService::class)->orderSources($order),
+            $currency, $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all(), $lockShops, $routes->count());
+
+        return array_replace($preview, $special);
     }
 
     /** Shared read-only evaluator for pre-creation drafts and mutable Order proposals. */
@@ -195,7 +199,10 @@ class OrderDeliveryPricingService
                 throw ValidationException::withMessages(['from_area_id' => __('domain.no_delivery_price_rule')]);
             }
             $origin = $preview['origin'];
-            $decision = $this->overrideDecision($actor, $preview['currency'], $preview['rule']->delivery_unit_fee, $requestedFee);
+            if (isset($preview['special_parts']) && BigDecimal::of($requestedFee)->isLessThan($preview['suggested_unit_fee'])) {
+                throw ValidationException::withMessages(['requested_unit_fee' => __('special.decrease_blocked')]);
+            }
+            $decision = $this->overrideDecision($actor, $preview['currency'], $preview['suggested_unit_fee'], $requestedFee);
             $suggested = $decision['suggested'];
             $requested = $decision['requested'];
             $difference = $decision['difference'];
@@ -268,7 +275,7 @@ class OrderDeliveryPricingService
                 }
                 $origin = $request->fromArea;
                 $preview = $this->proposal($actor, $order, $origin, true);
-                if (! $preview['rule'] || ! BigDecimal::of($preview['rule']->delivery_unit_fee)->isEqualTo(BigDecimal::of($request->suggested_unit_fee))) {
+                if (! $preview['rule'] || ! BigDecimal::of($preview['suggested_unit_fee'])->isEqualTo(BigDecimal::of($request->suggested_unit_fee))) {
                     throw ValidationException::withMessages(['override' => __('domain.the_applicable_suggested_delivery_price_changed_submit_a_new_override_request')]);
                 }
                 $pricing = $this->priceFromPreviewLocked($actor, $order, $preview, $request->requested_unit_fee);
@@ -338,6 +345,7 @@ class OrderDeliveryPricingService
     private function createVersion(User $actor, Order $order, mixed $rule, Area $origin, Area $destination, mixed $currency, mixed $active, string $appliedFee, BigDecimal $share, string $discount, ?string $reason, mixed $routeSnapshots): OrderDeliveryPricing
     {
         $this->assertClassifiedRuleForOrder($order, $rule);
+        $special = app(SpecialProductDeliveryService::class)->quote(app(SpecialProductDeliveryService::class)->orderSources($order), $currency, $active->pluck('captain_id')->all(), shopCount: $order->shops()->count());
         $gross = BigDecimal::of($appliedFee)->multipliedBy($active->count());
         if (BigDecimal::of($discount)->isGreaterThan($gross)) {
             throw ValidationException::withMessages(['discount_amount' => __('domain.discount_exceeds_gross_delivery_total')]);
@@ -349,10 +357,13 @@ class OrderDeliveryPricingService
         }
         $pricing = $order->deliveryPricings()->create(['version' => $version, 'delivery_pricing_rule_id' => $rule?->id, 'from_area_id' => $origin->id, 'to_area_id' => $destination->id, 'currency_id' => $currency->id, 'order_pricing_class_snapshot' => $order->pricing_class, 'route_count_snapshot' => $routeSnapshots->count(), 'suggested_unit_fee' => $rule?->delivery_unit_fee ?? $appliedFee, 'applied_unit_fee' => $appliedFee, 'captain_count_snapshot' => $active->count(), 'captain_share_percent_snapshot' => (string) $share, 'gross_delivery_total' => (string) $gross, 'discount_amount' => $discount, 'discount_reason' => $reason, 'discount_applied_by' => BigDecimal::of($discount)->isGreaterThan(0) ? $actor->id : null, 'discount_applied_at' => BigDecimal::of($discount)->isGreaterThan(0) ? now() : null, 'customer_delivery_total' => (string) $gross->minus($discount), 'status' => DeliveryPricingStatus::Priced, 'priced_at' => now(), 'created_by' => $actor->id]);
         $current?->update(['superseded_by' => $pricing->id]);
+        if ($special !== []) {
+            $pricing->update(['suggested_unit_fee' => $special['suggested_unit_fee']]);
+        }
         // Historical V1 migration-state fixtures predate Captain allowance configuration.
         $fuelPercentages = Schema::hasColumn('captains', 'fuel_allowance_percentage')
             ? Captain::query()->whereIn('id', $active->pluck('captain_id'))->orderBy('id')->sharedLock()->pluck('fuel_allowance_percentage', 'id')->all() : null;
-        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active, $fuelPercentages) as $row) {
+        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active, $fuelPercentages, $special['special_parts'] ?? []) as $row) {
             $pricing->allocations()->create([...$row, 'currency_id' => $currency->id, 'captain_share_percent_snapshot' => $row['captain_share_percent_snapshot'] ?? (string) $share]);
         }
         foreach ($routeSnapshots as $route) {
@@ -383,7 +394,7 @@ class OrderDeliveryPricingService
         if (! $preview['rule']) {
             throw ValidationException::withMessages(['from_area_id' => __('domain.no_delivery_price_rule')]);
         }
-        $this->validateCurrencyPrecision($appliedFee ?? $preview['rule']->delivery_unit_fee, $preview['currency']->decimal_places, 'applied_unit_fee');
+        $this->validateCurrencyPrecision($appliedFee ?? $preview['suggested_unit_fee'], $preview['currency']->decimal_places, 'applied_unit_fee');
         $this->validateCurrencyPrecision($discount, $preview['currency']->decimal_places, 'discount_amount');
         $share = $this->settings->captainSharePercent();
         if (! $share) {
@@ -394,11 +405,16 @@ class OrderDeliveryPricingService
             throw ValidationException::withMessages(['captains' => __('domain.final_delivery_pricing_requires_at_least_one_active_captain')]);
         }
 
-        return $this->createVersion($actor, $order, $preview['rule'], $preview['origin'], $preview['destination'], $preview['currency'], $active, $appliedFee ?? $preview['rule']->delivery_unit_fee, $share, $discount, $discountReason, $this->routeSnapshotsFromProposal($preview));
+        return $this->createVersion($actor, $order, $preview['rule'], $preview['origin'], $preview['destination'], $preview['currency'], $active, $appliedFee ?? $preview['suggested_unit_fee'], $share, $discount, $discountReason, $this->routeSnapshotsFromProposal($preview));
     }
 
     private function assertReusablePricingSource(Order $order, OrderDeliveryPricing $pricing): void
     {
+        $hasSpecial = Schema::hasColumn('order_delivery_allocations', 'special_delivery_components')
+            && $pricing->allocations()->whereNotNull('special_delivery_components')->exists();
+        if ($hasSpecial) {
+            app(SpecialProductDeliveryService::class)->assertCurrentPricing($order, $pricing);
+        }
         if (! $order->pricing_class || $pricing->order_pricing_class_snapshot !== $order->pricing_class) {
             throw ValidationException::withMessages(['pricing_class' => __('domain.classify_and_reprice_this_legacy_order_before_changing_its_delivery_pricing')]);
         }
@@ -433,7 +449,7 @@ class OrderDeliveryPricingService
         $selected = $routes->firstWhere('is_selected_max', true);
         if ($selected->delivery_pricing_rule_id !== $pricing->delivery_pricing_rule_id
             || $selected->from_area_id !== $pricing->from_area_id
-            || $selected->proposed_unit_fee !== $pricing->suggested_unit_fee) {
+            || (! $hasSpecial && $selected->proposed_unit_fee !== $pricing->suggested_unit_fee)) {
             throw ValidationException::withMessages(['delivery_pricing' => __('domain.reprice_the_order_with_an_exact_class_specific_delivery_rule_before_continuing')]);
         }
     }

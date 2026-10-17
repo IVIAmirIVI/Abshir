@@ -204,7 +204,7 @@ class CreateOrder extends Component
             return;
         }
         unset($this->overrideCaptains);
-        $this->reset('wizardCaptainIds', 'wizardCollectorId', 'wizardSecondCaptainEnabled', 'wizardCaptainFromOverride');
+        $this->reset('wizardCaptainIds', 'wizardCollectorId', 'wizardSecondCaptainEnabled', 'wizardCaptainFromOverride', 'specialDeliveryAssignments');
         unset($this->wizardCaptainCandidates);
         unset($this->addresses, $this->areas);
         // A pending registered Shop belongs to the old Branch. Keep added
@@ -407,14 +407,17 @@ class CreateOrder extends Component
                 ], $creationCaptainIds, filled($creationCollectorId) ? (int) $creationCollectorId : null, $this->submissionKey),
                     ['captains' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCaptainIds',
                         'collector' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCollectorId']);
-                foreach ($this->groups as $group) {
+                foreach ($this->groups as $groupKey => $group) {
                     $shop = app(OrderShopService::class)->add(auth()->user(), $order, Arr::only($group, [
                         'shop_type', 'shop_id', 'shop_name', 'shop_phone', 'shop_address', 'origin_area_id', 'business_classification',
                     ]));
-                    foreach ($group['items'] as $item) {
-                        app(OrderItemService::class)->add(auth()->user(), $order, $shop, Arr::only($item, [
+                    foreach ($group['items'] as $itemIndex => $item) {
+                        $saved = app(OrderItemService::class)->add(auth()->user(), $order, $shop, Arr::only($item, [
                             'item_type', 'product_id', 'item_name', 'unit_id', 'quantity',
                         ]));
+                        if ($saved->special_delivery_policy_id !== null) {
+                            $saved->forceFill(['special_delivery_assignments' => $this->specialDeliveryAssignments[$groupKey.'_'.$itemIndex] ?? []])->save();
+                        }
                     }
                 }
                 $proposal = app(OrderDeliveryPricingService::class)->preview(auth()->user(), $order);
@@ -437,7 +440,7 @@ class CreateOrder extends Component
             $fields = array_keys($exception->errors());
             if ($draftValidated) {
                 $this->step = array_intersect($fields, ['branchId', 'customerId', 'customerPhoneId', 'customerAddressId', 'source', 'entryMode', 'orderedAt']) ? 1
-                    : (array_intersect($fields, ['delivery', 'deliveryOverrideAmount', 'deliveryOverrideReason', 'deliveryOverrideCaptainId', 'wizardCaptainIds', 'wizardCollectorId', 'captainShare', 'captains', 'fromAreaId']) ? 3 : 2);
+                    : (array_intersect($fields, ['delivery', 'special_delivery', 'deliveryOverrideAmount', 'deliveryOverrideReason', 'deliveryOverrideCaptainId', 'wizardCaptainIds', 'wizardCollectorId', 'captainShare', 'captains', 'fromAreaId']) ? 3 : 2);
             }
             throw $exception;
         } catch (\Throwable $exception) {

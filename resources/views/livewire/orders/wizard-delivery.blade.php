@@ -1,6 +1,19 @@
 <x-orders.section id="wizard-delivery">
     <h3 class="text-lg font-bold text-brand-primary">{{ __('orders.wizard.steps.delivery') }}</h3>
     @php($proposal = $this->deliveryProposal)
+    @if(isset($proposal['special_sources']))
+        <section class="space-y-3 rounded-lg border border-gray-200 p-3">
+            <h4 class="font-semibold">{{ __('special.portions') }}</h4><p class="text-sm text-gray-600">{{ __('special.portion_help') }}</p>
+            <x-input-error :messages="$errors->get('special_delivery')" />
+            @foreach($proposal['special_sources'] as $source)
+                <article class="space-y-2 rounded-lg bg-stone-50 p-3" wire:key="special-{{ $source['key'] }}">
+                    <p class="font-medium">{{ $source['label'] }} · <x-money :amount="(string) $source['quantity']" /> × <x-money :amount="$source['policy']->delivery_fee" :currency="$proposal['currency']->code" /></p>
+                    <p class="text-sm">{{ __('special.modes.'.$source['policy']->allocation_mode) }} @if($source['policy']->allocation_mode === 'FIXED') · {{ __('special.captain_fixed') }} <x-money :amount="$source['policy']->captain_fixed" /> · {{ __('special.company_fixed') }} <x-money :amount="$source['policy']->company_fixed" />@elseif($source['policy']->allocation_mode === 'PERCENTAGE') · <x-money :amount="$source['policy']->captain_percentage" />%@endif</p>
+                    @if(count($wizardCaptainIds) > 1)<div class="grid gap-3 sm:grid-cols-2">@foreach($this->wizardCaptainCandidates->whereIn('id', $wizardCaptainIds) as $captain)<label wire:key="special-{{ $source['key'] }}-{{ $captain->id }}">{{ $captain->user->name }} — {{ __('special.units') }}<input type="text" inputmode="numeric" dir="ltr" wire:model.live="specialDeliveryAssignments.{{ $source['key'] }}.{{ $captain->id }}" class="mt-1 w-full rounded-lg border-gray-300"></label>@endforeach</div>@endif
+                </article>
+            @endforeach
+        </section>
+    @endif
     @if(isset($proposal['error']))<p role="alert" class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{{ $proposal['error'] }}</p>
     @else
         <div><h4 class="font-semibold">{{ __('orders.wizard.from') }}</h4><ul class="mt-2 space-y-2">@foreach($proposal['routes'] as $route)<li class="break-words text-sm">{{ $route['shop']->shop_name_snapshot }} — {{ $route['origin']->name }}</li>@endforeach</ul></div>

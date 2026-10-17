@@ -7,6 +7,9 @@
         <div class="grid gap-5 sm:grid-cols-2"><div><x-input-label for="sku" :value="__('catalog.sku')" /><x-text-input id="sku" name="sku" aria-invalid="{{ $errors->has('sku') ? 'true' : 'false' }}" class="mt-1 block w-full" value="{{ old('sku', $product->sku) }}" dir="ltr" /></div><div><x-input-label for="barcode" :value="__('catalog.barcode')" /><x-text-input id="barcode" name="barcode" aria-invalid="{{ $errors->has('barcode') ? 'true' : 'false' }}" class="mt-1 block w-full" value="{{ old('barcode', $product->barcode) }}" dir="ltr" /></div></div>
         <div><x-input-label for="description" :value="__('catalog.description')" /><textarea id="description" name="description" aria-invalid="{{ $errors->has('description') ? 'true' : 'false' }}" rows="5" class="mt-1 block w-full rounded-md border-gray-300" dir="auto">{{ old('description', $product->description) }}</textarea></div>
         <p class="text-sm text-gray-500">{{ __('catalog.the_default_unit_is_the_normal_catalog_unit_shops_may_list_this_product_using_other_managed_units') }}</p>
+        @if(auth()->user()->isSuperAdmin() && \Illuminate\Support\Facades\Schema::hasTable('product_delivery_policies'))
+            @include('products._special-policy')
+        @endif
         <div class="flex flex-wrap gap-4"><x-orders.action class="w-full justify-center sm:w-auto">{{ __('catalog.save_product') }}</x-orders.action><a class="self-center underline text-sm" href="{{ $product->exists ? route('products.show', $product) : route('products.index') }}">{{ __('common.actions.cancel') }}</a></div>
     </form></x-orders.section></x-management.page>
 </x-app-layout>

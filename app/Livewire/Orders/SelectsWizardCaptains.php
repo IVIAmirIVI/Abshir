@@ -65,6 +65,10 @@ trait SelectsWizardCaptains
 
     private function synchronizeWizardCollector(bool $syncOverride = true): void
     {
+        foreach ($this->specialDeliveryAssignments as $key => $assignments) {
+            $this->specialDeliveryAssignments[$key] = count($this->wizardCaptainIds) <= 1 || ! is_array($assignments) ? []
+                : array_intersect_key($assignments, array_flip($this->wizardCaptainIds));
+        }
         if (count($this->wizardCaptainIds) === 1 && filled($this->wizardCaptainIds[0] ?? null)) {
             $this->wizardCollectorId = (string) $this->wizardCaptainIds[0];
         } elseif (! in_array($this->wizardCollectorId, array_map('strval', $this->wizardCaptainIds), true)) {

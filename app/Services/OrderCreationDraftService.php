@@ -145,7 +145,7 @@ class OrderCreationDraftService
         }
     }
 
-    public function preview(User $actor, string $branchId, CustomerAddress $address, array $groups): array
+    public function preview(User $actor, string $branchId, CustomerAddress $address, array $groups, array $captainIds = [], array $specialAssignments = []): array
     {
         $resolved = $this->groups($actor, $branchId, $groups);
         $currency = Branch::query()->findOrFail($branchId)->defaultCurrency;
@@ -155,6 +155,9 @@ class OrderCreationDraftService
         $class = count($resolved) > 1 ? OrderPricingClass::MultiShop : OrderPricingClass::fromShopClassification($resolved[0]['classification']);
         $routes = collect($resolved)->map(fn ($row, $index) => ['origin' => $row['origin'], 'shop' => (object) ['id' => $index, 'shop_name_snapshot' => $row['name']]]);
 
-        return app(OrderDeliveryPricingService::class)->previewRoutes($actor, $routes, $address->area, $currency, $class);
+        $preview = app(OrderDeliveryPricingService::class)->previewRoutes($actor, $routes, $address->area, $currency, $class);
+        $special = app(SpecialProductDeliveryService::class);
+
+        return array_replace($preview, $special->quote($special->draftSources($groups, $currency, $specialAssignments), $currency, $captainIds, false, count($resolved)));
     }
 }
