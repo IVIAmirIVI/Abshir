@@ -77,7 +77,8 @@ class OrderFinancialPostingTest extends TestCase
         $original = $allocation->getAttributes();
         foreach (['2026_10_17_000000_add_captain_fuel_allowance.php',
             '2026_10_17_010000_add_special_product_delivery_policies.php',
-            '2026_10_17_020000_validate_special_delivery_allocations.php'] as $migration) {
+            '2026_10_17_020000_validate_special_delivery_allocations.php',
+            '2026_10_17_161740_add_supervisor_approved_special_addons.php'] as $migration) {
             $this->assertSame(0, Artisan::call('migrate', ['--path' => 'database/migrations/'.$migration, '--force' => true]));
         }
         $this->assertSame($original, array_intersect_key($allocation->fresh()->getAttributes(), $original));

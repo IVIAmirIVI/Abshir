@@ -10,7 +10,7 @@ use Illuminate\Validation\ValidationException;
 
 class DeliveryAllocationService
 {
-    public function calculate(string $unitFee, string $sharePercent, string $discount, Currency $currency, iterable $assignments, ?array $fuelPercentages = null, array $specialParts = []): array
+    public function calculate(string $unitFee, string $sharePercent, string $discount, Currency $currency, iterable $assignments, ?array $fuelPercentages = null, array $specialParts = [], array $addonApprovalIds = []): array
     {
         $rows = collect($assignments)->sortBy('id')->values();
         $scale = $currency->decimal_places;
@@ -22,7 +22,7 @@ class DeliveryAllocationService
         $base = BigDecimal::of($sharePercent);
         $baseEntitlement = $fee->multipliedBy($base)->dividedBy(100, $scale, RoundingMode::HalfUp);
 
-        return $rows->map(function (OrderCaptain $assignment, int $index) use ($baseMinor, $remainder, $factor, $scale, $fee, $base, $baseEntitlement, $fuelPercentages, $specialParts): array {
+        return $rows->map(function (OrderCaptain $assignment, int $index) use ($baseMinor, $remainder, $factor, $scale, $fee, $base, $baseEntitlement, $fuelPercentages, $specialParts, $addonApprovalIds): array {
             $fuel = app(CaptainFuelAllowanceService::class)->percentage($fuelPercentages === null ? '0' : ($fuelPercentages[$assignment->captain_id] ?? null), $base);
             $effective = $base->plus($fuel);
             // Round the final entitlement once, as before; attribute the exact rounded difference to fuel.
@@ -52,6 +52,9 @@ class DeliveryAllocationService
                 $components = ['parts' => $parts, 'special_base_fee' => (string) $specialFee->toScale(4),
                     'custom_captain' => (string) $customCaptain->toScale(4), 'extra_fee' => (string) $extra->toScale(4),
                     'standard_fee' => (string) $standardFee->toScale(4)];
+                if ($addonApprovalIds !== []) {
+                    $components['addon_approval_ids'] = $addonApprovalIds;
+                }
             }
             $allocated = BigDecimal::of($baseMinor + ($index < $remainder ? 1 : 0))->dividedBy($factor, $scale, RoundingMode::Unnecessary);
             $customer = $fee->minus($allocated);

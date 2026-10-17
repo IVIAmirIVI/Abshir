@@ -145,7 +145,7 @@ class OrderCreationDraftService
         }
     }
 
-    public function preview(User $actor, string $branchId, CustomerAddress $address, array $groups, array $captainIds = [], array $specialAssignments = []): array
+    public function preview(User $actor, string $branchId, CustomerAddress $address, array $groups, array $captainIds = [], array $specialAssignments = [], array $addonApprovals = []): array
     {
         $resolved = $this->groups($actor, $branchId, $groups);
         $currency = Branch::query()->findOrFail($branchId)->defaultCurrency;
@@ -157,7 +157,12 @@ class OrderCreationDraftService
 
         $preview = app(OrderDeliveryPricingService::class)->previewRoutes($actor, $routes, $address->area, $currency, $class);
         $special = app(SpecialProductDeliveryService::class);
+        $sources = $special->draftSources($groups, $currency, $specialAssignments);
+        $anchor = app(SpecialAddonApprovalService::class)->validateDraft($actor, $groups, $sources, $addonApprovals, $branchId, (string) $address->id);
+        if ($anchor !== null) {
+            $preview = app(OrderDeliveryPricingService::class)->useSpecialSourceRoute($preview, array_search($anchor, array_keys($groups), true));
+        }
 
-        return array_replace($preview, $special->quote($special->draftSources($groups, $currency, $specialAssignments), $currency, $captainIds, false, count($resolved)));
+        return array_replace($preview, $special->quote($sources, $currency, $captainIds, false, max(1, count(array_unique(array_column($sources, 'shop_key'))))));
     }
 }

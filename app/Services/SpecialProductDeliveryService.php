@@ -58,8 +58,8 @@ class SpecialProductDeliveryService
             foreach ($sources as $source) {
                 OrderItem::findOrFail($source['item_id'])->forceFill(['special_delivery_assignments' => $assignments[$source['key']] ?? []])->save();
             }
-            $this->quote($this->orderSources($order), $order->branch->defaultCurrency,
-                $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all(), shopCount: $order->shops()->count());
+            $this->orderQuote($order, $order->branch->defaultCurrency,
+                $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all());
         });
     }
 
@@ -98,7 +98,7 @@ class SpecialProductDeliveryService
 
         return OrderItem::query()->whereHas('orderShop', fn ($q) => $q->where('order_id', $order->id))
             ->whereNotNull('special_delivery_policy_id')->orderBy('id')->get()->map(fn ($item) => [
-                'key' => (string) $item->id, 'item_id' => $item->id, 'product_id' => $item->product_id,
+                'key' => (string) $item->id, 'shop_key' => $item->order_shop_id, 'item_id' => $item->id, 'product_id' => $item->product_id,
                 'label' => $item->product_name_snapshot, 'quantity' => $item->current_quantity,
                 'policy' => ProductDeliveryPolicy::findOrFail($item->special_delivery_policy_id),
                 'assignments' => $item->special_delivery_assignments ?? [],
@@ -120,13 +120,22 @@ class SpecialProductDeliveryService
                         throw ValidationException::withMessages(['special_delivery' => __('special.whole_portions')]);
                     }
                     $sourceKey = $key.'_'.$index;
-                    $sources[] = ['key' => $sourceKey, 'item_id' => null, 'product_id' => $product->id, 'label' => $product->name,
+                    $sources[] = ['key' => $sourceKey, 'shop_key' => $key, 'item_id' => null, 'product_id' => $product->id, 'label' => $product->name,
                         'quantity' => $item['quantity'], 'policy' => $policy, 'assignments' => $assignments[$sourceKey] ?? []];
                 }
             }
         }
 
         return $sources;
+    }
+
+    public function orderQuote(Order $order, Currency $currency, array $captainIds, bool $strict = true): array
+    {
+        $sources = $this->orderSources($order);
+        $approvalIds = $sources !== [] && $order->shops()->count() > 1 ? app(SpecialAddonApprovalService::class)->ids($order) : [];
+        $quote = $this->quote($sources, $currency, $captainIds, $strict, max(1, count(array_unique(array_column($sources, 'shop_key')))));
+
+        return $quote === [] ? [] : $quote + ['special_addon_ids' => $approvalIds, 'special_anchor_shop' => $sources[0]['shop_key']];
     }
 
     public function quote(array $sources, Currency $currency, array $captainIds, bool $strict = true, int $shopCount = 1): array

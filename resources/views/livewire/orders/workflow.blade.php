@@ -49,6 +49,7 @@
         @elseif($activePanel === 'captain')
             <livewire:orders.captain-assignments :order="$order" :key="'workflow-captains-'.$order->id" />
             @if(!$canFinalizePricing && !$order->currentDeliveryPricing && $workflow['mutable'])<p class="rounded-lg bg-amber-50 p-3 text-sm">{{ __('orders.workflow.pricing_requires') }}</p>@endif
+            @include('orders._special-addons')
             @include('orders._special-delivery-portions')
             @include('orders._delivery-pricing')
         @elseif($activePanel === 'shops')

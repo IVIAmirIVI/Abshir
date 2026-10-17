@@ -55,6 +55,7 @@ class OrderDeliveryPricingService
                 'routes' => $routes, 'complete' => $pricing !== null && $pricing->rule !== null,
                 'is_multi_shop' => $pricing?->order_pricing_class_snapshot === OrderPricingClass::MultiShop,
                 'is_frozen' => true, 'suggested_unit_fee' => $pricing?->suggested_unit_fee,
+                'special_addons' => ($pricing?->allocations()->first()?->special_delivery_components['addon_approval_ids'] ?? []) !== [],
             ];
         }
         $currency = $order->branch->defaultCurrency;
@@ -84,13 +85,28 @@ class OrderDeliveryPricingService
         }
 
         $preview = $this->previewRoutes($actor, $routes, $destination, $currency, $order->pricing_class);
-        $special = app(SpecialProductDeliveryService::class)->quote(app(SpecialProductDeliveryService::class)->orderSources($order),
-            $currency, $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all(), $lockShops, $routes->count());
+        $special = app(SpecialProductDeliveryService::class)->orderQuote($order,
+            $currency, $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all(), $lockShops);
+        if (($special['special_addon_ids'] ?? []) !== []) {
+            $preview = $this->useSpecialSourceRoute($preview, $special['special_anchor_shop']);
+        }
 
         return array_replace($preview, $special);
     }
 
     /** Shared read-only evaluator for pre-creation drafts and mutable Order proposals. */
+    public function useSpecialSourceRoute(array $preview, int $shopId): array
+    {
+        $route = $preview['routes']->first(fn ($row) => $row['shop']->id === $shopId);
+        if (! $route || ! $preview['complete']) {
+            throw ValidationException::withMessages(['delivery' => __('orders.wizard.missing_route')]);
+        }
+        $preview['routes'] = $preview['routes']->map(fn ($row) => array_replace($row, ['is_selected_max' => $row['shop']->id === $shopId]));
+
+        return array_replace($preview, ['rule' => $route['rule'], 'origin' => $route['origin'],
+            'suggested_unit_fee' => $route['proposed_unit_fee'], 'special_addons' => true]);
+    }
+
     public function previewRoutes(User $actor, Collection $routes, Area $destination, Currency $currency, OrderPricingClass $pricingClass): array
     {
         Gate::forUser($actor)->authorize('delivery_pricing.view');
@@ -345,7 +361,7 @@ class OrderDeliveryPricingService
     private function createVersion(User $actor, Order $order, mixed $rule, Area $origin, Area $destination, mixed $currency, mixed $active, string $appliedFee, BigDecimal $share, string $discount, ?string $reason, mixed $routeSnapshots): OrderDeliveryPricing
     {
         $this->assertClassifiedRuleForOrder($order, $rule);
-        $special = app(SpecialProductDeliveryService::class)->quote(app(SpecialProductDeliveryService::class)->orderSources($order), $currency, $active->pluck('captain_id')->all(), shopCount: $order->shops()->count());
+        $special = app(SpecialProductDeliveryService::class)->orderQuote($order, $currency, $active->pluck('captain_id')->all());
         $gross = BigDecimal::of($appliedFee)->multipliedBy($active->count());
         if (BigDecimal::of($discount)->isGreaterThan($gross)) {
             throw ValidationException::withMessages(['discount_amount' => __('domain.discount_exceeds_gross_delivery_total')]);
@@ -363,7 +379,7 @@ class OrderDeliveryPricingService
         // Historical V1 migration-state fixtures predate Captain allowance configuration.
         $fuelPercentages = Schema::hasColumn('captains', 'fuel_allowance_percentage')
             ? Captain::query()->whereIn('id', $active->pluck('captain_id'))->orderBy('id')->sharedLock()->pluck('fuel_allowance_percentage', 'id')->all() : null;
-        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active, $fuelPercentages, $special['special_parts'] ?? []) as $row) {
+        foreach ($this->allocations->calculate($appliedFee, (string) $share, $discount, $currency, $active, $fuelPercentages, $special['special_parts'] ?? [], $special['special_addon_ids'] ?? []) as $row) {
             $pricing->allocations()->create([...$row, 'currency_id' => $currency->id, 'captain_share_percent_snapshot' => $row['captain_share_percent_snapshot'] ?? (string) $share]);
         }
         foreach ($routeSnapshots as $route) {

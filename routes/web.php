@@ -55,6 +55,7 @@ use App\Http\Controllers\ShopController;
 use App\Http\Controllers\ShopPartnershipController;
 use App\Http\Controllers\ShopProductController;
 use App\Http\Controllers\ShopTypeController;
+use App\Http\Controllers\SpecialAddonApprovalController;
 use App\Http\Controllers\SpecialDeliveryPortionController;
 use App\Http\Controllers\UnitController;
 use Illuminate\Support\Facades\Route;
@@ -227,6 +228,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('delivery-overrides/{override}', [DeliveryOverrideController::class, 'resolve'])->name('delivery-overrides.resolve');
     Route::patch('orders/{order}/delivery-pricing/destination', [OrderDeliveryPricingController::class, 'destination'])->name('orders.delivery-pricing.destination');
     Route::post('orders/{order}/delivery-pricing', [OrderDeliveryPricingController::class, 'apply'])->name('orders.delivery-pricing.apply');
+    Route::post('orders/{order}/special-addons', [SpecialAddonApprovalController::class, 'store'])->name('orders.special-addons');
     Route::post('orders/{order}/special-delivery-portions', [SpecialDeliveryPortionController::class, 'store'])->name('orders.special-delivery-portions');
     Route::post('orders/{order}/delivery-pricing/override', [OrderDeliveryPricingController::class, 'override'])->name('orders.delivery-pricing.override');
     Route::post('orders/{order}/delivery-pricing/discount', [OrderDeliveryPricingController::class, 'discount'])->name('orders.delivery-pricing.discount');

@@ -58,5 +58,6 @@
             @endif
         </article>
     @endforeach
+    @include('livewire.orders.wizard-special-addons')
     @if(!$groups)<p class="text-sm text-gray-500">{{ __('orders.wizard.empty_shops') }}</p>@endif
 </x-orders.section>

@@ -19,7 +19,7 @@
                 <p class="font-semibold text-green-950">{{ __('orders.ui_suggested_delivery_fee') }} <x-money :amount="$pricingPreview['suggested_unit_fee']" /> <x-ltr>{{ $pricingPreview['currency']->code }}</x-ltr></p>
                 @if(!$currentDeliveryPricing)@if($orderMutable && ($canFinalizePricing ?? true))@can('delivery_pricing.apply')<form x-data="{ submitting: false }" x-on:submit="if (submitting) { $event.preventDefault(); } else { submitting = true; }" method="POST" action="{{ route('orders.delivery-pricing.apply', $order) }}">@csrf<input type="hidden" name="from_area_id" value="{{ $pricingPreview['origin']->id }}"><x-primary-button x-bind:disabled="submitting">{{ __('orders.ui_create_pricing') }}</x-primary-button></form>@endcan @endif @endif
             </div>
-            @if($pricingPreview['is_multi_shop'])<p class="text-sm text-gray-600">{{ __('orders.ui_multi_shop_highest_route_used') }}</p>@endif
+            @if($pricingPreview['special_addons'] ?? false)<p class="text-sm text-gray-600">{{ __('special.addon_help') }}</p>@elseif($pricingPreview['is_multi_shop'])<p class="text-sm text-gray-600">{{ __('orders.ui_multi_shop_highest_route_used') }}</p>@endif
         @else
             <p class="rounded-lg bg-red-50 p-3 font-semibold text-red-800">{{ __('orders.ui_multi_shop_route_missing_rule') }}</p>
         @endif
@@ -35,7 +35,7 @@
                         @else
                             {{ __('orders.ui_missing_shop_origin_area') }}
                         @endif
-                        @if($route['is_selected_max']) · {{ __('orders.ui_selected_highest_route') }}@endif
+                        @if($route['is_selected_max']) · {{ ($pricingPreview['special_addons'] ?? false) ? __('special.addon_source') : __('orders.ui_selected_highest_route') }}@endif
                     </p>
                 @endforeach
             </div>

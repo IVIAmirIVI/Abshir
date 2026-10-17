@@ -3,6 +3,7 @@
 namespace App\Livewire\Orders;
 
 use App\Enums\ShopBusinessClassification;
+use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerAddress;
@@ -17,6 +18,8 @@ use App\Services\CustomerPhoneService;
 use App\Services\InlineOrderProductService;
 use App\Services\OrderCreationDraftService;
 use App\Services\ShopService;
+use App\Services\SpecialAddonApprovalService;
+use App\Services\SpecialProductDeliveryService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -42,6 +45,45 @@ trait CreatesOrderWizard
     public array $specialDeliveryAssignments = [];
 
     public bool $specialProductsOnly = false;
+
+    #[Locked]
+    public array $specialAddonApprovals = [];
+
+    public array $addonInputs = [];
+
+    #[Computed]
+    public function specialDraftSources(): array
+    {
+        $currency = Branch::find($this->branchId)?->defaultCurrency;
+        if (! $currency) {
+            return [];
+        }
+        try {
+            return app(SpecialProductDeliveryService::class)->draftSources($this->groups, $currency);
+        } catch (ValidationException) {
+            return [];
+        }
+    }
+
+    public function approveDraftAddon(string $key): void
+    {
+        $service = app(SpecialAddonApprovalService::class);
+        $service->authorize(auth()->user());
+        app(OrderCreationDraftService::class)->groups(auth()->user(), $this->branchId, $this->groups);
+        $input = $this->addonInputs[$key] ?? [];
+        if (! is_array($input) || ! is_string($input['source_key'] ?? null) || ! is_string($input['reason'] ?? null)) {
+            throw ValidationException::withMessages(['special_delivery' => __('special.addon_required')]);
+        }
+        $source = collect($this->specialDraftSources)->firstWhere('key', $input['source_key'] ?? '');
+        $reason = trim($input['reason'] ?? '');
+        if (! isset($this->groups[$key]) || ! $source || $source['shop_key'] === $key || $reason === '' || mb_strlen($reason) > 1000
+            || collect($this->specialDraftSources)->contains(fn ($row) => $row['shop_key'] === $key)) {
+            throw ValidationException::withMessages(['special_delivery' => __('special.addon_required')]);
+        }
+        $this->specialAddonApprovals[$key] = ['source_key' => $source['key'], 'reason' => $reason,
+            'stamp' => $service->draftStamp($this->groups, $key, $source['key'], $this->branchId, $this->customerAddressId)];
+        $this->resetValidation('special_delivery');
+    }
 
     #[Locked]
     public array $itemDrafts = [];
@@ -152,6 +194,8 @@ trait CreatesOrderWizard
                 app(OrderCreationDraftService::class)->contacts(auth()->user(), $data);
             } elseif ($step === 2) {
                 app(OrderCreationDraftService::class)->groups(auth()->user(), $this->branchId, $this->groups);
+                app(SpecialAddonApprovalService::class)->validateDraft(auth()->user(), $this->groups,
+                    $this->specialDraftSources, $this->specialAddonApprovals, $this->branchId, $this->customerAddressId);
             } elseif ($step === 3) {
                 $this->validateWizardParticipants();
                 $proposal = $this->requireDeliveryProposal();
@@ -171,7 +215,7 @@ trait CreatesOrderWizard
     private function requireDeliveryProposal(): array
     {
         $address = app(OrderCreationDraftService::class)->contacts(auth()->user(), $this->validate($this->rules()));
-        $proposal = app(OrderCreationDraftService::class)->preview(auth()->user(), $this->branchId, $address, $this->groups, $this->wizardCaptainIds, $this->specialDeliveryAssignments);
+        $proposal = app(OrderCreationDraftService::class)->preview(auth()->user(), $this->branchId, $address, $this->groups, $this->wizardCaptainIds, $this->specialDeliveryAssignments, $this->specialAddonApprovals);
         if (! $proposal['complete']) {
             throw ValidationException::withMessages(['delivery' => __('orders.wizard.missing_route')]);
         }

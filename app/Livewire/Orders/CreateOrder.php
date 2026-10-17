@@ -18,6 +18,7 @@ use App\Services\OrderItemService;
 use App\Services\OrderService;
 use App\Services\OrderShopService;
 use App\Services\PhoneNormalizer;
+use App\Services\SpecialAddonApprovalService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
@@ -407,17 +408,29 @@ class CreateOrder extends Component
                 ], $creationCaptainIds, filled($creationCollectorId) ? (int) $creationCollectorId : null, $this->submissionKey),
                     ['captains' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCaptainIds',
                         'collector' => $overrideOnlyCaptain ? 'deliveryOverrideCaptainId' : 'wizardCollectorId']);
+                $savedGroups = [];
+                $savedItems = [];
                 foreach ($this->groups as $groupKey => $group) {
                     $shop = app(OrderShopService::class)->add(auth()->user(), $order, Arr::only($group, [
                         'shop_type', 'shop_id', 'shop_name', 'shop_phone', 'shop_address', 'origin_area_id', 'business_classification',
                     ]));
+                    $savedGroups[$groupKey] = $shop;
                     foreach ($group['items'] as $itemIndex => $item) {
                         $saved = app(OrderItemService::class)->add(auth()->user(), $order, $shop, Arr::only($item, [
                             'item_type', 'product_id', 'item_name', 'unit_id', 'quantity',
                         ]));
+                        $savedItems[$groupKey.'_'.$itemIndex] = $saved;
                         if ($saved->special_delivery_policy_id !== null) {
                             $saved->forceFill(['special_delivery_assignments' => $this->specialDeliveryAssignments[$groupKey.'_'.$itemIndex] ?? []])->save();
                         }
+                    }
+                }
+                foreach ($this->specialAddonApprovals as $groupKey => $approval) {
+                    if (isset($savedGroups[$groupKey], $savedItems[$approval['source_key']])
+                        && $savedItems[$approval['source_key']]->special_delivery_policy_id !== null
+                        && $savedItems[$approval['source_key']]->order_shop_id !== $savedGroups[$groupKey]->id) {
+                        app(SpecialAddonApprovalService::class)->approve(auth()->user(), $order,
+                            $savedGroups[$groupKey], $savedItems[$approval['source_key']], $approval['reason']);
                     }
                 }
                 $proposal = app(OrderDeliveryPricingService::class)->preview(auth()->user(), $order);

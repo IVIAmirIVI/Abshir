@@ -1,6 +1,12 @@
 <?php
 
 return [
+    'addon_title' => 'Small add-ons on the same trip',
+    'addon_help' => 'Approve these Shop items only as practical small add-ons to the special delivery trip, not independent or distant pickups. The fee does not increase automatically; use the existing audited fee adjustment for justified extra effort.',
+    'addon_source' => 'Related special delivery portion', 'addon_reason' => 'Why this add-on fits the trip',
+    'addon_approve' => 'I approve these items as an add-on on the same trip', 'addon_approved' => 'Approval saved for these details',
+    'addon_history' => 'Approval history',
+    'addon_required' => 'Each additional Shop needs an explicit current approval linked to one special source, with a reason and an authorized supervisor. Changed items or destination require renewed approval.',
     'title' => 'Special products', 'product' => 'Special product', 'policy' => 'Delivery fee allocation',
     'fee' => 'Base delivery fee per product unit', 'mode' => 'Allocation mode',
     'modes' => ['DEFAULT' => 'Standard allocation', 'PERCENTAGE' => 'Special percentage', 'FIXED' => 'Fixed amounts'],
