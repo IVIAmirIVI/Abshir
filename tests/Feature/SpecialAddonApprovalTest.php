@@ -80,6 +80,11 @@ class SpecialAddonApprovalTest extends TestCase
             app(OrderShopReceiptService::class)->upload($c['actor'], $c['order'], $shop, $this->sharedImage(), null);
             app(OrderShopProgressService::class)->record($c['actor'], $c['order'], $shop, 'picked_up_at');
         }
+        $this->actingAs($c['actor'])->get(route('orders.invoices.preview', $c['order']))
+            ->assertOk()->assertSee(__('financial.ui.pre_delivery_notice'))
+            ->assertSee('>'.($count === 1 ? '455' : '810').' '.$c['currency']->code.'</bdi>', false);
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertDatabaseCount('financial_transactions', 0);
         $s = app(InvoiceService::class);
         $invoice = $s->issue($c['actor'], $c['order'], $s->refresh($c['actor'], $c['order'], $s->createDraft($c['actor'], $c['order'])));
         $this->assertSame($count === 1 ? '455.0000' : '810.0000', $invoice->grand_total);

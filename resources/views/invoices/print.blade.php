@@ -16,6 +16,7 @@
     </style>
 </head>
 <body>
+    @if($preview ?? false)<h2>{{ __('financial.ui.pre_delivery_preview') }}</h2><p>{{ __('financial.ui.pre_delivery_notice') }}</p>@endif
     <button class="print" onclick="window.print()">{{ __('financial.ui.print_save_pdf') }}</button>
     <div class="top">
         <div><h1>{{ __('common.brand.name') }}</h1>

@@ -88,6 +88,8 @@ return [
         'CASH_SHORTFALL' => 'Cash delivery shortfall due',
     ],
     'ui' => [
+        'pre_delivery_preview' => 'Pre-delivery invoice preview',
+        'pre_delivery_notice' => 'Non-final copy using current confirmed prices; not proof of payment, collection or delivery. To print or share through WhatsApp, save as PDF and send the file.',
         'approved_bonus' => 'Approved bonus',
         'approved_expense' => 'Approved expense',
         'entitlement' => 'Captain entitlement',

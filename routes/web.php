@@ -233,6 +233,7 @@ Route::middleware('auth')->group(function () {
     Route::post('orders/{order}/delivery-pricing/override', [OrderDeliveryPricingController::class, 'override'])->name('orders.delivery-pricing.override');
     Route::post('orders/{order}/delivery-pricing/discount', [OrderDeliveryPricingController::class, 'discount'])->name('orders.delivery-pricing.discount');
     Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('orders/{order}/invoice-preview', [InvoiceController::class, 'preview'])->name('orders.invoices.preview');
     Route::post('orders/{order}/invoices', [InvoiceController::class, 'store'])->name('orders.invoices.store');
     Route::get('orders/{order}/invoices/{invoice}', [InvoiceController::class, 'show'])->name('orders.invoices.show');
     Route::get('orders/{order}/invoices/{invoice}/print', [InvoiceController::class, 'print'])->name('orders.invoices.print');

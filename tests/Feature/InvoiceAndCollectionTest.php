@@ -133,6 +133,37 @@ class InvoiceAndCollectionTest extends TestCase
         return app(InvoiceService::class)->refresh($context['employee'], $context['order'], $invoice);
     }
 
+    public function test_pre_delivery_preview_reads_current_prices_without_persisting_or_posting(): void
+    {
+        $c = $this->context();
+        $before = [$c['order']->fresh()->getAttributes(), DB::table('financial_transactions')->count(), DB::table('financial_entries')->count(), Invoice::count()];
+        $url = route('orders.invoices.preview', $c['order']);
+        $this->actingAs($c['employee'])->get($url)->assertOk()
+            ->assertSee(__('financial.ui.pre_delivery_notice'))->assertSee('Snapshot Item')
+            ->assertSee('>30 USD</bdi>', false)->assertSee('dir="rtl"', false);
+        $this->assertSame($before, [$c['order']->fresh()->getAttributes(), DB::table('financial_transactions')->count(), DB::table('financial_entries')->count(), Invoice::count()]);
+        $c['item']->update(['actual_unit_price' => '12']);
+        $this->get($url)->assertOk()->assertSee('>35 USD</bdi>', false);
+        $invoice = $this->ready($c);
+        app(InvoiceService::class)->issue($c['employee'], $c['order'], $invoice);
+        $this->get($url)->assertStatus(409);
+        $this->get(route('orders.invoices.print', [$c['order'], $invoice]))->assertOk()->assertSee('>35 USD</bdi>', false);
+    }
+
+    public function test_pre_delivery_preview_rejects_unauthorized_foreign_branch_and_unconfirmed_prices(): void
+    {
+        $c = $this->context();
+        $url = route('orders.invoices.preview', $c['order']);
+        $this->actingAs(User::factory()->create())->get($url)->assertForbidden();
+        $foreign = User::factory()->create();
+        $foreign->roles()->attach(Role::where('code', 'ORDER_EMPLOYEE')->sole());
+        $foreign->branches()->attach(Branch::factory()->create());
+        $this->actingAs($foreign)->get($url)->assertForbidden();
+        $c['item']->update(['actual_unit_price' => null]);
+        $this->actingAs($c['employee'])->getJson($url)->assertUnprocessable();
+        $this->assertSame(0, Invoice::count());
+    }
+
     public function test_arabic_invoice_lifecycle_print_and_historical_versions_preserve_values(): void
     {
         $c = $this->context();

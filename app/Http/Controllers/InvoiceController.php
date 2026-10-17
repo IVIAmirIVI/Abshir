@@ -7,20 +7,59 @@ use App\Enums\OrderCaptainRole;
 use App\Http\Requests\InvoiceReasonRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceFinancialCorrection;
+use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Services\CaptainReceivableRecoveryService;
 use App\Services\InvoiceCollectionService;
 use App\Services\InvoiceService;
+use App\Services\InvoiceSnapshotService;
 use App\Services\MixedCustomerCreditService;
 use App\Services\OrderFinancialSourceSnapshotService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class InvoiceController extends Controller
 {
+    public function preview(Request $request, Order $order, InvoiceSnapshotService $snapshots): View
+    {
+        Gate::authorize('invoices.view');
+        abort_unless(Order::query()->accessibleTo($request->user())->whereKey($order)->exists(), 403);
+
+        $invoice = DB::transaction(function () use ($order, $snapshots): Invoice {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($problem = app(InvoiceService::class)->mutationProblem($order)) {
+                throw ValidationException::withMessages(['invoice' => $problem]);
+            }
+            // Issued documents must always be read from their historical snapshot.
+            abort_if($order->invoices()->whereNotNull('issued_at')->exists(), 409);
+            $snapshot = $snapshots->build($order);
+            $invoice = new Invoice([
+                'invoice_number' => __('financial.ui.pre_delivery_preview'),
+                'status' => InvoiceStatus::Draft,
+                'order_number_snapshot' => $order->order_number,
+                'customer_name_snapshot' => $order->customer_name_snapshot,
+                'customer_phone_snapshot' => $order->customer_phone_snapshot,
+                'address_snapshot' => collect([$order->address_line_1_snapshot, $order->address_line_2_snapshot, $order->landmark_snapshot])->filter()->implode(', '),
+                'area_snapshot' => $order->area_path_snapshot ?: $order->area_name_snapshot,
+                'items_subtotal' => $snapshot['items_subtotal'],
+                'delivery_total' => $snapshot['delivery_total'],
+                'grand_total' => $snapshot['grand_total'],
+            ]);
+            $invoice->setRelation('order', $order);
+            $invoice->setRelation('currency', $snapshot['currency']);
+            $invoice->setRelation('items', collect($snapshot['lines'])->map(fn (array $line) => new InvoiceItem($line)));
+
+            return $invoice;
+        });
+
+        return view('invoices.print', ['invoice' => $invoice, 'preview' => true]);
+    }
+
     public function index(Request $request): View
     {
         Gate::authorize('invoices.view');

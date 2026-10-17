@@ -1,4 +1,5 @@
 <section class="financial-ui space-y-4 rounded bg-white p-5 shadow">
+    @include('orders._invoice-preview-link')
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h3 class="font-semibold">{{ __('financial.ui.customer_invoice') }}</h3><p class="text-sm">{{ __('orders.ui_invoice_payment_label') }} {{ $order->currentInvoice && app(\App\Services\InvoiceCollectionService::class)->availability(auth()->user(), $order->currentInvoice)['payment_satisfied'] ? __('financial.ui.yes') : __('financial.ui.no') }}</p></div>
         @can('invoices.create')

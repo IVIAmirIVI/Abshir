@@ -13,6 +13,7 @@
         </div>
     </section>
     <p wire:loading role="status" class="text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
+    @include('orders._invoice-preview-link')
     @if($action = $workflow['nextAction'])
     <section id="workflow-next-action" class="workflow-next-action" aria-labelledby="workflow-next-action-title" data-workflow-next-action="{{ $action['kind'] }}">
         <div class="workflow-next-action-copy">
