@@ -7,3 +7,4 @@ import './dashboard-charts';
 
 import './management-datetime';
 import './captain-payout';
+import './wizard-reload-guard';

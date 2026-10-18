@@ -358,6 +358,8 @@ trait CreatesOrderWizard
             'origin_area_id' => $shop ? null : $origin->id, 'business_classification' => $classification,
             'label' => $shop?->name ?? $this->shopName, 'area_label' => $shop?->area->name ?? $origin->name, 'items' => [],
         ];
+        // Seed UUID-keyed inputs before wire:model sees them as an empty JS array.
+        $this->addonInputs[$key] = ['source_key' => '', 'reason' => ''];
         $this->editGroup($key);
         $this->reset('shopId', 'shopSearch', 'shopName', 'shopPhone', 'shopAddress', 'businessClassification');
         $this->resetValidation('groups');
@@ -481,6 +483,9 @@ trait CreatesOrderWizard
             'item_type' => $this->itemType, 'product_id' => $product?->id, 'item_name' => $product ? null : $this->itemName,
             'unit_id' => $unit->id, 'quantity' => $this->quantity, 'label' => $product?->name ?? $this->itemName, 'unit_label' => $unit->name,
         ];
+        if ($product?->is_special) {
+            $this->specialDeliveryAssignments[$this->activeGroup.'_'.array_key_last($this->groups[$this->activeGroup]['items'])] = [];
+        }
         $this->reset('productId', 'productSearch', 'itemName');
         $this->quantity = '1';
         unset($this->itemDrafts[$this->activeGroup], $this->productMatches);

@@ -421,7 +421,9 @@ class CreateOrder extends Component
                         ]));
                         $savedItems[$groupKey.'_'.$itemIndex] = $saved;
                         if ($saved->special_delivery_policy_id !== null) {
-                            $saved->forceFill(['special_delivery_assignments' => $this->specialDeliveryAssignments[$groupKey.'_'.$itemIndex] ?? []])->save();
+                            // NULL means automatic single-captain attribution; JSON [] is not an assignment map.
+                            $assignments = $this->specialDeliveryAssignments[$groupKey.'_'.$itemIndex] ?? [];
+                            $saved->forceFill(['special_delivery_assignments' => $assignments === [] ? null : $assignments])->save();
                         }
                     }
                 }

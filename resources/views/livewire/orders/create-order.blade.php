@@ -1,10 +1,26 @@
-<form wire:submit="submitWizard" data-order-create-wizard class="mary-surface order-ux min-w-0 space-y-6 break-words" data-theme="abshir" novalidate>
+<form wire:submit="submitWizard" data-order-create-wizard
+    x-data="{
+        pendingEditorActions: 0,
+        reloadPaused: false,
+        stopWatchingEditor: null,
+        init() {
+            this.stopWatchingEditor = this.$wire.$intercept(({ action, onFinish }) => {
+                if (!['addDraftShop', 'editGroup', 'removeDraftShop', 'addDraftItem', 'selectProduct', 'selectSoleProduct'].includes(action.name)) return;
+                this.pendingEditorActions++;
+                onFinish(() => this.pendingEditorActions--);
+            });
+        },
+        destroy() { this.stopWatchingEditor?.(); }
+    }"
+    x-on:abshir-wizard-reload-paused.window="reloadPaused = true"
+    class="mary-surface order-ux min-w-0 space-y-6 break-words" data-theme="abshir" novalidate>
     <header class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-xs font-semibold text-brand-primary">{{ __('order_design.draft') }}</p><h2 class="mt-1 text-2xl font-bold">{{ __('orders.ui_create') }}</h2><p class="mt-2 text-sm leading-6 text-gray-600">{{ __('order_design.draft_help') }}</p></div><x-orders.indicator>{{ __('order_design.step', ['number' => $step, 'total' => 4]) }}</x-orders.indicator></header>
     <nav aria-label="{{ __('orders.wizard.steps_label') }}" class="grid grid-cols-2 gap-2 sm:grid-cols-4" data-order-stepper>
         @foreach(['customer', 'shops', 'delivery', 'review'] as $index => $label)
             <button type="button" wire:click="goToStep({{ $index + 1 }})" aria-current="{{ $step === $index + 1 ? 'step' : 'false' }}" @class(['min-w-0 rounded-lg border p-3 text-start text-sm font-semibold', 'border-brand-primary bg-brand-primary text-white' => $step === $index + 1, 'border-gray-200 bg-white text-gray-600' => $step !== $index + 1])><x-orders.step-label :number="$index + 1" :title="__('orders.wizard.steps.'.$label)" :current="$step === $index + 1" /></button>
         @endforeach
     </nav>
+    <p x-cloak x-show="reloadPaused" role="status" data-wizard-reload-paused class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{{ __('orders.wizard.reload_paused') }}</p>
     <p wire:loading.class.remove="invisible" role="status" class="invisible min-h-5 text-sm font-medium text-brand-primary">{{ __('order_design.working') }}</p>
     @if($this->selectedCustomer)<aside class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-stone-200 bg-white p-4 text-sm" data-wizard-selection-summary><span class="text-xs text-gray-500">{{ __('order_design.selected') }}</span><strong>{{ $this->selectedCustomer->name }}</strong><x-ltr>{{ $this->phones->firstWhere('id', $customerPhoneId)?->phone }}</x-ltr><span class="min-w-0 break-words">{{ $this->addresses->firstWhere('id', $customerAddressId)?->address_line_1 }}</span>@foreach($groups as $selectedGroup)<x-orders.indicator>{{ $selectedGroup['label'] }}</x-orders.indicator>@endforeach</aside>@endif
     <x-input-error :messages="$step === 2 ? collect($errors->messages())->except('groups')->flatten()->all() : $errors->all()" role="alert" />

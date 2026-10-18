@@ -42,7 +42,7 @@
             @if(!$group['items'])<p class="mt-3 text-sm text-amber-700">{{ __('orders.wizard.empty_items') }}</p>@endif
             @if(!in_array($key, $this->eligibleGroupKeys, true))<p role="alert" class="mt-2 text-sm text-amber-800">{{ __('domain.the_shop_is_outside_the_order_branch') }}</p>@endif
             @if($activeGroup === $key && in_array($key, $this->eligibleGroupKeys, true))
-                <div class="mt-4 grid gap-3 rounded-lg bg-stone-50 p-3 sm:grid-cols-2">
+                <fieldset wire:key="draft-item-editor-{{ $key }}" x-bind:disabled="pendingEditorActions > 0" class="mt-4 grid min-w-0 gap-3 rounded-lg bg-stone-50 p-3 sm:grid-cols-2">
                     <label>{{ __('orders.ui_item_type') }}<select aria-invalid="{{ $errors->has('itemType') ? 'true' : 'false' }}" wire:model.live="itemType" class="mt-1 w-full rounded-lg border-gray-300"><option value="CATALOG_ITEM">{{ __('orders.ui_catalog_item') }}</option><option value="ONE_TIME_ITEM">{{ __('orders.ui_one_item') }}</option></select></label>
                     @if($itemType === 'CATALOG_ITEM')
                         @if(\Illuminate\Support\Facades\Schema::hasTable('product_delivery_policies'))<label class="flex items-center gap-2"><input type="checkbox" wire:model.live="specialProductsOnly">{{ __('special.title') }}</label>@endif
@@ -54,7 +54,7 @@
                     <label>{{ __('common.terms.unit') }}<select aria-invalid="{{ $errors->has('unitId') ? 'true' : 'false' }}" wire:model="unitId" class="mt-1 w-full rounded-lg border-gray-300"><option value="">{{ __('orders.wizard.choose') }}</option>@foreach($this->units as $unit)<option value="{{ $unit->id }}">{{ $unit->name }}</option>@endforeach</select></label>
                     <label>{{ __('orders.ui_quantity') }}<input aria-invalid="{{ $errors->has('quantity') ? 'true' : 'false' }}" wire:model="quantity" type="text" inputmode="decimal" dir="ltr" class="mt-1 w-full rounded-lg border-gray-300"></label>
                     <button type="button" wire:click="addDraftItem" class="rounded-lg border border-brand-primary px-4 py-2 text-sm font-semibold text-brand-primary sm:col-span-2">{{ __('orders.wizard.add_item') }}</button>
-                </div>
+                </fieldset>
             @endif
         </article>
     @endforeach

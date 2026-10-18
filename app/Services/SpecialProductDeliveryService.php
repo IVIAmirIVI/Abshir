@@ -56,7 +56,9 @@ class SpecialProductDeliveryService
                 throw ValidationException::withMessages(['special_delivery' => __('special.assign_portions')]);
             }
             foreach ($sources as $source) {
-                OrderItem::findOrFail($source['item_id'])->forceFill(['special_delivery_assignments' => $assignments[$source['key']] ?? []])->save();
+                // Keep an absent assignment map SQL NULL, as required by the allocation guard.
+                $portions = $assignments[$source['key']] ?? [];
+                OrderItem::findOrFail($source['item_id'])->forceFill(['special_delivery_assignments' => $portions === [] ? null : $portions])->save();
             }
             $this->orderQuote($order, $order->branch->defaultCurrency,
                 $order->captainAssignments()->whereNull('removed_at')->pluck('captain_id')->all());

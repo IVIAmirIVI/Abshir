@@ -28,21 +28,50 @@ use App\Services\DeliveryPricingRuleService;
 use App\Services\DeliveryPricingSettings;
 use App\Services\OrderDeliveryPricingService;
 use App\Services\OrderItemService;
+use App\Services\ProductService;
 use Database\Seeders\AuthorizationSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Ramsey\Uuid\Uuid;
 use Tests\TestCase;
 
 class CreateOrderWizardTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_leading_zero_shop_keys_emit_object_maps_for_nested_special_inputs(): void
+    {
+        $c = $this->context();
+        $c['product'] = app(ProductService::class)->save($c['actor'], new Product, [
+            'name' => 'UAT special', 'default_unit_id' => $c['unit']->id, 'is_special' => true,
+            'special_policy' => ['currency_id' => $c['currency']->id, 'delivery_fee' => '250', 'allocation_mode' => 'FIXED', 'captain_fixed' => '150', 'company_fixed' => '100'],
+        ]);
+        Str::createUuidsUsing(fn () => Uuid::fromString('0a'.substr((string) Uuid::uuid4(), 2)));
+        try {
+            $component = $this->group($this->start($c)->call('nextStep'), $c)->assertHasNoErrors();
+            $key = array_key_first($component->get('groups'));
+            $this->assertStringStartsWith('0', $key);
+            $inputs = json_decode(json_encode($component->get('addonInputs'), JSON_THROW_ON_ERROR));
+            $portions = json_decode(json_encode($component->get('specialDeliveryAssignments'), JSON_THROW_ON_ERROR));
+            $this->assertInstanceOf(\stdClass::class, $inputs);
+            $this->assertSame('', $inputs->{$key}->source_key);
+            $this->assertSame('', $inputs->{$key}->reason);
+            $this->assertInstanceOf(\stdClass::class, $portions);
+            $this->assertSame([], $portions->{$key.'_0'});
+            $this->assertDatabaseCount('orders', 0);
+            $this->assertDatabaseCount('financial_transactions', 0);
+        } finally {
+            Str::createUuidsNormally();
+        }
+    }
 
     private function context(): array
     {
@@ -591,9 +620,13 @@ class CreateOrderWizardTest extends TestCase
     public function test_atomic_final_creation_redirect_and_duplicate_submit(): void
     {
         $c = $this->context();
-        $component = $this->ready($c)->set('notes', 'ملاحظات')->call('submit')->assertHasNoErrors();
+        $component = $this->ready($c)->set('notes', 'ملاحظات');
+        $retry = clone $component;
+        $component->call('submit')->assertHasNoErrors();
         $order = Order::sole();
-        $component->assertRedirect(route('orders.workflow', $order))->call('submit')->assertRedirect(route('orders.workflow', $order));
+        $component->assertSet('createdOrderId', $order->id)->assertRedirect(route('orders.workflow', $order))
+            ->call('submit')->assertRedirect(route('orders.workflow', $order));
+        $retry->call('submit')->assertSet('createdOrderId', $order->id)->assertRedirect(route('orders.workflow', $order));
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('order_items', 1);
         $this->assertSame('ملاحظات', $order->notes);
@@ -610,7 +643,8 @@ class CreateOrderWizardTest extends TestCase
         $mock = Mockery::mock(OrderItemService::class);
         $mock->shouldReceive('add')->once()->andThrow(ValidationException::withMessages(['quantity' => 'رفض الخدمة']));
         $this->app->instance(OrderItemService::class, $mock);
-        $component->call('submit')->assertHasErrors('quantity')->assertSet('step', 2)->assertSet('groups', $groups);
+        $component->call('submit')->assertHasErrors('quantity')->assertNoRedirect()->assertSet('createdOrderId', null)
+            ->assertSet('step', 2)->assertSet('groups', $groups);
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('order_shops', 0);
         $this->assertDatabaseCount('order_items', 0);

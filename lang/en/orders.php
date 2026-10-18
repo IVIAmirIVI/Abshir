@@ -17,6 +17,7 @@ return [
         'add_product_required' => 'Add at least one product to this shop before continuing.',
         'review_required' => 'Review the order before creating it.',
         'submitting' => 'The order is being created. Please wait.',
+        'reload_paused' => 'Application files changed while you were working. Automatic reload was paused to protect your order data; finish the order before refreshing the page.',
         'missing_route' => 'An active delivery rule is required for every shop route. Check pricing settings and recalculate.',
         'no_results' => 'No results',
         'searching' => 'Searching…',
