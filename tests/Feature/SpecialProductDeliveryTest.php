@@ -246,6 +246,88 @@ class SpecialProductDeliveryTest extends TestCase
         $this->assertDatabaseCount('orders', 2);
     }
 
+    #[DataProvider('wholeSpecialQuantities')]
+    public function test_single_captain_wizard_persists_whole_special_quantities_and_can_retry_without_duplicates(string $quantity): void
+    {
+        $c = $this->context();
+        $this->actingAs($c['actor']);
+        $wizard = Livewire::test(CreateOrder::class)->set('branchId', (string) $c['branch']->id)
+            ->set('customerId', (string) $c['order']->customer_id)->set('customerPhoneId', (string) $c['order']->customer_phone_id)
+            ->set('customerAddressId', (string) $c['order']->customer_address_id)->set('source', 'MANUAL')
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 2)
+            ->set('shopType', 'ONE_TIME')->set('shopName', 'UAT cylinder regression')
+            ->set('originAreaId', (string) $c['shop']->origin_area_id)->set('businessClassification', 'SHOP')
+            ->call('addDraftShop')->assertHasNoErrors()
+            ->call('selectProduct', $c['product']->id)->set('quantity', $quantity)->call('addDraftItem')->assertHasNoErrors()
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 3)
+            ->set('wizardCaptainIds', [(string) $c['captains'][0]->id])
+            ->set('wizardCollectorId', (string) $c['captains'][0]->id)
+            ->call('nextStep')->assertHasNoErrors()->assertSet('step', 4);
+        $key = array_key_first($wizard->get('groups')).'_0';
+        $wizard->assertSet('specialDeliveryAssignments.'.$key, [])
+            ->call('submit')->assertHasNoErrors();
+        $order = Order::findOrFail($wizard->get('createdOrderId'));
+        $item = $order->shops()->sole()->items()->sole();
+        $row = $order->currentDeliveryPricing->allocations()->sole();
+        $this->assertNull($item->getRawOriginal('special_delivery_assignments'));
+        $this->assertSame((string) BigDecimal::of($quantity)->toScale(4), $item->current_quantity);
+        $this->assertSame((string) BigDecimal::of('250')->multipliedBy($quantity)->toScale(4), $row->customer_delivery_amount_allocated);
+        $this->assertSame((string) BigDecimal::of('150')->multipliedBy($quantity)->toScale(4), $row->captain_entitlement);
+        $this->assertSame((string) BigDecimal::of('100')->multipliedBy($quantity)->toScale(4), $row->company_collectible);
+        $this->assertSame((string) BigDecimal::of($quantity)->toScale(0), $row->special_delivery_components['parts'][0]['units']);
+        app(SpecialProductDeliveryService::class)->assertCurrentPricing($order, $order->currentDeliveryPricing);
+        $before = $order->currentDeliveryPricing->allocations()->count();
+        $wizard->call('submit')->assertHasNoErrors()->assertSet('createdOrderId', $order->id);
+        $this->assertSame($before, $order->currentDeliveryPricing->allocations()->count());
+        $this->assertDatabaseCount('orders', 2);
+        $this->assertDatabaseCount('financial_transactions', 0);
+        $this->assertDatabaseCount('financial_entries', 0);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+
+    public static function wholeSpecialQuantities(): array
+    {
+        return [['1'], ['3'], ['1.0000']];
+    }
+
+    public function test_empty_single_captain_assignment_can_be_repriced_without_a_json_array(): void
+    {
+        $c = $this->context();
+        app(SpecialProductDeliveryService::class)->assign($c['actor'], $c['order'], [$c['specialItem']->id => []]);
+        $pricing = app(OrderDeliveryPricingService::class)->price($c['actor'], $c['order'], $c['shop']->originArea);
+        $this->assertNull($c['specialItem']->fresh()->getRawOriginal('special_delivery_assignments'));
+        $this->assertSame('250.0000', $pricing->customer_delivery_total);
+        $this->assertSame('150.0000', $pricing->allocations()->sole()->captain_entitlement);
+        foreach ([false, 0, ''] as $invalidMap) {
+            $this->assertThrows(fn () => app(SpecialProductDeliveryService::class)->assign($c['actor'], $c['order'], [$c['specialItem']->id => $invalidMap]), ValidationException::class);
+            $this->assertNull($c['specialItem']->fresh()->getRawOriginal('special_delivery_assignments'));
+        }
+    }
+
+    public function test_postgresql_still_rejects_fractional_sources_array_assignments_and_incorrect_money(): void
+    {
+        $c = $this->context();
+        $service = app(SpecialProductDeliveryService::class);
+        $sources = $service->orderSources($c['order']);
+        $sources[0]['quantity'] = '1.5';
+        $this->assertThrows(fn () => $service->quote($sources, $c['currency'], [$c['captains'][0]->id]), ValidationException::class);
+        $row = $c['order']->fresh()->currentDeliveryPricing->allocations()->sole();
+        $data = [...$row->getAttributes(), 'special_delivery_components' => $row->special_delivery_components];
+        foreach ([['current_quantity' => '1.5'], ['special_delivery_assignments' => '[]']] as $invalidSource) {
+            $this->sqlRejects(function () use ($c, $data, $invalidSource): void {
+                DB::table('order_items')->where('id', $c['specialItem']->id)->update($invalidSource);
+                DB::select('SELECT assert_special_delivery_allocation(?::jsonb)', [json_encode($data, JSON_THROW_ON_ERROR)]);
+            }, '23514');
+        }
+        foreach (['captain_entitlement', 'company_collectible'] as $field) {
+            $forged = [...$data, $field => '149.0000'];
+            $this->sqlRejects(fn () => DB::select('SELECT assert_special_delivery_allocation(?::jsonb)', [json_encode($forged, JSON_THROW_ON_ERROR)]), '23514');
+        }
+        $this->assertSame('1.0000', $c['specialItem']->fresh()->current_quantity);
+        $this->assertNull($c['specialItem']->fresh()->special_delivery_assignments);
+        $service->assertCurrentPricing($c['order'], $c['order']->fresh()->currentDeliveryPricing);
+    }
+
     public function test_multiple_special_products_aggregate_source_fees_without_adding_an_ordinary_route_fee(): void
     {
         $c = $this->context();
